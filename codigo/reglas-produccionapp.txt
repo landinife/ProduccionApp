@@ -1,0 +1,60 @@
+// ============================================================================
+// REGLAS DE SEGURIDAD DE PRODUCCIÓNAPP (Firestore, proyecto tpfapps-5f226)
+//
+// Cómo agregarlas SIN romper ViajesApp ni StockApp:
+//  1. Firebase → Firestore Database → pestaña Reglas (Rules).
+//  2. Buscá la línea   match /databases/{database}/documents {
+//  3. Pegá TODO el bloque de abajo justo ANTES de la llave } que cierra ese match
+//     (dejá intacto lo que ya está de viajesapp_ y de StockApp).
+//  4. Tocá Publicar (Publish).
+// ============================================================================
+
+    // ================= ProducciónApp =================
+    function prodEmail() { return request.auth.token.email.lower(); }
+    function prodDueno() { return request.auth != null && prodEmail() == 'flandinitpf@gmail.com'; }
+    function prodRuta() { return /databases/$(database)/documents/produccion_usuarios/$(prodEmail()); }
+    function prodMiembro() { return request.auth != null && (prodDueno() || exists(prodRuta())); }
+    function prodUsuario() { return get(prodRuta()).data; }
+    function prodAdmin() { return prodDueno() || (prodMiembro() && prodUsuario().get('admin', false) == true); }
+    function prodRep() { return prodAdmin() || (prodMiembro() && prodUsuario().get('rep', 'ver') == 'editar'); }
+    function prodProy() { return prodAdmin() || (prodMiembro() && prodUsuario().get('proy', 'ver') == 'editar'); }
+    function prodSolo(campos) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(campos); }
+    function prodCambia(campos) { return request.resource.data.diff(resource.data).affectedKeys().hasAny(campos); }
+
+    // Usuarios con acceso: los ven todos los miembros, los cambia solo un administrador
+    match /produccion_usuarios/{email} {
+      allow read: if prodMiembro();
+      allow write: if prodAdmin();
+    }
+
+    // Configuración general: horarios, operarios, feriados... (administrador)
+    // Horas extra y ausencias: quien edita Repuestos y Producción. Datos de proyectos: quien edita Proyectos.
+    match /produccion_config/{id} {
+      allow read: if prodMiembro();
+      allow create, delete: if prodAdmin();
+      allow update: if prodAdmin()
+        || (prodRep() && prodSolo(['extras', 'extraModo', 'ausencias']))
+        || (prodProy() && prodSolo(['proyectos']));
+    }
+
+    // Tareas. Repuestos: quien edita Repuestos y Producción.
+    // Proyectos: quien edita Proyectos; quien edita Producción puede programarlas, iniciarlas, pausarlas y finalizarlas,
+    // pero no cambiar la pieza, cantidad, duración ni el árbol.
+    match /produccion_tareas/{id} {
+      allow read: if prodMiembro();
+      allow create: if (request.resource.data.tipo == 'rep' && prodRep())
+        || (request.resource.data.tipo == 'proy' && (prodProy() || (prodRep() && request.resource.data.get('parte', false) == true)));
+      allow update: if (resource.data.tipo == 'rep' && prodRep())
+        || (resource.data.tipo == 'proy' && (prodProy() || (prodRep() && (resource.data.get('parte', false) == true
+             || !prodCambia(['nombre', 'cant', 'prioridad', 'operacionId', 'hh', 'preds', 'parentId', 'entrega', 'proyId', 'tipo'])))));
+      allow delete: if (resource.data.tipo == 'rep' && prodRep()) || (resource.data.tipo == 'proy' && prodProy());
+    }
+
+    // Registro de cambios: cada uno escribe solo los suyos
+    match /produccion_log/{id} {
+      allow read: if prodMiembro();
+      allow create: if prodMiembro() && request.resource.data.email == prodEmail();
+      allow update: if prodMiembro() && resource.data.email == prodEmail() && request.resource.data.email == prodEmail();
+      allow delete: if prodAdmin();
+    }
+    // ================= fin ProducciónApp =================
