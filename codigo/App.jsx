@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback, createContext, useContext } from 'react';
+import { createPortal } from 'react-dom';
 import * as E from './engine.js';
 const { fD, fDT, fDia, fH, fN } = E;
 
@@ -24,6 +25,8 @@ function Chip({ t, small }) {
   const { S, V } = useApp(); const c = E.chipOf(S, V, t);
   return <span className={'chip' + (small ? ' sm' : '')} style={{ '--c': c.color }}>{c.txt}</span>;
 }
+const estTxt = e => e === 'terminada' ? 'finalizada' : e;
+const aviso0 = r => `Finalizada, pero adentro ${r.sin0 === 1 ? 'queda 1 pieza' : `quedan ${r.sin0} piezas`} sin tiempo cargado (0 h) y sin finalizar`;
 const Pri = ({ p }) => <span className={'pri pri-' + p}>{p}</span>;
 function etiqueta(V, t) { const p = t.parentId && V.byId[t.parentId]; return p && !p.partes ? `${t.nombre} · ${p.nombre}` : t.nombre; }
 function Modal({ title, onClose, children, wide, foot }) {
@@ -38,9 +41,52 @@ function Modal({ title, onClose, children, wide, foot }) {
 }
 function Bar({ v, color }) { return <span className="pbar"><i style={{ width: Math.min(100, Math.max(0, v)) + '%', background: color || 'var(--accent)' }} /></span>; }
 const fHM = h => { const tm = Math.round((Number(h) || 0) * 60); return tm < 60 ? `${tm} min` : `${Math.floor(tm / 60)} h${tm % 60 ? ` ${tm % 60} min` : ''}`; };
-function HM({ value, onChange }) { const tm = Math.round((Number(value) || 0) * 60), h = Math.floor(tm / 60), m = tm % 60;
+function HM({ value, onChange, cant, titulo }) { const tm = Math.round((Number(value) || 0) * 60), h = Math.floor(tm / 60), m = tm % 60;
   return <span className="hm"><input type="number" min="0" value={h} aria-label="Horas" onChange={e => onChange(Math.max(0, Math.floor(Number(e.target.value) || 0)) + m / 60)} /><small>h</small>
-    <input type="number" min="0" max="59" value={m} aria-label="Minutos" onChange={e => onChange(h + Math.min(59, Math.max(0, Math.round(Number(e.target.value) || 0))) / 60)} /><small>min</small></span>; }
+    <input type="number" min="0" max="59" value={m} aria-label="Minutos" onChange={e => onChange(h + Math.min(59, Math.max(0, Math.round(Number(e.target.value) || 0))) / 60)} /><small>min</small><CalcBtn cant={cant} titulo={titulo} onUse={onChange} /></span>; }
+/* ===== Calculadora para los campos de horas ===== */
+// Evalúa + − × ÷ y paréntesis respetando el orden de las operaciones (sin eval)
+function calcular(ex) {
+  const s = String(ex).replace(/,/g, '.').replace(/×|x/gi, '*').replace(/÷/g, '/').replace(/−/g, '-').replace(/\s/g, ''); let i = 0;
+  const num = () => { const m = /^\d*\.?\d+|^\d+\./.exec(s.slice(i)); if (!m) throw 0; i += m[0].length; return Number(m[0]); };
+  const fac = () => { if (s[i] === '-') { i++; return -fac(); } if (s[i] === '(') { i++; const v = sum(); if (s[i] === ')') i++; return v; } return num(); };
+  const prod = () => { let v = fac(); while (s[i] === '*' || s[i] === '/') { const o = s[i++]; if (i >= s.length) break; const w = fac(); v = o === '*' ? v * w : v / w; } return v; };
+  const sum = () => { let v = prod(); while (s[i] === '+' || s[i] === '-') { const o = s[i++]; if (i >= s.length) break; const w = prod(); v = o === '+' ? v + w : v - w; } return v; };
+  if (!s) return null; try { const v = sum(); return isFinite(v) ? v : null; } catch (e) { return null; }
+}
+let calcUnidad = (() => { try { return localStorage.getItem('calc-unidad') || 'h'; } catch (e) { return 'h'; } })();
+function Calculadora({ cant, titulo, onUse, onClose }) {
+  const [ex, setEx] = useState(''); const [un, setUn] = useState(calcUnidad); const [hist, setHist] = useState(null);
+  const v = calcular(ex); const horas = v === null ? null : Math.max(0, un === 'min' ? v / 60 : v);
+  const cambiarU = u => { setUn(u); calcUnidad = u; try { localStorage.setItem('calc-unidad', u); } catch (e) { } };
+  const tecla = k => setEx(e => { if (k === 'C') return ''; if (k === '⌫') return e.slice(0, -1); if (k === '=') { const r = calcular(e); if (r === null) return e; setHist(e); return String(Math.round(r * 10000) / 10000).replace('.', ','); }
+    const op = '+−×÷'.includes(k); if (op && !e && k !== '−') return e; if (op && '+−×÷'.includes(e.slice(-1))) return e.slice(0, -1) + k; if (k === ',' && e.split(/[+−×÷()]/).pop().includes(',')) return e; return e + k; });
+  const usar = () => { if (horas === null) return; onUse(Math.round(horas * 10000) / 10000); onClose(); };
+  const ref = useRef({}); ref.current = { tecla, usar, onClose };
+  useEffect(() => { const k = e => { const r = ref.current; let t = null;
+      if (/^[0-9]$/.test(e.key)) t = e.key; else if (e.key === ',' || e.key === '.') t = ','; else if (e.key === '+') t = '+'; else if (e.key === '-') t = '−'; else if (e.key === '*' || e.key === 'x') t = '×'; else if (e.key === '/') t = '÷';
+      else if (e.key === '(' || e.key === ')') t = e.key; else if (e.key === 'Backspace') t = '⌫'; else if (e.key === 'Delete') t = 'C'; else if (e.key === '=') t = '=';
+      else if (e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); r.usar(); return; } else if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); r.onClose(); return; }
+      if (t !== null && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); e.stopImmediatePropagation(); r.tecla(t); } };
+    window.addEventListener('keydown', k, true); return () => window.removeEventListener('keydown', k, true); }, []);
+  const teclas = ['C', '(', ')', '÷', '7', '8', '9', '×', '4', '5', '6', '−', '1', '2', '3', '+', '0', ',', '⌫', '='];
+  return createPortal(<div className="calc-ovl" onMouseDown={e => { e.stopPropagation(); if (e.target === e.currentTarget) onClose(); }} onClick={e => e.stopPropagation()}>
+    <div className="calc" role="dialog" aria-label="Calculadora">
+      <div className="calc-h"><b>🧮 Calculadora</b>{titulo && <span className="mut">{titulo}</span>}<button className="btn ghost sm" onClick={onClose} aria-label="Cerrar">✕</button></div>
+      <div className="calc-d"><small className="mut">{hist ? hist + ' =' : ' '}</small><div className="calc-ex">{ex || '0'}</div>
+        <small className={horas === null && ex ? 'c-bad' : 'mut'}>{horas === null ? (ex ? 'Cuenta incompleta' : 'Escribí la cuenta, por ejemplo 0,75 × ' + (cant || 12)) : '= ' + fHM(horas) + (un === 'min' ? ` (${fN(Math.round(horas * 100) / 100)} h)` : '')}</small></div>
+      <div className="calc-u"><span className="mut">La cuenta da</span><div className="seg"><button className={un === 'h' ? 'on' : ''} onClick={() => cambiarU('h')}>horas</button><button className={un === 'min' ? 'on' : ''} onClick={() => cambiarU('min')}>minutos</button></div></div>
+      {cant > 1 && <button className="btn sm calc-cant" onClick={() => setEx(e => { const b = e && !'+−×÷('.includes(e.slice(-1)) ? e : e.replace(/[+−×÷]$/, ''); return b ? (/[+−]/.test(b) ? '(' + b + ')' : b) + '×' + cant : e; })} disabled={!ex}>× cantidad de la pieza ({cant})</button>}
+      <div className="calc-k">{teclas.map(k => <button key={k} className={'ck' + ('÷×−+'.includes(k) ? ' op' : k === '=' ? ' eq' : k === 'C' || k === '⌫' ? ' fn' : '')} onClick={() => tecla(k)}>{k}</button>)}</div>
+      <div className="calc-f"><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={horas === null} onClick={usar}>Usar {horas === null ? '' : fHM(horas)}</button></div>
+      <small className="mut calc-tip">Podés usar el teclado: números, + − * /, Enter para usar el resultado, Esc para cerrar.</small>
+    </div></div>, document.body);
+}
+function CalcBtn({ onUse, cant, titulo, className = '' }) {
+  const [ab, setAb] = useState(false);
+  return <><button type="button" className={'calcb ' + className} title="Calculadora (por ejemplo tiempo unitario × cantidad)" aria-label="Abrir calculadora" onClick={e => { e.preventDefault(); e.stopPropagation(); setAb(true); }}>🧮</button>
+    {ab && <Calculadora cant={cant} titulo={titulo} onUse={onUse} onClose={() => setAb(false)} />}</>;
+}
 function Desvio({ real, plan }) { const d = real - plan; if (!(plan > 0)) return null; return <span className={Math.abs(d) < 0.02 ? 'mut' : d > 0 ? 'c-bad' : 'c-ok'}>{Math.abs(d) < 0.02 ? 'igual a lo proyectado' : `${d > 0 ? '+' : '−'}${fHM(Math.abs(d))} (${d > 0 ? '+' : '−'}${Math.round(Math.abs(d) / plan * 100)}%)`}</span>; }
 // Qué puede cambiar cada usuario. En la etapa 2 las mismas reglas van también en Firebase.
 function permiso(p, n, pm) {
@@ -350,7 +396,7 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden }) {
         else if (que === 'operacion') s2 = E.patchTask(s2, id, { operacionId: val, opAuto: false });
         else if (que === 'turno') s2 = E.patchTask(s2, id, { turno: val }, true); });
       return s2; });
-    ui.toast(n ? `Cambiadas ${n} ${n === 1 ? 'tarea' : 'tareas'}` : 'Nada para cambiar: las seleccionadas están terminadas'); };
+    ui.toast(n ? `Cambiadas ${n} ${n === 1 ? 'tarea' : 'tareas'}` : 'Nada para cambiar: las seleccionadas están finalizadas'); };
   const borrarSel = () => { const ids = vivos; up(s => ids.reduce((a, id) => a.tareas.some(t => t.id === id) ? E.delTask(a, id) : a, s)); setSel(new Set()); ui.toast(`Borradas ${ids.length}. Podés deshacerlo arriba.`); };
   const set = (t, patch, mover) => up(s => E.patchTask(s, t.id, patch, !!mover));
   const mover = (t, dir) => { const sib = orden(S.tareas.filter(x => x.parentId === t.parentId && x.tipo === t.tipo && x.proyId === t.proyId)); const i = sib.findIndex(x => x.id === t.id), j = i + dir;
@@ -375,7 +421,7 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden }) {
     e.preventDefault(); ir(k === 'ArrowLeft' ? td.previousElementSibling : td.nextElementSibling); };
   const marcas = (t, hasKids, r) => { const esp = !r.parent && espera(S, V, t); const late = !t.parentId && t.entrega && r.estado !== 'terminada' && r.fin && r.fin.slice(0, 10) > t.entrega; return <>
     {t.manual && r.estado !== 'terminada' && <button className="mk pin" title="Fecha fijada a mano: no se corre por etapas. Tocá para soltarla." onClick={() => set(t, { manual: false }, true)}>📌</button>}
-    {r.estado === 'terminada' && <span className="mk ok" title={t.finReal ? 'Terminada el ' + fDT(t.finReal) : 'Terminada'}>✓</span>}
+    {r.estado === 'terminada' && <span className={'mk ok' + (r.sin0 ? ' w0' : '')} title={r.sin0 ? aviso0(r) : t.finReal ? 'Finalizada el ' + fDT(t.finReal) : 'Finalizada'}>✓</span>}
     {late && <span className="mk bad" title={`Se pasa ${E.diffDays(t.entrega, r.fin.slice(0, 10))} días de la entrega del ${fD(t.entrega)}`}>+{E.diffDays(t.entrega, r.fin.slice(0, 10))}d</span>}
     {!late && !t.parentId && t.entrega && r.estado !== 'terminada' && <span className="mk" title={`Entrega comprometida: ${fD(t.entrega)}`}>{fD(t.entrega)}</span>}
     {t.empuje && <span className="mk warn" title={`Empujada: estaba para ${fDT(t.empuje)}. Dale el OK en Producción.`}>↦</span>}
@@ -388,15 +434,15 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden }) {
       case 'nombre': return <div className="tname" style={{ paddingLeft: depth * 14 }}>{hasKids ? <button className="tog" onClick={() => tog(t.id)} aria-label="Desplegar">{col.has(t.id) ? '▸' : '▾'}</button> : <span className="tog" />}<EdIn value={t.nombre} placeholder="(sin nombre)" onCommit={v => set(t, { nombre: v, ...(r.parent ? {} : E.autoCompletar(S, { ...t, nombre: v }, false)) })} /></div>;
       case 'cant': return <EdIn className="num" type="number" min="0" value={t.cant} onCommit={v => set(t, { cant: num(v) })} />;
       case 'prioridad': return <select className={'ci p-' + t.prioridad} value={t.prioridad} onChange={e => set(t, { prioridad: e.target.value })} aria-label="Prioridad"><option>alta</option><option>media</option><option>baja</option></select>;
-      case 'estado': return r.parent ? <span className={'est e-' + r.estado.replace(' ', '')}>{r.estado}</span> : <select className={'ci est e-' + t.estado.replace(' ', '')} value={t.estado} onChange={e => setEstado(t, e.target.value)} aria-label="Estado"><option>pendiente</option><option>en proceso</option><option>terminada</option></select>;
+      case 'estado': return r.parent ? <span className={'est e-' + r.estado.replace(' ', '') + (r.estado === 'terminada' && r.sin0 ? ' w0' : '')} title={r.estado === 'terminada' && r.sin0 ? aviso0(r) : undefined}>{estTxt(r.estado)}{r.estado === 'terminada' && r.sin0 ? ' ⚠' : ''}</span> : <select className={'ci est e-' + t.estado.replace(' ', '')} value={t.estado} onChange={e => setEstado(t, e.target.value)} aria-label="Estado"><option>pendiente</option><option>en proceso</option><option value="terminada">finalizada</option></select>;
       case 'operacion': return r.parent ? null : <select className={'ci' + (t.opAuto ? ' auto' : '')} title={t.opAuto ? 'Asignada automáticamente por el código o por las veces anteriores' : undefined} value={t.operacionId} onChange={e => set(t, { operacionId: e.target.value, opAuto: false })} aria-label="Operación"><option value="">—</option>{S.operaciones.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select>;
       case 'ops': return r.parent ? <span className="ro">{r.ops.map(o => opName(S, o)).join(', ')}</span> : <OpsCell t={t} />;
       case 'turno': return r.parent ? null : <select className="ci" value={t.turno} onChange={e => { const v = e.target.value; if ((E.llevado(S, t) > 0 || Number(t.avance) > 0) && t.estado !== 'terminada') { up(s => E.pasarTurno(s, t.id, v)); ui.toast(`Lo hecho quedó en ${t.turno === 'extra' ? 'horas extra' : 'turno normal'}; lo que falta sigue en ${v === 'extra' ? 'horas extra' : 'turno normal'}`); } else set(t, { turno: v }, true); }} aria-label="Turno"><option value="normal">Normal</option><option value="extra">Extra</option><option value="ambos">Normal + extra</option></select>;
-      case 'hh': return r.parent ? <span className="ro num">{fN(r.hh)}</span> : <div className="hhc"><EdIn className="num" type="number" min="0" step="0.5" value={t.hh} onCommit={v => set(t, { hh: num(v) }, true)} />{t.ops.length > 1 && <small title="Duración en calendario: horas-hombre dividido la cantidad de operarios">÷{t.ops.length} = {fN(r.durCal)}</small>}</div>;
+      case 'hh': return r.parent ? <span className="ro num">{fN(r.hh)}</span> : <div className="hhc"><EdIn className="num" type="number" min="0" step="0.5" value={t.hh} onCommit={v => set(t, { hh: num(v) }, true)} /><CalcBtn className="tcalc" cant={Number(t.cant) || 0} titulo={t.nombre + ' · duración'} onUse={v => set(t, { hh: Math.round(v * 100) / 100 }, true)} />{t.ops.length > 1 && <small title="Duración en calendario: horas-hombre dividido la cantidad de operarios">÷{t.ops.length} = {fN(r.durCal)}</small>}</div>;
       case 'inicio': return r.parent ? <span className="ro">{fDT(r.inicio)}</span> : <EdIn type="datetime-local" value={t.inicio || ''} onCommit={v => set(t, { inicio: v || null }, true)} />;
       case 'fin': return r.parent ? <span className="ro">{fDT(r.fin)}</span> : <EdIn type="datetime-local" value={r.fin || ''} disabled={!t.inicio} onCommit={v => setFin(t, v)} />;
-      case 'real': { if (r.parent) return <span className="ro num">{r.hhReal > 0 ? fN(r.hhReal) : '—'}</span>; const dif = r.hhReal > 0 ? r.hhReal - (r.estado === 'terminada' ? r.hh : r.hh * r.avance / 100) : 0; return <EdIn className={'num ' + (dif > 0.05 ? 'c-bad' : dif < -0.05 ? 'c-ok' : '')} type="number" min="0" step="0.5" value={t.hhReal || ''} placeholder="—" onCommit={v => set(t, { hhReal: num(v) })} />; }
-      case 'avance': return r.parent ? <span className="ro num">{Math.round(r.avance)}</span> : <EdIn className="num" type="number" min="0" max="100" step="5" value={Math.round(r.avance)} disabled={t.estado === 'terminada'} onCommit={v => { const a = Math.min(100, num(v)); if (a >= 100) { up(s => E.setEstado(s, t.id, 'terminada')); ui.toast('Terminada: pasó a la lista de terminadas'); return; } set(t, { avance: a, estado: a > 0 && t.estado === 'pendiente' ? 'en proceso' : t.estado }); }} />;
+      case 'real': { if (r.parent) return <span className="ro num">{r.hhReal > 0 ? fN(r.hhReal) : '—'}</span>; const dif = r.hhReal > 0 ? r.hhReal - (r.estado === 'terminada' ? r.hh : r.hh * r.avance / 100) : 0; return <div className="hhc"><EdIn className={'num ' + (dif > 0.05 ? 'c-bad' : dif < -0.05 ? 'c-ok' : '')} type="number" min="0" step="0.5" value={t.hhReal || ''} placeholder="—" onCommit={v => set(t, { hhReal: num(v) })} /><CalcBtn className="tcalc" cant={Number(t.cant) || 0} titulo={t.nombre + ' · horas reales'} onUse={v => set(t, { hhReal: Math.round(v * 100) / 100 })} /></div>; }
+      case 'avance': return r.parent ? <span className="ro num">{Math.round(r.avance)}</span> : <EdIn className="num" type="number" min="0" max="100" step="5" value={Math.round(r.avance)} disabled={t.estado === 'terminada'} onCommit={v => { const a = Math.min(100, num(v)); if (a >= 100) { up(s => E.setEstado(s, t.id, 'terminada')); ui.toast('Finalizada: pasó a la lista de finalizadas'); return; } set(t, { avance: a, estado: a > 0 && t.estado === 'pendiente' ? 'en proceso' : t.estado }); }} />;
       default: return <div className="acts">
         {orden && <><button title="Subir (orden manual)" aria-label="Subir" onClick={() => mover(t, -1)}>▲</button><button title="Bajar (orden manual)" aria-label="Bajar" onClick={() => mover(t, 1)}>▼</button></>}
         <button title="Editar todos los datos" aria-label="Editar" onClick={() => ui.modal({ k: 'task', id: t.id })}>✎</button>
@@ -433,19 +479,19 @@ function OrdChart({ ord, mes }) {
   const top = Math.max(4, Math.ceil(Math.max(...data.map(d => Math.max(d.c, d.t))) / 2) * 2), H = 150;
   const lab = k => `${E.MESES[Number(k.slice(5)) - 1]} ${k.slice(2, 4)}`;
   return <div className="chart">
-    <div className="sec-h"><h3>Órdenes cargadas y terminadas por mes</h3>
+    <div className="sec-h"><h3>Órdenes cargadas y finalizadas por mes</h3>
       <div className="row"><div className="seg">{[['', 'Todas'], ['OV', 'OV'], ['OC', 'OC']].map(([k, l]) => <button key={k} className={f === k ? 'on' : ''} onClick={() => setF(k)}>{l}</button>)}</div>
         <button className="btn sm" onClick={() => setTabla(!tabla)}>{tabla ? 'Ver gráfico' : 'Ver tabla'}</button></div></div>
-    <div className="lgd"><span><i style={{ background: 'var(--s1)' }} />Cargadas</span><span><i style={{ background: 'var(--s2)' }} />Terminadas</span></div>
-    {tabla ? <div className="scroll"><table className="tt"><thead><tr><th>Mes</th><th className="num">Cargadas</th><th className="num">Terminadas</th><th className="num">Diferencia</th></tr></thead>
+    <div className="lgd"><span><i style={{ background: 'var(--s1)' }} />Cargadas</span><span><i style={{ background: 'var(--s2)' }} />Finalizadas</span></div>
+    {tabla ? <div className="scroll"><table className="tt"><thead><tr><th>Mes</th><th className="num">Cargadas</th><th className="num">Finalizadas</th><th className="num">Diferencia</th></tr></thead>
       <tbody>{data.map(d => <tr key={d.k}><td>{lab(d.k)}</td><td className="num">{d.c}</td><td className="num">{d.t}</td><td className="num">{d.c - d.t > 0 ? '+' : ''}{d.c - d.t}</td></tr>)}</tbody></table></div>
       : <div className="bc"><div className="bc-y" style={{ height: H }}>{[top, top / 2, 0].map(v => <span key={v} style={{ bottom: v / top * H }}>{v}</span>)}</div>
         <div className="bc-main"><div className="bc-plot" style={{ height: H }}>
           {[top, top / 2].map(v => <i key={v} className="bc-grid" style={{ bottom: v / top * H }} />)}
-          {data.map(d => <div key={d.k} className={'bc-g' + (hov === d.k ? ' on' : '')} onMouseEnter={() => setHov(d.k)} onMouseLeave={() => setHov(null)} onFocus={() => setHov(d.k)} onBlur={() => setHov(null)} tabIndex="0" aria-label={`${lab(d.k)}: ${d.c} cargadas, ${d.t} terminadas`}>
+          {data.map(d => <div key={d.k} className={'bc-g' + (hov === d.k ? ' on' : '')} onMouseEnter={() => setHov(d.k)} onMouseLeave={() => setHov(null)} onFocus={() => setHov(d.k)} onBlur={() => setHov(null)} tabIndex="0" aria-label={`${lab(d.k)}: ${d.c} cargadas, ${d.t} finalizadas`}>
             <div className="bc-b" style={{ height: d.c / top * H, background: 'var(--s1)' }}><b>{d.c}</b></div>
             <div className="bc-b" style={{ height: d.t / top * H, background: 'var(--s2)' }}><b>{d.t}</b></div>
-            {hov === d.k && <div className="bc-tip"><b>{lab(d.k)}</b><span><i style={{ background: 'var(--s1)' }} />Cargadas <em>{d.c}</em></span><span><i style={{ background: 'var(--s2)' }} />Terminadas <em>{d.t}</em></span><span className="mut">{d.c - d.t > 0 ? `Quedaron ${d.c - d.t} sin cerrar` : d.c - d.t < 0 ? `Se cerraron ${d.t - d.c} más de las que entraron` : 'Entraron y salieron las mismas'}</span></div>}
+            {hov === d.k && <div className="bc-tip"><b>{lab(d.k)}</b><span><i style={{ background: 'var(--s1)' }} />Cargadas <em>{d.c}</em></span><span><i style={{ background: 'var(--s2)' }} />Finalizadas <em>{d.t}</em></span><span className="mut">{d.c - d.t > 0 ? `Quedaron ${d.c - d.t} sin cerrar` : d.c - d.t < 0 ? `Se cerraron ${d.t - d.c} más de las que entraron` : 'Entraron y salieron las mismas'}</span></div>}
           </div>)}</div>
           <div className="bc-x">{data.map(d => <span key={d.k} className={d.k === mes ? 'cur' : ''}>{lab(d.k)}</span>)}</div></div></div>}
   </div>;
@@ -475,7 +521,7 @@ function Repuestos() {
       <div className="mcards">
         <div className="mcard"><span className="mt">Órdenes de venta · OV</span><div className="mpair"><div><b>{C.OV.p}</b><em>Pendientes</em></div><div className="m-acc"><b>{C.OV.e}</b><em>En proceso</em></div></div></div>
         <div className="mcard"><span className="mt">Órdenes de stock · OC</span><div className="mpair"><div><b>{C.OC.p}</b><em>Pendientes</em></div><div className="m-acc"><b>{C.OC.e}</b><em>En proceso</em></div></div></div>
-        <div className="mcard"><span className="mt">Terminadas en {mesTxt}</span><div className="mpair m-ok"><div><b>{C.OV.t}</b><em>OV</em></div><div><b>{C.OC.t}</b><em>OC</em></div></div></div>
+        <div className="mcard"><span className="mt">Finalizadas en {mesTxt}</span><div className="mpair m-ok"><div><b>{C.OV.t}</b><em>OV</em></div><div><b>{C.OC.t}</b><em>OC</em></div></div></div>
         <div className="mcard"><span className="mt">Horas dedicadas a repuestos · {mesTxt}</span><div className="mpair"><div><b>{fN(hh)}<small> h</small></b><em>{cap ? `${Math.round(hh / cap * 100)}% de las ${fN(cap)} h disponibles` : 'Sin horas disponibles en el mes'}</em></div></div>
           <span className="pbar big"><i style={{ width: Math.min(100, cap ? hh / cap * 100 : 0) + '%' }} /></span></div>
       </div>
@@ -483,7 +529,7 @@ function Repuestos() {
     </section>
     <section>
       <div className="sec-h"><div className="row">
-        {sel('e', [['activas', 'Sin las terminadas'], ['pendiente', 'Pendiente'], ['en proceso', 'En proceso'], ['terminada', 'Terminada']], 'Todo estado')}<button className="btn sm" onClick={() => { const todos = ['curso', 'pausa', 'pendiente', 'terminada'].every(k => plg[k]); const n = Object.fromEntries(['curso', 'pausa', 'pendiente', 'terminada'].map(k => [k, !todos])); setPlg(n); guardaG('rep-grupos', n); }}>{['curso', 'pausa', 'pendiente', 'terminada'].every(k => plg[k]) ? 'Abrir grupos' : 'Cerrar grupos'}</button>
+        {sel('e', [['activas', 'Sin las finalizadas'], ['pendiente', 'Pendiente'], ['en proceso', 'En proceso'], ['terminada', 'Finalizada']], 'Todo estado')}<button className="btn sm" onClick={() => { const todos = ['curso', 'pausa', 'pendiente', 'terminada'].every(k => plg[k]); const n = Object.fromEntries(['curso', 'pausa', 'pendiente', 'terminada'].map(k => [k, !todos])); setPlg(n); guardaG('rep-grupos', n); }}>{['curso', 'pausa', 'pendiente', 'terminada'].every(k => plg[k]) ? 'Abrir grupos' : 'Cerrar grupos'}</button>
         {sel('c', clientes.map(c => [c, c]), 'Todo cliente')}
         {sel('o', S.operarios.map(o => [o.id, o.nombre]), 'Todo operario')}
         <input id="rf-q" type="search" placeholder="Buscar OV, pieza o cliente" value={f.q} onChange={e => setF({ ...f, q: e.target.value })} />
@@ -494,11 +540,11 @@ function Repuestos() {
         <button className="btn pri-b" onClick={() => ui.modal({ k: 'task', draft: E.blankTask('rep') })}>+ Repuesto</button>
       </div></div>
       {hist ? <div className="scroll"><table className="tt"><thead><tr><th>Producto</th><th>Operación</th><th className="num">Veces</th><th className="num">HH plan (prom.)</th><th className="num">HH real (prom.)</th><th className="num">Desvío</th></tr></thead>
-        <tbody>{Object.keys(H).length === 0 && <tr><td colSpan="6" className="mut pad">Todavía no hay tareas terminadas con horas reales cargadas.</td></tr>}
+        <tbody>{Object.keys(H).length === 0 && <tr><td colSpan="6" className="mut pad">Todavía no hay tareas finalizadas con horas reales cargadas.</td></tr>}
           {Object.entries(H).map(([k, h]) => { const [p, o] = k.split('|'); const d = (h.r - h.p) / h.p * 100; return <tr key={k}><td>{p}</td><td>{o}</td><td className="num">{h.n}</td><td className="num">{fN(h.p / h.n)}</td><td className="num">{fN(h.r / h.n)}</td><td className={'num ' + (d > 0 ? 'c-bad' : 'c-ok')}>{d > 0 ? '+' : ''}{Math.round(d)}%</td></tr>; })}</tbody></table></div>
         : (() => { const corre = id => E.corriendo(V.byId[id]) || (V.kids[id] || []).some(c => corre(c.id));
             const grupo = r => { const e = V.D[r.id].estado; return e === 'terminada' ? 'terminada' : e === 'pendiente' ? 'pendiente' : corre(r.id) ? 'curso' : 'pausa'; };
-            const G = [['curso', 'En proceso', 'var(--accent)'], ['pausa', 'En pausa', 'var(--warn)'], ['pendiente', 'Pendientes', 'var(--mut)'], ['terminada', 'Terminadas', 'var(--ok)']];
+            const G = [['curso', 'En proceso', 'var(--accent)'], ['pausa', 'En pausa', 'var(--warn)'], ['pendiente', 'Pendientes', 'var(--mut)'], ['terminada', 'Finalizadas', 'var(--ok)']];
             const ord_ = roots.slice().sort((a, b) => PRI[a.prioridad] - PRI[b.prioridad]);
             return G.map(([k, l, c]) => { const rs = ord_.filter(r => grupo(r) === k && vis(r)); if (!rs.length && k !== 'curso') return null;
               return <div key={k} className={'repg' + (plg[k] ? '' : ' on')} style={{ '--c': c }}>
@@ -549,30 +595,43 @@ function Gantt({ rows, entrega, color, collapsed, toggle, alto, todo }) {
     {rows.map(({ t, depth, hasKids }) => { const r = V.D[t.id]; const ok = r.estado === 'terminada'; return <div key={t.id} className={'g-row' + (hasKids ? ' par' : '') + (ok ? ' done' : '')}>
       <div className="g-left"><div className="tname" style={{ paddingLeft: depth * 14 }}>
         {hasKids ? <button className="tog" onClick={() => toggle(t.id)} aria-label="Desplegar">{collapsed.has(t.id) ? '▸' : '▾'}</button> : <span className="tog" />}
-        {ok && <span className="g-ok" title="Terminada">✓</span>}<button className="tlink" title={t.nombre} onClick={() => ui.modal({ k: 'task', id: t.id })}>{t.nombre}</button><button className="g-add" title={'Agregar hijo a ' + t.nombre} aria-label="Agregar hijo" onClick={() => ui.modal({ k: 'task', draft: { ...E.blankTask(t.tipo, t.proyId), parentId: t.id, prioridad: t.prioridad } })}>＋</button></div><span className="num">{t.cant}</span></div>
+        {ok && <span className={'g-ok' + (r.sin0 ? ' w0' : '')} title={r.sin0 ? aviso0(r) : 'Finalizada'}>✓</span>}<button className="tlink" title={t.nombre} onClick={() => ui.modal({ k: 'task', id: t.id })}>{t.nombre}</button><button className="g-add" title={'Agregar hijo a ' + t.nombre} aria-label="Agregar hijo" onClick={() => ui.modal({ k: 'task', draft: { ...E.blankTask(t.tipo, t.proyId), parentId: t.id, prioridad: t.prioridad } })}>＋</button></div><span className="num">{t.cant}</span></div>
       <div className="g-right" style={{ width: N * W, backgroundImage: semanas + ',' + bg }}>
         <i className="g-today" style={{ left: xHoy }} />{xEnt !== null && <i className="g-due" style={{ left: xEnt }} />}
         {r.inicio && r.fin && <div className={'g-bar' + (r.parent ? ' par' : '') + (t.empuje && !ok ? ' pushed' : '') + (ok ? ' ok' : '') + (t.manual ? ' manual' : '') + (arr && arr.id === t.id ? ' drag' : '')} style={{ left: x(r.inicio) + (arr && arr.id === t.id ? arr.d * W : 0), width: Math.max(6, x(r.fin) - x(r.inicio)), '--c': color }}
           title={`${t.nombre}: ${fDT(r.inicio)} → ${fDT(r.fin)}${r.parent || ok ? '' : ' · arrastrala para moverla de día'}`} onPointerDown={e => arrastrar(e, t, r)}><span style={{ width: r.avance + '%' }} /></div>}
         {arr && arr.id === t.id && arr.d !== 0 && <span className="g-mov" style={{ left: x(r.inicio) + arr.d * W }}>{arr.d > 0 ? '+' : ''}{arr.d} d · {fD(E.addDays(t.inicio.slice(0, 10), arr.d))}</span>}
-        {r.inicio && r.fin && <span className={'g-lab' + (ok ? ' ok' : '')} style={{ left: Math.max(x(r.fin), x(r.inicio) + 6) + 6 }}>{ok ? '✓ terminada' : Math.round(r.avance) + '%'}{t.empuje && !ok ? ' · ↦' : ''}</span>}
+        {r.inicio && r.fin && <span className={'g-lab' + (ok ? ' ok' : '') + (ok && r.sin0 ? ' w0' : '')} style={{ left: Math.max(x(r.fin), x(r.inicio) + 6) + 6 }}>{ok ? '✓ finalizada' : Math.round(r.avance) + '%'}{t.empuje && !ok ? ' · ↦' : ''}</span>}
       </div></div>; })}
   </div></div></>;
 }
 // Desglose de las métricas del proyecto: avance por pieza principal, horas por pieza principal o por operación
-// Tareas empezadas o terminadas que todavía no tienen horas reales: se completan acá mismo
+// Tareas empezadas o finalizadas que todavía no tienen horas reales: se completan acá mismo
 function SinHoras({ ts }) {
-  const { S, V, up } = useApp(); const [ver, setVer] = useState(true);
+  const { S, V, up, ui } = useApp(); const [ver, setVer] = useState(true);
   const l = ts.filter(t => !V.D[t.id].parent && !(Number(t.hhReal) > 0) && !(t.crono && Number(t.crono.acum) > 0) && !E.corriendo(t) && (t.estado === 'terminada' || Number(t.avance) > 0 || t.estado === 'en proceso'));
   const g = {}; l.forEach(t => { const r = V.rootOf(t); (g[r.id] = g[r.id] || { r, l: [] }).l.push(t); });
-  return <div className="sinh"><button className="dgrp-t" onClick={() => setVer(!ver)}><span className="car">{ver ? '▾' : '▸'}</span><b>Tareas sin horas reales cargadas</b><span className={'cnt' + (l.length ? ' warn' : ' ok')}>{l.length}</span><span className="mut">terminadas o empezadas</span></button>
-    {ver && (l.length === 0 ? <p className="mut">Todas las tareas terminadas o empezadas tienen horas reales.</p> : Object.values(g).map(({ r, l }) => <div key={r.id} className="sinh-g"><b>{r.nombre}</b>
-      {l.map(t => <div key={t.id} className="sinh-r"><span className={'est e-' + t.estado.replace(' ', '')}>{t.estado === 'terminada' ? 'terminada' : Math.round(V.D[t.id].avance) + '%'}</span><span className="sn" title={t.nombre}>{t.nombre}</span><span className="mut">{operName(S, t.operacionId)} · plan {fN(t.hh)} h</span>
-        <label className="inl">Reales<EdIn className="num w5" type="number" min="0" step="0.25" value="" placeholder="h" onCommit={v => { const h = Math.max(0, Number(String(v).replace(',', '.')) || 0); if (h > 0) up(s => E.patchTask(s, t.id, { hhReal: h, crono: { acum: h, desde: null } })); }} /></label></div>)}</div>))}</div>;
+  return <div className="sinh"><button className="dgrp-t" onClick={() => setVer(!ver)}><span className="car">{ver ? '▾' : '▸'}</span><b>Tareas sin horas reales cargadas</b><span className={'cnt' + (l.length ? ' warn' : ' ok')}>{l.length}</span><span className="mut">finalizadas o empezadas</span></button>
+    {ver && (l.length === 0 ? <p className="mut">Todas las tareas finalizadas o empezadas tienen horas reales.</p> : Object.values(g).map(({ r, l }) => <div key={r.id} className="sinh-g"><b>{r.nombre}</b>
+      {l.map(t => { const p = t.parentId && V.byId[t.parentId]; return <div key={t.id} className="sinh-r"><span className={'est e-' + t.estado.replace(' ', '')}>{t.estado === 'terminada' ? 'finalizada' : Math.round(V.D[t.id].avance) + '%'}</span>
+        <button className="sn al-t" title="Abrir la tarea para editar todo" onClick={() => ui.modal({ k: 'task', id: t.id })}><b>{t.nombre}</b>{p && p.id !== V.rootOf(t).id && <small className="mut"> · {p.nombre}</small>}</button>
+        <span className="mut">{operName(S, t.operacionId)} · {t.ops.map(o => opName(S, o)).join(', ') || 'sin operario'} · plan {fN(t.hh)} h</span>
+        <span className="sinh-in"><HorasReales t={t} /><button className="btn sm" title="Abrir la tarea" onClick={() => ui.modal({ k: 'task', id: t.id })}>✎ Editar</button></span></div>; })}</div>))}</div>;
+}
+// Carga rápida de horas reales: horas y minutos, o "igual al plan"
+function HorasReales({ t }) {
+  const { up, ui } = useApp(); const [h, setH] = useState(''); const [m, setM] = useState('');
+  const guardar = v => { const x = v !== undefined ? v : (Number(String(h).replace(',', '.')) || 0) + (Number(m) || 0) / 60; if (!(x > 0)) { ui.toast('Cargá las horas reales'); return; } const r = Math.round(x * 100) / 100;
+    up(s => E.patchTask(s, t.id, { hhReal: r, crono: { acum: r, desde: null } })); ui.toast(`${t.nombre}: ${fHM(r)} reales cargadas`); };
+  const enter = e => { if (e.key === 'Enter') guardar(); };
+  return <span className="hreal"><input className="num" type="number" min="0" step="0.5" placeholder="h" aria-label="Horas" value={h} onChange={e => setH(e.target.value)} onKeyDown={enter} /><span>h</span>
+    <input className="num" type="number" min="0" max="59" step="5" placeholder="min" aria-label="Minutos" value={m} onChange={e => setM(e.target.value)} onKeyDown={enter} />
+    <CalcBtn cant={Number(t.cant) || 0} titulo={t.nombre} onUse={x => { const tm = Math.round(x * 60); setH(String(Math.floor(tm / 60))); setM(String(tm % 60)); }} />
+    <button className="btn sm pri-b" onClick={() => guardar()}>Guardar</button>{t.hh > 0 && <button className="btn sm" title="Cargar como reales las horas planificadas" onClick={() => guardar(Number(t.hh))}>= plan ({fN(t.hh)} h)</button>}</span>;
 }
 function Desglose({ roots, ts, vista, hhv, setHhv, color, cerrar }) {
   const { S, V } = useApp();
-  const filasPadre = roots.map(t => { const r = V.D[t.id]; return { k: t.id, nom: t.nombre, plan: r.hh, real: r.hhReal, av: r.avance, est: r.estado }; });
+  const filasPadre = roots.map(t => { const r = V.D[t.id]; return { k: t.id, nom: t.nombre, plan: r.hh, real: r.hhReal, av: r.avance, est: r.estado, sin0: r.sin0 }; });
   const ops = {}; ts.forEach(t => { const r = V.D[t.id]; if (r.parent) return; const k = t.operacionId || '_'; const o = ops[k] = ops[k] || { k, nom: k === '_' ? 'Sin operación' : operName(S, k), plan: 0, real: 0, hecho: 0, n: 0 }; o.plan += r.hh; o.real += r.hhReal; o.hecho += r.hh * r.avance / 100; o.n++; });
   const filasOp = Object.values(ops).map(o => ({ ...o, av: o.plan ? o.hecho / o.plan * 100 : 0 })).sort((a, b) => b.plan - a.plan);
   const filas = vista === 'av' ? filasPadre : hhv === 'padre' ? filasPadre : filasOp;
@@ -585,9 +644,8 @@ function Desglose({ roots, ts, vista, hhv, setHhv, color, cerrar }) {
     {filas.length === 0 && <p className="mut">Este proyecto todavía no tiene piezas.</p>}
     {vista === 'av' ? <div className="dlist">{filas.map(f => <div key={f.k} className="drow">
         <span className="dnom" title={f.nom}>{f.nom}</span>
-        <span className="dbar"><i style={{ width: Math.min(100, f.av) + '%', background: color }} /></span>
-        <b className="dpct">{Math.round(f.av)}%</b>
-        <span className="mut dsub">{fN(f.plan * f.av / 100)} de {fN(f.plan)} HH · {f.est}</span></div>)}</div>
+        <span className={'dprog' + (f.est === 'terminada' ? (f.sin0 ? ' w0' : ' ok') : '')} role="progressbar" aria-valuenow={Math.round(f.av)} aria-valuemin="0" aria-valuemax="100" title={f.sin0 && f.est === 'terminada' ? aviso0(f) : `${Math.round(f.av)}% hecho`}><i style={{ width: Math.min(100, f.av) + '%', '--c': color }} /><em>{f.est === 'terminada' ? '✓ ' : ''}{Math.round(f.av)}%</em></span>
+        <span className="mut dsub">{fN(f.plan * f.av / 100)} de {fN(f.plan)} HH · {estTxt(f.est)}</span></div>)}</div>
     : <>
       <div className="dleg"><span><i className="lg-plan" />Total planificado (la barra completa)</span><span><i style={{ background: 'var(--ok)' }} />Real cargado</span><span><i style={{ background: 'var(--bad)' }} />Real por encima de lo esperado</span><span><i className="lg-tick" />Lo que debería llevar según el avance</span></div>
       <div className="dlist">{filas.map(f => { const esp = f.plan * (f.av || 0) / 100, pasa = f.real > Math.max(esp, 0.01) * 1.05 && f.real > 0, pr = f.plan ? Math.min(100, f.real / f.plan * 100) : (f.real ? 100 : 0);
@@ -644,7 +702,7 @@ function Proyectos() {
   const colV = qn ? new Set() : col; const ord = ordenProy(S); const rows = flatten(roots, V, colV, visQ, ord);
   const fin = id => V.D[id].estado === 'terminada';
   const conFin = id => fin(id) || (V.kids[id] || []).some(c => conFin(c.id));
-  const visAct = t => (!visQ || visQ(t)) && !fin(t.id), visFin = t => (!visQ || visQ(t)) && conFin(t.id);
+  const visAct = t => (!visQ || visQ(t)) && (!fin(t.id) || (V.kids[t.id] || []).length > 0), visFin = t => (!visQ || visQ(t)) && conFin(t.id);
   const nFin = i.ts.filter(t => !V.D[t.id].parent && fin(t.id)).length, nAct = i.ts.filter(t => !V.D[t.id].parent && !fin(t.id)).length;
   const meses = {}; i.ts.forEach(t => { const r = V.D[t.id]; if (r.parent) return; const n = Math.max(1, t.ops.length); r.segs.forEach(s => { const m = s.d.slice(0, 7); meses[m] = (meses[m] || 0) + (s.h + (s.xe || 0)) * n; }); });
   const mk = Object.keys(meses).sort(), mmax = Math.max(1, ...Object.values(meses));
@@ -678,8 +736,8 @@ function Proyectos() {
       {altoG === 'oculto' ? <p className="mut">Oculto ({rows.length} {rows.length === 1 ? 'fila' : 'filas'}). Elegí Compacto o Completo para verlo.</p>
         : <Gantt rows={rows} entrega={p.entrega} color={p.color} collapsed={colV} toggle={tog} alto={altoG} todo={c => setCol(c ? new Set(i.ts.filter(t => (V.kids[t.id] || []).length).map(t => t.id)) : new Set())} />}</section>
     <section><div className="sec-h"><h2>Pendientes y en proceso <span className="cnt">{nAct}</span></h2><span className="mut">Mayús + Espacio (Shift + Space) marca la fila · en la casilla alcanza con Espacio</span></div><TaskTable roots={roots} tipo="proy" vis={visAct} collapsed={colV} toggle={tog} orden={ord} /></section>
-    <section className="finsec"><div className="sec-h"><button className="dgrp-t fin-t" onClick={() => { setVerFin(!verFin); guardaG('verfin', !verFin); }}><span className="car">{verFin ? '▾' : '▸'}</span><h2>Terminadas <span className="cnt ok">{nFin}</span></h2></button></div>
-      {verFin && (nFin ? <TaskTable roots={roots} tipo="proy" vis={visFin} collapsed={colV} toggle={tog} orden={ord} /> : <p className="mut">Todavía no hay piezas terminadas en este proyecto.</p>)}</section>
+    <section className="finsec"><div className="sec-h"><button className="dgrp-t fin-t" onClick={() => { setVerFin(!verFin); guardaG('verfin', !verFin); }}><span className="car">{verFin ? '▾' : '▸'}</span><h2>Finalizadas <span className="cnt ok">{nFin}</span></h2></button></div>
+      {verFin && (nFin ? <TaskTable roots={roots} tipo="proy" vis={visFin} collapsed={colV} toggle={tog} orden={ord} /> : <p className="mut">Todavía no hay piezas finalizadas en este proyecto.</p>)}</section>
   </div>;
 }
 
@@ -721,7 +779,9 @@ function TaskEditor({ id, draft, onClose }) {
         <label>Entrega comprometida<input id="te-ent" type="date" value={t.entrega || ''} onChange={e => set('entrega', e.target.value)} /></label>
         <label>Fecha de carga de la orden<input id="te-cre" type="date" value={t.creada || ''} max={E.today()} onChange={e => set('creada', e.target.value)} /></label></>}
       <label>Prioridad<select id="te-pri" value={t.prioridad} onChange={e => set('prioridad', e.target.value)}><option>alta</option><option>media</option><option>baja</option></select></label>
-      {parent ? <p className="note g2">{t.partes ? 'Esta tarea está partida en partes' : 'Es un ensamblaje general (primer nivel)'}: sus fechas, horas y avance salen del resumen de todo lo que tiene adentro ({fDT(V.D[id].inicio)} → {fDT(V.D[id].fin)}, {fN(V.D[id].hh)} HH, {Math.round(V.D[id].avance)}%).</p> : <>
+      {parent && t.agrupa && <label className="chk g2"><input type="checkbox" checked onChange={() => set('agrupa', false)} /> Es solo un grupo (destildá si este paso lleva trabajo propio)</label>}
+      {parent ? <p className="note g2">{t.partes ? 'Esta tarea está partida en partes' : t.agrupa ? 'Es un grupo (por ejemplo Mecanizado o Soldadura)' : 'Es un ensamblaje general (primer nivel)'}: sus fechas, horas y avance salen del resumen de todo lo que tiene adentro ({fDT(V.D[id].inicio)} → {fDT(V.D[id].fin)}, {fN(V.D[id].hh)} HH, {Math.round(V.D[id].avance)}%).</p> : <>
+        {!!id && (V.kids[id] || []).length > 0 && t.parentId && <label className="chk g2"><input type="checkbox" checked={!!t.agrupa} onChange={e => set('agrupa', e.target.checked)} /> Es solo un grupo (no lleva trabajo propio: suma lo que tiene adentro)</label>}
         {!!id && (V.kids[id] || []).length > 0 && <p className="note g2">Esta pieza tiene {(V.kids[id] || []).length} {(V.kids[id] || []).length === 1 ? 'hija' : 'hijas'} y lleva su propio trabajo (por ejemplo, soldarlas o armarlas): las horas, el operario y el avance son solo de este paso. Empieza cuando terminan sus hijas.</p>}
         {t.tipo === 'proy' && !isNew && <label className="chk g2"><input type="checkbox" checked={!!t.manual} onChange={e => set('manual', e.target.checked)} /> Fecha fijada a mano 📌 (no se corre por las etapas anteriores)</label>}
         <label>Operación<select id="te-op" value={t.operacionId} onChange={e => setT(p => ({ ...p, operacionId: e.target.value, opAuto: false }))}><option value="">—</option>{S.operaciones.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select>
@@ -736,14 +796,14 @@ function TaskEditor({ id, draft, onClose }) {
                 <button type="button" className="btn sm" onClick={() => setT(p => ({ ...p, ops: [r.op], inicio: r.ini }))}>{t.ops.length === 1 && t.ops[0] === r.op ? 'Elegido' : 'Dársela'}</button></div>)}</div>}</div>}
         <div className="g2 fld"><span>Operarios</span><div className="togs">{S.operarios.filter(o => o.activo || t.ops.includes(o.id)).map(o => <button key={o.id} type="button" className={'togb' + (t.ops.includes(o.id) ? ' on' : '')} onClick={() => togOp(o.id)}>{o.nombre}</button>)}</div></div>
         <label>Inicio<input id="te-ini" type="datetime-local" value={t.inicio || ''} onChange={e => set('inicio', e.target.value || null)} /></label>
-        <label>Horas-hombre (trabajo total)<input id="te-hh" type="number" min="0" step="0.5" value={t.hh} onChange={e => { setHhTocado(true); set('hh', e.target.value); }} />
+        <label>Horas-hombre (trabajo total)<span className="incalc"><input id="te-hh" type="number" min="0" step="0.5" value={t.hh} onChange={e => { setHhTocado(true); set('hh', e.target.value); }} /><CalcBtn cant={Number(t.cant) || 0} titulo={(t.nombre || 'Pieza') + ' · duración'} onUse={v => { setHhTocado(true); set('hh', Math.round(v * 100) / 100); }} /></span>
           {hist && <small className="hint">Se hizo {hist.n} {hist.n === 1 ? 'vez' : 'veces'}: {fHM(hist.porUnidad)} reales por unidad{(() => { const sug = Math.max(0.5, Math.round(hist.porUnidad * Math.max(1, Number(t.cant) || 1) * 2) / 2); return Math.abs(sug - hh) > 0.01 ? <> → <button type="button" className="lnk sm" onClick={() => { setHhTocado(true); set('hh', sug); }}>usar {fN(sug)} h</button></> : ' (ya aplicado)'; })()}</small>}</label>
         <label>Fin<input id="te-fin" type="datetime-local" value={w ? w.end : ''} disabled={!t.inicio} onChange={e => setFin(e.target.value)} /></label>
         <div className="fld"><span>Duración en calendario</span><b className="big">{fH(hh / n)}</b><small className="mut">{fN(hh)} HH ÷ {n} operario{n > 1 ? 's' : ''}</small></div>
         {w && !w.ok && <p className="note bad g2">Faltan {fN(w.falta)} h extra por habilitar en el calendario para poder calcular el fin.</p>}
-        <label>Estado<select id="te-est" value={t.estado} onChange={e => set('estado', e.target.value)}><option>pendiente</option><option>en proceso</option><option>terminada</option></select></label>
+        <label>Estado<select id="te-est" value={t.estado} onChange={e => set('estado', e.target.value)}><option>pendiente</option><option>en proceso</option><option value="terminada">finalizada</option></select></label>
         <label>Avance %<input id="te-av" type="number" min="0" max="100" step="5" value={t.estado === 'terminada' ? 100 : t.avance} disabled={t.estado === 'terminada'} onChange={e => set('avance', e.target.value)} /></label>
-        <label>Horas-hombre reales<input id="te-real" type="number" min="0" step="0.5" value={t.hhReal} onChange={e => set('hhReal', e.target.value)} /></label>
+        <label>Horas-hombre reales<span className="incalc"><input id="te-real" type="number" min="0" step="0.5" value={t.hhReal} onChange={e => set('hhReal', e.target.value)} /><CalcBtn cant={Number(t.cant) || 0} titulo={(t.nombre || 'Pieza') + ' · horas reales'} onUse={v => set('hhReal', Math.round(v * 100) / 100)} /></span></label>
         <div className="g2 fld preds"><button type="button" className="predh" aria-expanded={predOpen} onClick={() => setPredOpen(!predOpen)}>
             <span className="car">{predOpen ? '▾' : '▸'}</span><span>Empieza después de (predecesoras)</span><span className="cnt">{(t.preds || []).length}</span></button>
           {(t.preds || []).length > 0 && <div className="togs">{t.preds.map(pid => V.byId[pid] && <button key={pid} type="button" className="togb on" title="Tocá para quitarla" onClick={() => togPred(pid)}>{etiqueta(V, V.byId[pid])} ✕</button>)}</div>}
@@ -769,7 +829,7 @@ function OpTask({ t, op }) {
     {(() => { const esp = espera(S, V, t); return esp && <span className="tag">⧖ Espera a {esp.nombre}{esp.fin ? ` (termina ${fDT(esp.fin)})` : ''}</span>; })()}
     {t.estado === 'en proceso' && <div className="row crono"><Bar v={t.hh ? llev / t.hh * 100 : 0} color={llev > t.hh + 0.01 ? 'var(--bad)' : undefined} /><span>Llevado <b>{fHM(llev)}</b> de {fHM(t.hh)} proyectadas{t.ops.length > 1 ? ' (suma de los operarios)' : ''}</span></div>}
     {fin ? <div className="finbox">
-      <div className="row"><span className="mut">Tiempo real (horas-hombre)</span><HM value={real} onChange={setReal} /></div>
+      <div className="row"><span className="mut">Tiempo real (horas-hombre)</span><HM value={real} onChange={setReal} cant={Number(t.cant) || 0} titulo={t.nombre} /></div>
       <div className="row"><span className="mut">Proyectado {fHM(t.hh)} ·</span><Desvio real={real} plan={t.hh} /></div>
       <div className="row"><button className="btn pri-b" onClick={() => up(s => E.finalizar(s, t.id, real))}>Confirmar</button><button className="btn" onClick={() => setFin(false)}>Cancelar</button></div></div>
       : <div className="row">
@@ -785,8 +845,8 @@ function OpTask({ t, op }) {
 function DoneRow({ t }) {
   const { V, up } = useApp(); const [ed, setEd] = useState(false); const [real, setReal] = useState(t.hhReal || 0);
   return <div className="optask done">
-    <div className="row"><Chip t={t} small /><b>{etiqueta(V, t)}</b><span className="mut">terminada {(t.finReal || '').slice(11, 16)}</span></div>
-    {ed ? <div className="row"><HM value={real} onChange={setReal} /><button className="btn sm pri-b" onClick={() => { up(s => E.patchTask(s, t.id, { hhReal: Math.round(real * 100) / 100, crono: { acum: real, desde: null } })); setEd(false); }}>Guardar</button><button className="btn sm" onClick={() => setEd(false)}>Cancelar</button></div>
+    <div className="row"><Chip t={t} small /><b>{etiqueta(V, t)}</b><span className="mut">finalizada {(t.finReal || '').slice(11, 16)}</span></div>
+    {ed ? <div className="row"><HM value={real} onChange={setReal} cant={Number(t.cant) || 0} titulo={t.nombre} /><button className="btn sm pri-b" onClick={() => { up(s => E.patchTask(s, t.id, { hhReal: Math.round(real * 100) / 100, crono: { acum: real, desde: null } })); setEd(false); }}>Guardar</button><button className="btn sm" onClick={() => setEd(false)}>Cancelar</button></div>
       : <div className="row"><span>Real <b>{fHM(t.hhReal)}</b> · proyectado {fHM(t.hh)} ·</span><Desvio real={t.hhReal} plan={t.hh} /><button className="btn sm" onClick={() => { setReal(t.hhReal || 0); setEd(true); }}>Corregir</button></div>}
   </div>;
 }
@@ -888,9 +948,9 @@ function LoteEditor({ ids, titulo, onClose }) {
   return <Modal title={'Editar en lote' + (titulo ? ' · ' + titulo : '')} onClose={onClose} wide foot={<><span className="mut">{ts.length} piezas · {fN(cantT)} unidades en total</span><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!cambia} onClick={aplicar}>Aplicar a las {ts.length}</button></>}>
     <p className="mut">Lo que dejes vacío no se cambia. Las horas totales se reparten entre las piezas según la cantidad que usa cada ensamblaje, así cada equipo lleva el tiempo que le corresponde.</p>
     <div className="form lote">
-      <label>Horas-hombre totales (plan)<input type="number" min="0" step="0.5" placeholder={'hoy suman ' + fN(hhAct)} value={f.hh} onChange={e => set('hh', e.target.value)} /></label>
-      <label>Horas reales totales<input type="number" min="0" step="0.25" placeholder={'hoy suman ' + fN(realAct)} value={f.real} onChange={e => set('real', e.target.value)} /></label>
-      <label>Estado<select value={f.estado} onChange={e => set('estado', e.target.value)}><option value="">— no cambiar —</option><option value="pendiente">Pendiente</option><option value="en proceso">En proceso</option><option value="terminada">Terminada</option></select></label>
+      <label>Horas-hombre totales (plan)<span className="incalc"><input type="number" min="0" step="0.5" placeholder={'hoy suman ' + fN(hhAct)} value={f.hh} onChange={e => set('hh', e.target.value)} /><CalcBtn cant={cantT} titulo="Horas-hombre totales del lote" onUse={v => set('hh', String(Math.round(v * 100) / 100))} /></span></label>
+      <label>Horas reales totales<span className="incalc"><input type="number" min="0" step="0.25" placeholder={'hoy suman ' + fN(realAct)} value={f.real} onChange={e => set('real', e.target.value)} /><CalcBtn cant={cantT} titulo="Horas reales totales del lote" onUse={v => set('real', String(Math.round(v * 100) / 100))} /></span></label>
+      <label>Estado<select value={f.estado} onChange={e => set('estado', e.target.value)}><option value="">— no cambiar —</option><option value="pendiente">Pendiente</option><option value="en proceso">En proceso</option><option value="terminada">Finalizada</option></select></label>
       <label>Operación<select value={f.operacionId} onChange={e => set('operacionId', e.target.value)}><option value="">— no cambiar —</option>{S.operaciones.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select></label>
       <label>Prioridad<select value={f.prioridad} onChange={e => set('prioridad', e.target.value)}><option value="">— no cambiar —</option><option>alta</option><option>media</option><option>baja</option></select></label>
       <label>Turno<select value={f.turno} onChange={e => set('turno', e.target.value)}><option value="">— no cambiar —</option><option value="normal">Normal</option><option value="extra">Extra</option><option value="ambos">Normal + extra</option></select></label>
@@ -974,7 +1034,7 @@ function OperarioPanel({ id, onClose }) {
     <div className="row"><button className="btn" onClick={() => juntar(up, ui, id, o.nombre)}>Juntar sus tareas</button><span className="mut">Adelanta lo pendiente para cerrar huecos libres. Al pausar, la tarea se parte: lo hecho queda cerrado con su tiempo y el resto vuelve a la cola.</span></div>
     <div className="opcols">{camino('normal', 'Turno normal')}{camino('extra', 'Horas extra')}</div>
     <ExtrasDias op={id} />
-    {hechas.length > 0 && <><h3>Terminadas hoy <span className="cnt">{hechas.length}</span></h3>{hechas.map(t => <DoneRow key={t.id} t={t} />)}</>}
+    {hechas.length > 0 && <><h3>Finalizadas hoy <span className="cnt">{hechas.length}</span></h3>{hechas.map(t => <DoneRow key={t.id} t={t} />)}</>}
     <DarTareas op={id} />
   </Modal>;
 }
@@ -1022,7 +1082,7 @@ function TallerTask({ t }) {
     {esp && <span className="tag">⧖ Espera a {esp.nombre}{esp.fin ? ` (termina ${fDT(esp.fin)})` : ''}</span>}
     {(run || llev > 0) && <div className="tcrono"><b>{fHM(llev)}</b><span className="mut">de {fHM(t.hh)}</span><Bar v={t.hh ? llev / t.hh * 100 : 0} color={llev > t.hh + 0.01 ? 'var(--bad)' : undefined} /></div>}
     {fin ? <div className="finbox">
-      <div className="row"><span className="mut">Tiempo real</span><HM value={real} onChange={setReal} /></div>
+      <div className="row"><span className="mut">Tiempo real</span><HM value={real} onChange={setReal} cant={Number(t.cant) || 0} titulo={t.nombre} /></div>
       <div className="row"><span className="mut">Proyectado {fHM(t.hh)} ·</span><Desvio real={real} plan={t.hh} /></div>
       <div className="tbtns"><button className="btn big pri-b" onClick={() => up(s => E.finalizar(s, t.id, real))}>Confirmar</button><button className="btn big" onClick={() => setFin(false)}>Cancelar</button></div></div>
       : <div className="tbtns">
@@ -1061,7 +1121,7 @@ function Taller() {
     <h3>Lo que sigue <span className="cnt">{sig.length}</span></h3>
     {sig.length === 0 && <p className="mut">No hay más tareas asignadas.</p>}
     {sig.slice(0, 6).map(t => <TallerTask key={t.id} t={t} />)}
-    {hechas.length > 0 && <><h3>Terminadas hoy <span className="cnt">{hechas.length}</span></h3>{hechas.map(t => <DoneRow key={t.id} t={t} />)}</>}
+    {hechas.length > 0 && <><h3>Finalizadas hoy <span className="cnt">{hechas.length}</span></h3>{hechas.map(t => <DoneRow key={t.id} t={t} />)}</>}
   </section><section><DarTareas op={o.id} grande /></section></div>;
 }
 
@@ -1135,7 +1195,7 @@ function Config() {
   const setH = (t, k, v) => up(s => ({ ...s, cfg: { ...s.cfg, horarios: { ...s.cfg.horarios, [t]: { ...s.cfg.horarios[t], [k]: v } } } }));
   const cambiar = () => { up(s => ({ ...s, cfg: { ...s.cfg, temporadas: [...s.cfg.temporadas.filter(x => x.desde !== E.today()), { desde: E.today(), t: otra }] } })); ui.toast(`Horario de ${otra} activo desde hoy`); };
   const fila = t => { const r = V.D[t.id], root = V.rootOf(t); const p = S.proyectos.find(x => x.id === t.proyId);
-    return { Tipo: t.tipo === 'rep' ? 'Repuesto' : 'Proyecto', Proyecto: p ? p.nombre : '', 'OV/OC': t.tipo === 'rep' ? root.orden : '', Cliente: t.tipo === 'rep' ? root.cliente : '', Pieza: t.nombre, 'Depende de': t.parentId ? V.byId[t.parentId].nombre : '', Cantidad: Number(t.cant) || 0, Prioridad: t.prioridad, Operación: r.parent ? '' : operName(S, t.operacionId), Operarios: r.ops.map(o => opName(S, o)).join(', '), Turno: r.parent ? '' : t.turno, Inicio: r.inicio ? r.inicio.replace('T', ' ') : '', Fin: r.fin ? r.fin.replace('T', ' ') : '', 'Horas-hombre': r.hh, 'Duración calendario (h)': r.parent ? '' : r.durCal, Estado: r.estado, 'Avance %': Math.round(r.avance), 'HH reales': r.hhReal }; };
+    return { Tipo: t.tipo === 'rep' ? 'Repuesto' : 'Proyecto', Proyecto: p ? p.nombre : '', 'OV/OC': t.tipo === 'rep' ? root.orden : '', Cliente: t.tipo === 'rep' ? root.cliente : '', Pieza: t.nombre, 'Depende de': t.parentId ? V.byId[t.parentId].nombre : '', Cantidad: Number(t.cant) || 0, Prioridad: t.prioridad, Operación: r.parent ? '' : operName(S, t.operacionId), Operarios: r.ops.map(o => opName(S, o)).join(', '), Turno: r.parent ? '' : t.turno, Inicio: r.inicio ? r.inicio.replace('T', ' ') : '', Fin: r.fin ? r.fin.replace('T', ' ') : '', 'Horas-hombre': r.hh, 'Duración calendario (h)': r.parent ? '' : r.durCal, Estado: estTxt(r.estado), 'Avance %': Math.round(r.avance), 'HH reales': r.hhReal }; };
   const exportar = () => { if (!window.XLSX) { ui.toast('No se pudo cargar el generador de Excel'); return; } const X = window.XLSX, wb = X.utils.book_new();
     const orden = tipo => { const out = []; const go = t => { out.push(fila(t)); (V.kids[t.id] || []).forEach(go); }; S.tareas.filter(t => t.tipo === tipo && !t.parentId).forEach(go); return out; };
     X.utils.book_append_sheet(wb, X.utils.json_to_sheet(orden('rep')), 'Repuestos'); X.utils.book_append_sheet(wb, X.utils.json_to_sheet(orden('proy')), 'Proyectos');

@@ -108,7 +108,7 @@ export function normStart(S, dt, turno, ops) {
 // Grupo = solo resume a sus hijos (el ensamblaje general de primer nivel, o una tarea partida en partes).
 // Cualquier otra pieza con hijos lleva su propio trabajo (soldar, armar…): tiene horas, operario y avance propios
 // y no puede empezar hasta que terminen sus hijos.
-export const esGrupo = (S, t) => !!t && (!!t.partes || !t.parentId) && S.tareas.some(x => x.parentId === t.id);
+export const esGrupo = (S, t) => !!t && (!!t.partes || !!t.agrupa || !t.parentId) && S.tareas.some(x => x.parentId === t.id);
 export const hojaReal = (S, id) => !S.tareas.some(x => x.parentId === id);
 export const isLeaf = (S, id) => !esGrupo(S, S.tareas.find(x => x.id === id));   // lleva trabajo propio (se programa)
 // etapa por defecto según el nombre de la operación (se puede cambiar en Configuración → Operaciones)
@@ -126,7 +126,7 @@ function idx(S) {
   c = { ops: S.operaciones, pr: S.proyectos, byId, kids, root, et, on, porRoot }; _idx.set(S.tareas, c); return c;
 }
 export const etapaDe = (S, t) => (t && t.operacionId ? idx(S).et[t.operacionId] : undefined);
-const grupoI = (c, x) => !!(c.kids[x.id] && c.kids[x.id].length && (!x.parentId || x.partes));
+const grupoI = (c, x) => !!(c.kids[x.id] && c.kids[x.id].length && (!x.parentId || x.partes || x.agrupa));
 const ancestrosI = (c, t) => { const a = new Set(); let x = t, g = 0; while (x.parentId && c.byId[x.parentId] && g++ < 50) { a.add(x.parentId); x = c.byId[x.parentId]; } return a; };
 export function etapaPreds(S, t) {
   const c = idx(S); if (!t.proyId || !c.on.has(t.proyId) || t.manual || !t.operacionId || grupoI(c, t)) return [];
@@ -147,6 +147,11 @@ export const finOf = (S, t) => {
 };
 
 // ---- Datos derivados de todas las tareas ----
+// Estado de un padre: las piezas de 0 h sin nada cargado no frenan el "terminado" (no tienen trabajo que hacer)
+// (si quedan piezas de 0 h sin finalizar, el padre igual se finaliza pero con aviso: sin0 = cuántas son)
+const sinTrabajo = c => !(c.hh > 0) && c.estado !== 'terminada';
+export const estadoDe = lst => { const l = lst.filter(c => !sinTrabajo(c)); const b = l.length ? l : lst;
+  return b.every(c => c.estado === 'terminada') ? 'terminada' : b.every(c => c.estado === 'pendiente') ? 'pendiente' : 'en proceso'; };
 export function derive(S) {
   const kids = {}; S.tareas.forEach(t => { (kids[t.parentId || ''] = kids[t.parentId || ''] || []).push(t); });
   const byId = {}; S.tareas.forEach(t => { byId[t.id] = t; });
@@ -154,17 +159,17 @@ export function derive(S) {
   const SUB = {};   // resumen de todo el subárbol (trabajo propio + descendientes)
   const junta = (lst) => { const hh = lst.reduce((a, c) => a + c.hh, 0); const inis = lst.map(c => c.inicio).filter(Boolean).sort(), fins = lst.map(c => c.fin).filter(Boolean).sort();
     return { hh, inicio: inis[0] || null, fin: fins[fins.length - 1] || null, avance: hh ? lst.reduce((a, c) => a + c.hh * c.avance, 0) / hh : (lst.length ? lst.reduce((a, c) => a + c.avance, 0) / lst.length : 0), hhReal: lst.reduce((a, c) => a + c.hhReal, 0),
-      estado: lst.every(c => c.estado === 'terminada') ? 'terminada' : lst.every(c => c.estado === 'pendiente') ? 'pendiente' : 'en proceso', ops: [...new Set(lst.flatMap(c => c.ops))], ok: lst.every(c => c.ok) }; };
+      estado: estadoDe(lst), ops: [...new Set(lst.flatMap(c => c.ops))], ok: lst.every(c => c.ok), sin0: lst.reduce((a, c) => a + (c.sin0 || 0), 0) }; };
   const calc = t => {
     if (D[t.id]) return D[t.id];
     const ch = kids[t.id] || []; let r;
-    const grupo = ch.length > 0 && (!!t.partes || !t.parentId);
+    const grupo = ch.length > 0 && (!!t.partes || !!t.agrupa || !t.parentId);
     if (grupo) {
       ch.forEach(calc); const sub = junta(ch.map(c => SUB[c.id]));
       r = { parent: true, ...sub, segs: [], durCal: null }; SUB[t.id] = sub;
     } else {
       const w = t.inicio ? addWork(S, t.inicio, calDur(t), t.turno, t.ops) : { end: null, segs: [], ok: true };
-      r = { parent: false, conHijos: ch.length > 0, hh: Number(t.hh) || 0, inicio: t.inicio, fin: w.end, avance: t.estado === 'terminada' ? 100 : (Number(t.avance) || 0), hhReal: Number(t.hhReal) || 0, estado: t.estado, ops: t.ops, segs: w.segs, durCal: calDur(t), ok: w.ok, falta: w.falta };
+      r = { parent: false, conHijos: ch.length > 0, hh: Number(t.hh) || 0, inicio: t.inicio, fin: w.end, avance: t.estado === 'terminada' ? 100 : (Number(t.avance) || 0), hhReal: Number(t.hhReal) || 0, estado: t.estado, ops: t.ops, segs: w.segs, durCal: calDur(t), ok: w.ok, falta: w.falta, sin0: !(Number(t.hh) > 0) && t.estado !== 'terminada' && !ch.length ? 1 : 0 };
       ch.forEach(calc);
       SUB[t.id] = ch.length ? junta([r, ...ch.map(c => SUB[c.id])]) : r;
     }

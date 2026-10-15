@@ -643,3 +643,59 @@ button.mk.bad { cursor: pointer; background: none; }
 .al-ts { display: flex; flex-wrap: wrap; gap: 6px; }
 .al-t { background: none; border: 0; color: var(--ink); cursor: pointer; padding: 0; display: inline-flex; gap: 5px; align-items: center; text-align: left; font: inherit; } .al-t:hover { color: var(--accent); }
 .al-top { margin-bottom: 4px; }
+.sinh-r { grid-template-columns: auto minmax(0, 1fr) auto auto !important; }
+.sinh-r .sn { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.sinh-in { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.hreal { display: inline-flex; gap: 4px; align-items: center; } .hreal input { width: 58px; padding: 4px 6px; }
+@media (max-width: 900px) { .sinh-r { grid-template-columns: auto 1fr !important; } .sinh-r > .mut, .sinh-in { grid-column: 1 / -1; justify-content: flex-start; } }
+
+/* ===== Calculadora ===== */
+.calcb { border: 1px solid var(--line); background: var(--panel2); border-radius: 6px; padding: 2px 5px; font-size: 14px; line-height: 1.2; cursor: pointer; flex: none; }
+.calcb:hover { border-color: var(--accent); }
+.tcalc { opacity: 0; padding: 0 3px; font-size: 12px; margin-left: 2px; transition: opacity .12s; }
+tr:hover .tcalc, .tcalc:focus, td:focus-within .tcalc { opacity: 1; }
+@media (hover: none) { .tcalc { opacity: .7; } }
+.hhc { display: flex; align-items: center; gap: 2px; }
+.incalc { display: flex; align-items: center; gap: 6px; }
+.incalc input { flex: 1; min-width: 0; }
+.calc-ovl { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.calc { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 12px 40px rgba(0,0,0,.45); width: 300px; max-width: 100%; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.calc-h { display: flex; align-items: center; gap: 8px; }
+.calc-h .mut { flex: 1; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.calc-h .btn { margin-left: auto; }
+.calc-d { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; text-align: right; display: flex; flex-direction: column; gap: 2px; }
+.calc-ex { font-size: 26px; font-variant-numeric: tabular-nums; word-break: break-all; min-height: 32px; }
+.calc-u { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+.calc-cant { width: 100%; }
+.calc-k { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.ck { font-size: 20px; padding: 10px 0; border-radius: 10px; border: 1px solid var(--line); background: var(--panel2); color: inherit; cursor: pointer; font-variant-numeric: tabular-nums; }
+.ck:hover { border-color: var(--accent); }
+.ck:active { transform: scale(.96); }
+.ck.op { color: var(--accent); font-weight: 600; }
+.ck.fn { color: var(--warn); }
+.ck.eq { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 700; }
+.calc-f { display: flex; gap: 8px; justify-content: flex-end; }
+.calc-f .pri-b { flex: 1; }
+.calc-tip { font-size: 11px; text-align: center; }
+@media (hover: none) { .calc-tip { display: none; } }
+
+/* ===== Finalizada con aviso (piezas de 0 h sin finalizar adentro) ===== */
+.mk.ok.w0, .g-ok.w0 { color: var(--warn) !important; border-color: var(--warn) !important; background: color-mix(in srgb, var(--warn) 16%, transparent) !important; }
+.g-lab.ok.w0 { color: var(--warn) !important; }
+.est.e-terminada.w0 { color: var(--warn) !important; border-color: var(--warn) !important; background: color-mix(in srgb, var(--warn) 14%, transparent) !important; }
+
+/* ===== Desplegables legibles (las opciones salían blancas con letra gris) ===== */
+select { color-scheme: dark; }
+select option, select optgroup { background: var(--panel2); color: var(--ink); font-weight: 500; }
+select option:checked { background: color-mix(in srgb, var(--accent) 35%, var(--panel2)); color: var(--ink); }
+select option:disabled { color: var(--mut); }
+
+/* ===== Avance por pieza principal: barra tipo "cargando" con el % adentro ===== */
+.drow:has(.dprog) { grid-template-columns: minmax(140px, 1.3fr) 2.2fr minmax(150px, 1fr); }
+.dprog { position: relative; display: block; height: 24px; border-radius: 12px; background: color-mix(in srgb, var(--ink) 7%, transparent); border: 1px solid var(--line); overflow: hidden; }
+.dprog i { position: absolute; inset: 0 auto 0 0; background: var(--c, var(--accent)); background-image: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,.22)); border-radius: 12px; min-width: 0; transition: width .3s; }
+.dprog em { position: relative; z-index: 1; display: flex; align-items: center; justify-content: flex-end; height: 100%; padding: 0 10px; font: 700 15px/1 var(--f-d); font-style: normal; color: var(--ink); text-shadow: 0 1px 2px rgba(0,0,0,.7); letter-spacing: .02em; }
+.dprog.ok i { background-color: var(--ok); --c: var(--ok); }
+.dprog.w0 i { background-color: var(--warn); --c: var(--warn); }
+.dprog.ok, .dprog.w0 { border-color: transparent; }
+@media (max-width: 760px) { .drow:has(.dprog) { grid-template-columns: 1fr; } .drow .dprog { grid-row: auto; grid-column: 1; } }
