@@ -158,7 +158,9 @@ function Resumen() {
   const ops = S.operarios.filter(o => o.activo);
   const setExtra = (op, d, v, modo) => up(s => E.setExtraDia(s, op, d, v, modo));
   const nuevaExtra = (op, d) => up(s => E.setExtraDia(s, op, d, 2, s.tareas.some(t => t.ops.includes(op) && t.turno === 'extra' && t.estado !== 'terminada') ? 'aparte' : 'sigue'));
-  const drop = (e, op, d, turno) => { e.preventDefault(); e.currentTarget.classList.remove('over'); try { const x = JSON.parse(e.dataTransfer.getData('text/plain')); up(s => E.assignTo(s, x.id, op, d, turno, x.from)); } catch (err) { } };
+  const drop = (e, op, d, turno) => { e.preventDefault(); e.currentTarget.classList.remove('over'); try { const x = JSON.parse(e.dataTransfer.getData('text/plain'));
+    if (x.tu && x.tu !== turno && x.from === op) { up(s => E.partirEnDia(s, x.id, d, turno)); ui.toast(`Desde el ${fDia(d)} sigue en ${turno === 'extra' ? 'horas extra' : 'turno normal'}; lo anterior queda en ${x.tu === 'extra' ? 'horas extra' : 'turno normal'}`); return; }
+    up(s => E.assignTo(s, x.id, op, d, turno, x.from)); } catch (err) { } };
   const dnd = (op, d, turno) => ({ onDragOver: e => { e.preventDefault(); e.currentTarget.classList.add('over'); }, onDragLeave: e => e.currentTarget.classList.remove('over'), onDrop: e => drop(e, op, d, turno) });
   let capSem = 0, loadSem = 0, rojas = 0;
   const wk = {};
@@ -168,7 +170,7 @@ function Resumen() {
     const t = V.byId[it.id]; const c = E.chipOf(S, V, t);
     if (it.sigue) return <div key={it.id + 's'} className="cchip sig" style={{ '--c': c.color }} onClick={() => ui.modal({ k: 'task', id: t.id })} title={`Sigue en la extra lo del turno normal · ${c.txt} · ${etiqueta(V, t)}`}><b>{c.txt}</b><span>↪ {t.nombre}</span><i>{fN(it.h)} h</i></div>;
     return <div key={it.id} className={'cchip' + (t.empuje ? ' pushed' : '') + (t.estado === 'terminada' ? ' done' : '')} style={{ '--c': c.color }} draggable
-      onDragStart={e => e.dataTransfer.setData('text/plain', JSON.stringify({ id: t.id, from: op }))} onClick={() => ui.modal({ k: 'task', id: t.id })}
+      onDragStart={e => e.dataTransfer.setData('text/plain', JSON.stringify({ id: t.id, from: op, tu: turno, d }))} onClick={() => ui.modal({ k: 'task', id: t.id })}
       title={`${c.txt} · ${etiqueta(V, t)} · ${fDT(t.inicio)} → ${fDT(V.D[t.id].fin)}`}>
       <b>{c.txt}</b><span>{t.empuje ? (t.inicio < t.empuje ? '↤ ' : '↦ ') : ''}{t.nombre}</span><i>{fN(it.h)} h</i>
       <button aria-label="Quitar del operario" onClick={e => { e.stopPropagation(); up(s => E.unassign(s, t.id, op)); }}>×</button>
@@ -243,7 +245,7 @@ function Resumen() {
             <small>{fN(wk[o.id].l)}/{fN(wk[o.id].c)} h</small><Bar v={wk[o.id].c ? wk[o.id].l / wk[o.id].c * 100 : 0} color={wk[o.id].l > wk[o.id].c + .01 ? 'var(--bad)' : undefined} /></th>
           {days.map(d => cell(o, d))}</tr>)}</tbody>
       </table></div>
-      <p className="legend"><i className="lg g" />con lugar <i className="lg y" />completo <i className="lg r" />sobrecargado · N turno normal · E horas extra (sigue: continúa lo del turno normal ese día; aparte: otro trabajo) · arrastrá una tarea para moverla de día, de turno o de operario</p>
+      <p className="legend"><i className="lg g" />con lugar <i className="lg y" />completo <i className="lg r" />sobrecargado · N turno normal · E horas extra (sigue: continúa lo del turno normal ese día; aparte: otro trabajo) · arrastrá una tarea para moverla de día o de operario · si la pasás de extra a normal (o al revés) en el mismo operario, lo anterior queda y sigue desde ese día; también con el + de la celda</p>
       </> : <Capacidad w0={w0} irA={d => { setW0(d); setVista('sem'); }} />}
     </section>
     <section>
@@ -326,7 +328,7 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden }) {
     {late && <span className="mk bad" title={`Se pasa ${E.diffDays(t.entrega, r.fin.slice(0, 10))} días de la entrega del ${fD(t.entrega)}`}>+{E.diffDays(t.entrega, r.fin.slice(0, 10))}d</span>}
     {!late && !t.parentId && t.entrega && r.estado !== 'terminada' && <span className="mk" title={`Entrega comprometida: ${fD(t.entrega)}`}>{fD(t.entrega)}</span>}
     {t.empuje && <span className="mk warn" title={`Empujada: estaba para ${fDT(t.empuje)}. Dale el OK en Producción.`}>↦</span>}
-    {!r.ok && !r.parent && <span className="mk bad" title={`Faltan ${fN(r.falta)} h extra por habilitar en el calendario`}>!h</span>}
+    {!r.ok && !r.parent && <button className="mk bad" title={`Faltan ${fN(r.falta)} h extra por habilitar en el calendario. Tocá para habilitarlas.`} onClick={() => ui.modal({ k: 'extras', ids: [t.id] })}>!h</button>}
     {esp && <span className="mk" title={`Espera a "${esp.nombre}"${esp.fin ? ', que termina ' + fDT(esp.fin) : ', que todavía no está programada'}. Por eso no se adelanta.`}>⧖</span>}</>; };
   const cell = (k, t, depth, hasKids, r) => {
     switch (k) {
@@ -338,7 +340,7 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden }) {
       case 'estado': return r.parent ? <span className={'est e-' + r.estado.replace(' ', '')}>{r.estado}</span> : <select className={'ci est e-' + t.estado.replace(' ', '')} value={t.estado} onChange={e => setEstado(t, e.target.value)} aria-label="Estado"><option>pendiente</option><option>en proceso</option><option>terminada</option></select>;
       case 'operacion': return r.parent ? null : <select className={'ci' + (t.opAuto ? ' auto' : '')} title={t.opAuto ? 'Asignada automáticamente por el código o por las veces anteriores' : undefined} value={t.operacionId} onChange={e => set(t, { operacionId: e.target.value, opAuto: false })} aria-label="Operación"><option value="">—</option>{S.operaciones.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select>;
       case 'ops': return r.parent ? <span className="ro">{r.ops.map(o => opName(S, o)).join(', ')}</span> : <OpsCell t={t} />;
-      case 'turno': return r.parent ? null : <select className="ci" value={t.turno} onChange={e => set(t, { turno: e.target.value }, true)} aria-label="Turno"><option value="normal">Normal</option><option value="extra">Extra</option></select>;
+      case 'turno': return r.parent ? null : <select className="ci" value={t.turno} onChange={e => { const v = e.target.value; if ((E.llevado(S, t) > 0 || Number(t.avance) > 0) && t.estado !== 'terminada') { up(s => E.pasarTurno(s, t.id, v)); ui.toast(`Lo hecho quedó en ${t.turno === 'extra' ? 'horas extra' : 'turno normal'}; lo que falta sigue en ${v === 'extra' ? 'horas extra' : 'turno normal'}`); } else set(t, { turno: v }, true); }} aria-label="Turno"><option value="normal">Normal</option><option value="extra">Extra</option></select>;
       case 'hh': return r.parent ? <span className="ro num">{fN(r.hh)}</span> : <div className="hhc"><EdIn className="num" type="number" min="0" step="0.5" value={t.hh} onCommit={v => set(t, { hh: num(v) }, true)} />{t.ops.length > 1 && <small title="Duración en calendario: horas-hombre dividido la cantidad de operarios">÷{t.ops.length} = {fN(r.durCal)}</small>}</div>;
       case 'inicio': return r.parent ? <span className="ro">{fDT(r.inicio)}</span> : <EdIn type="datetime-local" value={t.inicio || ''} onCommit={v => set(t, { inicio: v || null }, true)} />;
       case 'fin': return r.parent ? <span className="ro">{fDT(r.fin)}</span> : <EdIn type="datetime-local" value={r.fin || ''} disabled={!t.inicio} onCommit={v => setFin(t, v)} />;
@@ -724,6 +726,8 @@ function OpTask({ t, op }) {
         {run && t.ops.length > 1 && <button className="btn" title="La tarea se parte: lo hecho queda cerrado y el resto sigue con los demás" onClick={() => up(s => E.salir(s, t.id, op))}>{opName(S, op)} sale</button>}
         {run ? <button className="btn" title="Parte la tarea: cierra lo hecho hasta ahora y deja el resto en pausa" onClick={() => up(s => E.pausar(s, t.id))}>Pausar</button> : <button className="btn" onClick={() => up(s => E.iniciar(s, t.id))}>{pausa ? 'Reanudar' : 'Iniciar'}</button>}
         <button className="btn pri-b" onClick={() => { setReal(llev > 0 ? llev : t.hh); setFin(true); }}>Finalizar</button>
+        {run && (() => { const ta = E.turnoAhora(S, t.ops); return ta && ta !== t.turno; })() && <button className="btn warn-b" title="La tarea sigue corriendo: lo hecho queda en su turno y desde ahora cuenta en el otro" onClick={() => up(s => E.pasarTurno(s, t.id, t.turno === 'extra' ? 'normal' : 'extra'))}>Ahora es turno {t.turno === 'extra' ? 'normal' : 'extra'}: seguir ahí</button>}
+        {(llev > 0 || t.avance > 0 || t.pausada || t.parte) && !run && <button className="btn" title={t.turno === 'extra' ? 'Lo hecho queda en horas extra; lo que falta pasa al turno normal' : 'Lo hecho queda en el turno normal; lo que falta pasa a horas extra'} onClick={() => up(s => E.pasarTurno(s, t.id, t.turno === 'extra' ? 'normal' : 'extra'))}>{t.turno === 'extra' ? 'Seguir en turno normal' : 'Seguir en horas extra'}</button>}
         <button className="btn" onClick={() => up(s => E.unassign(s, t.id, op))}>Quitar</button></div>}
   </div>;
 }
@@ -850,6 +854,44 @@ function LoteEditor({ ids, titulo, onClose }) {
           <td>{f.estado || V.D[t.id].estado}</td><td>{fDT(t.inicio)}</td></tr>; })}</tbody></table></div>
   </Modal>;
 }
+// Horas extra de un operario día por día: cuántas y para qué (seguir lo del turno normal u otra tarea aparte)
+function ExtrasDias({ op }) {
+  const { S, V, up, ui } = useApp(); const [n, setN] = useState(10);
+  const hoy = E.today(); const dias = []; for (let d = hoy, g = 0; dias.length < n && g < 40; g++, d = E.addDays(d, 1)) if (E.isWork(S, d) || E.extraDe(S, op, d) > 0) dias.push(d);
+  const items = (d, tu) => ((V.load[`${op}|${d}|${tu}`] || {}).items || []).map(i => V.byId[i.id]).filter(Boolean);
+  const set = (d, h, m) => up(s => E.setExtraDia(s, op, d, h, m));
+  return <div className="xdias">
+    <div className="sec-h"><h3>Horas extra, día por día</h3><span className="mut">Elegí cuántas horas hace y si sigue con lo del turno normal o hace otra tarea.</span></div>
+    <div className="xd-l">{dias.map(d => { const h = E.extraDe(S, op, d), m = E.modoExtra(S, op, d), aus = E.ausenciaDe(S, op, d); const norm = items(d, 'normal'), ext = items(d, 'extra');
+      const ult = norm[norm.length - 1];
+      return <div key={d} className={'xd' + (h > 0 ? ' on' : '') + (aus ? ' aus' : '')}>
+        <span className="xd-d">{fDia(d)}</span>
+        {aus ? <span className="mut">Ausente: {aus.motivo}</span> : <>
+        <span className="xd-h"><button className="btn sm" onClick={() => set(d, Math.max(0, h - 1), m)} disabled={!h} aria-label="Menos">−</button><b>{fN(h)} h</b><button className="btn sm" onClick={() => set(d, h + 1, h ? m : (ult ? 'sigue' : 'aparte'))} aria-label="Más">+</button></span>
+        {h > 0 ? <div className="seg sm"><button className={m === 'sigue' ? 'on' : ''} onClick={() => set(d, h, 'sigue')}>Sigue lo normal</button><button className={m !== 'sigue' ? 'on' : ''} onClick={() => set(d, h, 'aparte')}>Otra tarea</button></div> : <span className="mut">sin extra</span>}
+        <span className="xd-q">{h > 0 && (m === 'sigue' ? (ult ? <>continúa <Chip t={ult} small /> {etiqueta(V, ult)}</> : <span className="c-bad">ese día no tiene tarea normal para continuar</span>)
+          : ext.length ? ext.map(t => <span key={t.id} className="xd-t"><Chip t={t} small /> {etiqueta(V, t)}</span>) : <button className="btn sm" onClick={() => ui.modal({ k: 'pick', op, d, turno: 'extra' })}>+ Darle una tarea</button>)}</span></>}
+      </div>; })}</div>
+    {n < 30 && <button className="btn sm" onClick={() => setN(n + 10)}>Ver más días</button>}
+  </div>;
+}
+// Aviso al programar en horas extra sin extras habilitadas: se habilitan desde acá
+function ExtrasAviso({ ids, onClose }) {
+  const { S, V, up, ui } = useApp(); const [h, setH] = useState(2);
+  const ts = ids.map(id => V.byId[id]).filter(t => t && t.turno === 'extra' && !V.D[t.id].ok && t.ops.length && t.estado !== 'terminada');
+  useEffect(() => { if (!ts.length) onClose(); });
+  if (!ts.length) return null;
+  const sim = t => E.habilitarExtras(S, t.id, Number(h) || 1).dias;
+  const ok = () => { let n = 0; up(s => ids.reduce((a, id) => { const r = E.habilitarExtras(a, id, Number(h) || 1); n += r.dias.length; return r.S; }, s)); ui.toast(n ? 'Horas extra habilitadas' : 'No hizo falta habilitar días'); onClose(); };
+  const normal = () => { up(s => ts.reduce((a, t) => E.patchTask(a, t.id, { turno: 'normal' }, true), s)); onClose(); };
+  return <Modal title="Faltan horas extra habilitadas" onClose={onClose} foot={<><button className="btn" onClick={onClose}>Dejar así</button><button className="btn" onClick={normal}>Pasar a turno normal</button><span className="sp" /><button className="btn pri-b" onClick={ok}>Habilitar extras</button></>}>
+    <p>{ts.length === 1 ? 'Esta tarea está' : 'Estas tareas están'} en <b>horas extra</b>, pero {ts.length === 1 ? 'su operario no tiene' : 'sus operarios no tienen'} extras habilitadas suficientes para hacerla.</p>
+    <label className="inl">Horas extra por día<input className="w4" type="number" min="0.5" max="6" step="0.5" value={h} onChange={e => setH(e.target.value)} /></label>
+    {ts.map(t => { const d = sim(t); return <div key={t.id} className="xav"><Chip t={t} small /><b>{etiqueta(V, t)}</b>
+      <span className="mut">{t.ops.map(o => opName(S, o)).join(', ')} · faltan {fN(V.D[t.id].falta || 0)} h · se habilitarían {d.length} {d.length === 1 ? 'día' : 'días'}{d.length ? ': ' + d.map(fDia).join(', ') : ''}</span></div>; })}
+    <p className="mut">Esas extras quedan para trabajo aparte (no siguen lo del turno normal). Las podés ajustar después en Producción, tocando al operario.</p>
+  </Modal>;
+}
 function OperarioPanel({ id, onClose }) {
   const { S, V, up, ui } = useApp(); const [, setTick] = useState(0);
   useEffect(() => { const i = setInterval(() => setTick(x => x + 1), 30000); return () => clearInterval(i); }, []);
@@ -880,16 +922,23 @@ function OperarioPanel({ id, onClose }) {
     {aus && <p className="note bad">Hoy ausente: {aus.motivo}.</p>}
     <div className="row"><button className="btn" onClick={() => juntar(up, ui, id, o.nombre)}>Juntar sus tareas</button><span className="mut">Adelanta lo pendiente para cerrar huecos libres. Al pausar, la tarea se parte: lo hecho queda cerrado con su tiempo y el resto vuelve a la cola.</span></div>
     <div className="opcols">{camino('normal', 'Turno normal')}{camino('extra', 'Horas extra')}</div>
+    <ExtrasDias op={id} />
     {hechas.length > 0 && <><h3>Terminadas hoy <span className="cnt">{hechas.length}</span></h3>{hechas.map(t => <DoneRow key={t.id} t={t} />)}</>}
     <DarTareas op={id} />
   </Modal>;
 }
 function Picker({ op, d, turno, onClose }) {
-  const { S, V, up } = useApp(); const [q, setQ] = useState('');
-  const l = S.tareas.filter(t => !V.D[t.id].parent && t.estado !== 'terminada' && !t.ops.includes(op) && (etiqueta(V, t) + ' ' + E.chipOf(S, V, t).txt).toLowerCase().includes(q.toLowerCase()))
+  const { S, V, up, ui } = useApp(); const [q, setQ] = useState('');
+  const okq = t => (etiqueta(V, t) + ' ' + E.chipOf(S, V, t).txt).toLowerCase().includes(q.toLowerCase());
+  const suyas = S.tareas.filter(t => !V.D[t.id].parent && t.estado !== 'terminada' && t.ops.includes(op) && (t.turno || 'normal') !== turno && okq(t)).sort((a, b) => (a.inicio || '9') < (b.inicio || '9') ? -1 : 1);
+  const l = S.tareas.filter(t => !V.D[t.id].parent && t.estado !== 'terminada' && !t.ops.includes(op) && okq(t))
     .sort((a, b) => (a.ops.length - b.ops.length) || PRI[a.prioridad] - PRI[b.prioridad]);
   return <Modal title={`Asignar a ${opName(S, op)} · ${fDia(d)} · turno ${turno}`} onClose={onClose}>
     <input id="pk-q" className="full" placeholder="Buscar por nombre, OV/OC o proyecto" value={q} onChange={e => setQ(e.target.value)} autoFocus />
+    {suyas.length > 0 && <><h3>Sus tareas en {turno === 'extra' ? 'turno normal' : 'horas extra'}: seguirlas acá</h3>
+      {suyas.map(t => <div key={t.id} className="pitem st sig" onClick={() => { up(s => E.partirEnDia(s, t.id, d, turno)); ui.toast(`Desde el ${fDia(d)} sigue en ${turno === 'extra' ? 'horas extra' : 'turno normal'}`); onClose(); }}>
+        <Chip t={t} small /><span className="pn">{etiqueta(V, t)}</span><Pri p={t.prioridad} /><span className="mut">{t.turno === 'extra' ? 'en horas extra' : 'en turno normal'} · {fDT(t.inicio)} → {fDT(V.D[t.id].fin)} · lo que falta sigue acá desde el {fDia(d)}</span></div>)}
+      <h3>Otras tareas</h3></>}
     {l.length === 0 && <p className="mut">No hay tareas para asignar.</p>}
     {l.map(t => <div key={t.id} className="pitem st" onClick={() => { up(s => E.assignTo(s, t.id, op, d, turno)); onClose(); }}>
       <Chip t={t} small /><span className="pn">{etiqueta(V, t)}</span><Pri p={t.prioridad} /><span className="mut">{fH(t.hh)} · {t.ops.length ? 'ya la tiene ' + t.ops.map(o => opName(S, o)).join(', ') + ' (se suma)' : 'sin asignar'}</span></div>)}
@@ -927,7 +976,9 @@ function TallerTask({ t }) {
       <div className="tbtns"><button className="btn big pri-b" onClick={() => up(s => E.finalizar(s, t.id, real))}>Confirmar</button><button className="btn big" onClick={() => setFin(false)}>Cancelar</button></div></div>
       : <div className="tbtns">
         {run ? <button className="btn big" onClick={() => up(s => E.pausar(s, t.id))}>Pausar</button> : <button className="btn big pri-b" onClick={() => up(s => E.iniciar(s, t.id))}>{pausa ? 'Reanudar' : 'Iniciar'}</button>}
-        <button className={'btn big' + (run ? ' pri-b' : '')} onClick={() => { setReal(llev > 0 ? llev : t.hh); setFin(true); }}>Finalizar</button></div>}
+        <button className={'btn big' + (run ? ' pri-b' : '')} onClick={() => { setReal(llev > 0 ? llev : t.hh); setFin(true); }}>Finalizar</button>
+        {run && (() => { const ta = E.turnoAhora(S, t.ops); return ta && ta !== t.turno; })() && <button className="btn big warn-b" onClick={() => up(s => E.pasarTurno(s, t.id, t.turno === 'extra' ? 'normal' : 'extra'))}>Ahora es turno {t.turno === 'extra' ? 'normal' : 'extra'}: seguir ahí</button>}
+        {(llev > 0 || t.avance > 0 || t.pausada || t.parte) && !run && <button className="btn" onClick={() => up(s => E.pasarTurno(s, t.id, t.turno === 'extra' ? 'normal' : 'extra'))}>{t.turno === 'extra' ? 'Seguir en turno normal' : 'Seguir en horas extra'}</button>}</div>}
   </div>;
 }
 function Taller() {
@@ -1175,18 +1226,23 @@ const TABS = [['resumen', 'Producción', 'M4 5h16v15H4zM4 10h16M9 5v15M15 5v15']
 const AVC = ['#5cc8c0', '#e59a57', '#b08cf0', '#e37fa7', '#8fbf5a', '#6f9df5', '#d9c15a', '#d98a8a', '#58b7e8', '#c9a0dc'];
 const Av = ({ o, i, sm }) => <span className={'av' + (sm ? ' sm' : '')} style={{ '--c': AVC[i % AVC.length] }}>{(o.nombre || '?').trim().slice(0, 2).toUpperCase()}</span>;
 export function App({ db, ses, S0 }) {
-  const [S, setS] = useState(() => S0 || db.inicial()); const ref = useRef(S); const hist = useRef([]); const fut = useRef([]); const [nh, setNh] = useState(0); const [nf, setNf] = useState(0);
+  const [S, setS] = useState(() => S0 || db.inicial()); const ref = useRef(S); const hist = useRef([]); const fut = useRef([]); const local = useRef(false); const malas = useRef(null); const prevT = useRef(null); const [nh, setNh] = useState(0); const [nf, setNf] = useState(0);
   const [tab, setTab] = useState(() => { const h = (location.hash || '').slice(1); return TABS.some(t => t[0] === h) ? h : 'resumen'; });
-  const [modal, setModal] = useState(null); const [toast, setToast] = useState(null);
+  const [modal, setModal] = useState(null); const [toast, setToast] = useState(null); const [aviso, setAviso] = useState(null);
   const [uid, setUid] = useState(() => { try { return localStorage.getItem(KEY + '-uid') || 'u1'; } catch (e) { return 'u1'; } });
   const yo = ses ? (S.usuarios.find(u => u.email === ses.email) || (ses.dueno ? { id: ses.email, email: ses.email, nombre: ses.nombre || 'Dueño', admin: true } : { id: ses.email, email: ses.email, nombre: ses.email, admin: false, rep: 'ver', proy: 'ver' }))
     : (S.usuarios.find(u => u.id === uid) || S.usuarios.find(u => u.admin) || S.usuarios[0]);
   if (ses && ses.dueno) yo.admin = true;
   const pm = { admin: !!yo.admin, rep: !!yo.admin || yo.rep === 'editar', proy: !!yo.admin || yo.proy === 'editar' }; const pmRef = useRef(pm); pmRef.current = pm; const yoRef = useRef(yo); yoRef.current = yo;
   const V = useMemo(() => E.derive(S), [S]);
+  // si un cambio propio deja una tarea en horas extra sin extras habilitadas, se ofrece habilitarlas
+  useEffect(() => { const ahora = new Set(S.tareas.filter(t => t.turno === 'extra' && t.ops.length && t.inicio && t.estado !== 'terminada' && V.D[t.id] && !V.D[t.id].parent && !V.D[t.id].ok).map(t => t.id));
+    const antes = malas.current; malas.current = ahora; const tp = prevT.current; prevT.current = S.tareas; if (!antes || !local.current) { local.current = false; return; } local.current = false;
+    if (tp) { const vie = new Set(tp); if (S.tareas.filter(t => !vie.has(t)).length > 30) return; } /* cambios masivos (restaurar, importar): no se pregunta */
+    const nuevas = [...ahora].filter(i => !antes.has(i)); if (nuevas.length && nuevas.length <= 8) setAviso(nuevas); /* muchas de golpe (restaurar una copia, importar): se ven con la marca !h */ }, [V]);
   const up = useCallback(fn => { const p = ref.current, n = fn(p); if (n === p) return; const err = permiso(p, n, pmRef.current); if (err) { setToast(err); return; } const d = describir(p, n); let n2 = n.log === p.log ? n : { ...n, log: p.log };
     if (d) { const yo = yoRef.current, now = Date.now(), log = p.log || [], junta = log[0] && log[0].uid === yo.id && log[0].k === d.k && now - log[0].ts < 90000, e = { id: junta ? log[0].id : now + '-' + E.uid(), ts: now, uid: yo.id, email: yo.email || '', quien: yo.nombre, k: d.k, txt: d.txt }; n2 = { ...n2, log: junta ? [e, ...log.slice(1)] : [e, ...log].slice(0, 300) }; }
-    hist.current = [...hist.current.slice(-39), { s: p, txt: d ? d.txt : 'último cambio' }]; fut.current = []; setNf(0); ref.current = n2; setS(n2); setNh(hist.current.length); db.escribir(p, n2, setToast); }, []);
+    local.current = true; hist.current = [...hist.current.slice(-39), { s: p, txt: d ? d.txt : 'último cambio' }]; fut.current = []; setNf(0); ref.current = n2; setS(n2); setNh(hist.current.length); db.escribir(p, n2, setToast); }, []);
   const undo = useCallback(() => { const h = hist.current.pop(); if (!h) return; const p = ref.current; fut.current.push({ s: p, txt: h.txt }); ref.current = h.s; setS(h.s); setNh(hist.current.length); setNf(fut.current.length); db.escribir(p, h.s, setToast); setToast('Deshecho: ' + h.txt.slice(0, 120)); }, []);
   const redo = useCallback(() => { const h = fut.current.pop(); if (!h) return; const p = ref.current; hist.current.push({ s: p, txt: h.txt }); ref.current = h.s; setS(h.s); setNh(hist.current.length); setNf(fut.current.length); db.escribir(p, h.s, setToast); setToast('Rehecho: ' + h.txt.slice(0, 120)); }, []);
   // Ctrl+Z / Ctrl+Y (y Ctrl+Mayús+Z). Mientras escribís en un campo, deshace lo escrito en ese campo, como siempre.
@@ -1217,6 +1273,8 @@ export function App({ db, ses, S0 }) {
       {modal && modal.k === 'op' && <OperarioPanel id={modal.id} onClose={close} />}
       {modal && modal.k === 'pick' && <Picker {...modal} onClose={close} />}
       {modal && modal.k === 'hoy' && <Hoy onClose={close} />}
+      {modal && modal.k === 'extras' && <ExtrasAviso ids={modal.ids} onClose={close} />}
+      {aviso && <ExtrasAviso ids={aviso} onClose={() => setAviso(null)} />}
       {modal && modal.k === 'lote' && <LoteEditor ids={modal.ids} titulo={modal.titulo} onClose={close} />}
       {modal && modal.k === 'imp' && <Importer mode={modal.mode} proyId={modal.proyId} onClose={close} />}
       {toast && <div className="toast" role="status">{toast}</div>}

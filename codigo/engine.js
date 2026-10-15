@@ -279,6 +279,20 @@ export const blankTask = (tipo, proyId) => ({ id: uid(), tipo, proyId: proyId ||
 
 // Cambia las extras de un operario en un día y arrastra la cola: todo lo que venía detrás de una tarea
 // que ahora termina a otra hora se mueve con ella (conserva la separación que tenía y respeta sus predecesoras).
+// Habilita horas extra (para trabajo aparte) a los operarios de una tarea en turno extra, día por día desde su inicio, hasta que entre
+export function habilitarExtras(S, id, h, soloDias) {
+  let S2 = S; const dias = []; const t0 = S.tareas.find(x => x.id === id); if (!t0 || !t0.inicio || !t0.ops.length) return { S, dias };
+  let d = t0.inicio.slice(0, 10);
+  for (let g = 0; g < 90; g++) {
+    const t = S2.tareas.find(x => x.id === id); if (addWork(S2, t.inicio, calDur(t), 'extra', t.ops).ok) break;
+    if (isWork(S2, d) && (!soloDias || soloDias.includes(d))) { let cambio = false;
+      t.ops.forEach(op => { if (extraDe(S2, op, d) <= 0 && !ausenciaDe(S2, op, d)) { S2 = setExtraDia(S2, op, d, h, 'aparte'); cambio = true; } });
+      if (cambio) dias.push(d); }
+    d = addDays(d, 1);
+  }
+  S2 = patchTask(S2, id, {}, true);
+  return { S: S2, dias };
+}
 export function setExtraDia(S, op, d, horas, modo) {
   const k = op + '|' + d;
   let S2 = { ...S, extras: { ...S.extras, [k]: Math.max(0, Number(horas) || 0) }, extraModo: { ...(S.extraModo || {}), [k]: modo || modoExtra(S, op, d) } };
@@ -311,17 +325,18 @@ export function llevado(S, t) {
 }
 // Parte una tarea en dos: lo hecho hasta ahora (terminado, con su tiempo real) y el resto, que vuelve a la cola.
 // La primera vez la tarea original pasa a ser el "resumen" de sus partes; las siguientes suman una parte más.
-export function partir(S, id, { ops, correr } = {}) {
+export function partir(S, id, { ops, correr, turno, desde } = {}) {
   const t = S.tareas.find(x => x.id === id); if (!t || !isLeaf(S, id)) return S;
   const now = nowDT(), L = r2(llevado(S, t)), H = Number(t.hh) || 0, av = Number(t.avance) || 0;
-  if (!hojaReal(S, id)) return { ...S, tareas: S.tareas.map(x => x.id === id ? { ...x, ops: ops || x.ops, estado: 'en proceso', pausada: !correr, hhReal: L, crono: { acum: L, desde: correr ? now : null } } : x) };   // pieza padre con trabajo propio: se pausa sin partirse
-  if (L < 0.05 && av <= 0) return { ...S, tareas: S.tareas.map(x => x.id === id ? { ...x, estado: correr ? 'en proceso' : 'pendiente', pausada: !correr, ops: ops || x.ops, crono: correr ? { acum: 0, desde: now } : null } : x) };
+  const tu = turno || t.turno, ini0 = desde || now;
+  if (!hojaReal(S, id)) return { ...S, tareas: S.tareas.map(x => x.id === id ? { ...x, ops: ops || x.ops, turno: tu, estado: 'en proceso', pausada: !correr, hhReal: L, crono: { acum: L, desde: correr ? now : null }, ...(tu !== t.turno ? { inicio: normStart(S, ini0, tu, ops || x.ops) } : {}) } : x) };   // pieza padre con trabajo propio: se pausa sin partirse
+  if (L < 0.05 && av <= 0) return { ...S, tareas: S.tareas.map(x => x.id === id ? { ...x, estado: correr ? 'en proceso' : 'pendiente', pausada: !correr, ops: ops || x.ops, crono: correr ? { acum: 0, desde: now } : null, ...(tu !== t.turno ? { turno: tu, inicio: normStart(S, ini0, tu, ops || x.ops) } : {}) } : x) };
   const resto = r2(Math.max(0.25, av > 0 ? H * (1 - av / 100) : H - L)), hecho = r2(Math.max(0.05, H - resto));
   const par = t.parentId && S.tareas.find(x => x.id === t.parentId), cont = par && par.partes;
   const base = cont ? par.nombre : t.nombre, k = cont ? S.tareas.filter(x => x.parentId === par.id).length : 1;
   const nOps = ops || t.ops, rid = uid();
   const hechaP = { hh: hecho, estado: 'terminada', avance: 100, hhReal: L, finReal: now, crono: { acum: L, desde: null }, pausada: false, empuje: null, parte: true };
-  const restoT = { ...t, id: rid, parentId: cont ? par.id : t.id, nombre: `${base} (parte ${k + 1})`, hh: resto, estado: correr ? 'en proceso' : 'pendiente', pausada: !correr, crono: correr ? { acum: 0, desde: now } : null, avance: 0, hhReal: 0, finReal: null, ops: nOps, inicio: nOps.length ? normStart(S, now, t.turno, nOps) : null, preds: [], empuje: null, parte: true, partes: false };
+  const restoT = { ...t, id: rid, parentId: cont ? par.id : t.id, nombre: `${base} (parte ${k + 1})`, hh: resto, estado: correr ? 'en proceso' : 'pendiente', pausada: !correr, crono: correr ? { acum: 0, desde: now } : null, avance: 0, hhReal: 0, finReal: null, ops: nOps, turno: tu, inicio: nOps.length ? normStart(S, ini0, tu, nOps) : null, preds: [], empuje: null, parte: true, partes: false };
   let tareas;
   if (cont) tareas = S.tareas.map(x => x.id === id ? { ...x, ...hechaP } : x).concat(restoT);
   else tareas = S.tareas.map(x => x.id === id ? { ...x, partes: true, crono: null, pausada: false } : x).concat({ ...t, id: uid(), parentId: t.id, nombre: `${t.nombre} (parte 1)`, preds: [], partes: false, ...hechaP }, restoT);
@@ -334,7 +349,41 @@ export function salir(S, id, op) {
   const t = S.tareas.find(x => x.id === id); if (!t || t.ops.length < 2 || !t.ops.includes(op)) return S;
   return partir(S, id, { ops: t.ops.filter(o => o !== op), correr: corriendo(t) });
 }
+// Desde un día dado, lo que falta de una tarea sigue en el otro turno: lo programado antes de ese día queda como parte 1
+export function partirEnDia(S, id, d, turno) {
+  const t = S.tareas.find(x => x.id === id); if (!t || !isLeaf(S, id)) return S;
+  const ini = normStart(S, d + 'T00:00', turno, t.ops);
+  if (!hojaReal(S, id)) return patchTask(S, id, { turno, inicio: ini, empuje: null }, true);
+  const n = Math.max(1, t.ops.length), H = Number(t.hh) || 0;
+  let antes = 0;
+  if (t.inicio && t.inicio.slice(0, 10) < d) antes = addWork(S, t.inicio, calDur(t), t.turno, t.ops).segs.filter(x => x.d < d).reduce((a, x) => a + x.h + x.xe, 0) * n;
+  antes = r2(Math.min(H, Math.max(antes, llevado(S, t))));
+  if (antes < 0.05) return patchTask(S, id, { turno, inicio: ini, empuje: null }, true);
+  if (antes >= H - 0.05) return S;
+  const par = t.parentId && S.tareas.find(x => x.id === t.parentId), cont = par && par.partes;
+  const base = cont ? par.nombre : t.nombre, k = cont ? S.tareas.filter(x => x.parentId === par.id).length : 1;
+  const resto = { ...t, id: uid(), parentId: cont ? par.id : t.id, nombre: `${base} (parte ${k + 1})`, hh: r2(H - antes), turno, inicio: ini, estado: 'pendiente', pausada: false, crono: null, avance: 0, hhReal: 0, finReal: null, preds: [], empuje: null, parte: true, partes: false };
+  const primera = { hh: antes, parte: true, avance: Math.min(100, Math.round((Number(t.avance) || 0) * H / antes)) };
+  const tareas = cont ? S.tareas.map(x => x.id === id ? { ...x, ...primera } : x).concat(resto)
+    : S.tareas.map(x => x.id === id ? { ...x, partes: true, crono: null, pausada: false } : x).concat({ ...t, id: uid(), parentId: t.id, nombre: `${t.nombre} (parte 1)`, preds: [], partes: false, ...primera }, resto);
+  return reflow({ ...S, tareas }, resto.id);
+}
+// En qué turno está trabajando ahora ese grupo de operarios (null si están fuera de horario)
+export function turnoAhora(S, ops, dt) {
+  const [d, m] = split(dt || nowDT());
+  for (const tu of ['normal', 'extra']) for (const [a, b] of dayIv(S, d, tu, ops)) if (m >= a && m < b) return tu;   // la extra que "sigue" cuenta como turno normal
+  return null;
+}
+// Sigue una tarea en el otro turno: lo hecho queda cerrado en su turno y el resto pasa al turno elegido
+export function pasarTurno(S, id, turno, { correr } = {}) {
+  const t = S.tareas.find(x => x.id === id); if (!t || t.turno === turno || !isLeaf(S, id)) return S;
+  const S2 = partir(S, id, { turno, correr: correr === undefined ? corriendo(t) : correr });
+  const nueva = S2.tareas.find(x => !S.tareas.some(y => y.id === x.id));
+  return reflow(S2, nueva ? nueva.id : id);
+}
 export function iniciar(S, id) {
+  { const t = S.tareas.find(x => x.id === id), ta = t && t.ops.length ? turnoAhora(S, t.ops) : null;   // si arranca en el otro turno, el resto pasa a ese turno
+    if (t && ta && ta !== t.turno && !corriendo(t) && t.estado !== 'terminada') { const S2 = pasarTurno(S, id, ta); const nueva = S2.tareas.find(x => !S.tareas.some(y => y.id === x.id)); return iniciar(S2, nueva ? nueva.id : id); } }
   const t0 = S.tareas.find(x => x.id === id); if (!t0) return S; const now = nowDT(); let S1 = S;
   S.tareas.filter(x => x.id !== id && corriendo(x) && x.ops.some(o => t0.ops.includes(o))).forEach(x => { S1 = partir(S1, x.id); });   // una persona, una tarea a la vez
   const t = S1.tareas.find(x => x.id === id); const ini = t.ops.length ? normStart(S1, now, t.turno, t.ops) : t.inicio;

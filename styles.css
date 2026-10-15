@@ -617,3 +617,17 @@ label.chk.etp { align-self: end; padding-bottom: 6px; }
 .sinh-r .sn { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sinh-r input.w5 { width: 70px; }
 @media (max-width: 700px) { .drow.hh1 { grid-template-columns: 1fr auto; } .drow.hh1 .dtrack { grid-column: 1 / -1; order: 3; } .sinh-r { grid-template-columns: auto 1fr; } }
+/* horas extra día por día */
+.xdias { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 10px; }
+.xd-l { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; }
+.xd { display: grid; grid-template-columns: 110px auto auto minmax(0, 1fr); gap: 10px; align-items: center; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); }
+.xd.on { border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); background: color-mix(in srgb, var(--warn) 7%, var(--panel)); }
+.xd.aus { opacity: .55; }
+.xd-d { font-weight: 600; } .xd-h { display: inline-flex; align-items: center; gap: 6px; } .xd-h b { min-width: 34px; text-align: center; }
+.xd-q { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; font-size: 13px; } .xd-t { display: inline-flex; gap: 4px; align-items: center; }
+.seg.sm button { padding: 4px 9px; font-size: 12.5px; }
+.xav { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; border-bottom: 1px solid var(--line); } .xav .row { gap: 6px; }
+button.mk.bad { cursor: pointer; background: none; }
+@media (max-width: 700px) { .xd { grid-template-columns: 1fr auto; } .xd .seg, .xd-q { grid-column: 1 / -1; } }
+.btn.warn-b { border-color: var(--warn); color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, var(--panel2)); }
+.pitem.sig { border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); background: color-mix(in srgb, var(--warn) 8%, var(--panel)); }
