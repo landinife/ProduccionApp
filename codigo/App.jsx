@@ -751,6 +751,8 @@ function TaskEditor({ id, draft, onClose }) {
   const set = (k, v) => setT(p => ({ ...p, [k]: v }));
   const n = Math.max(1, t.ops.length), hh = Number(t.hh) || 0;
   const w = t.inicio ? E.addWork(S, t.inicio, hh / n, t.turno, t.ops) : null;
+  const hhEntre = fin => t.inicio && fin && fin > t.inicio ? Math.round(E.workBetween(S, t.inicio, fin, t.turno, t.ops) * n * 100) / 100 : 0;
+  const setFinReal = v => { if (!v) { setT(p => ({ ...p, realFin: false })); return; } const h = hhEntre(v); setT(p => ({ ...p, finReal: v, realFin: true, ...(h > 0 ? { hhReal: h } : {}) })); };
   const setFin = v => { if (!t.inicio || !v) return; const h = E.workBetween(S, t.inicio, v, t.turno, t.ops) * n; if (h > 0) set('hh', Math.round(h * 100) / 100); };
   const togOp = o => set('ops', t.ops.includes(o) ? t.ops.filter(x => x !== o) : [...t.ops, o]);
   const togPred = p => set('preds', (t.preds || []).includes(p) ? t.preds.filter(x => x !== p) : [...(t.preds || []), p]);
@@ -760,10 +762,10 @@ function TaskEditor({ id, draft, onClose }) {
   const save = () => {
     if (!t.nombre.trim()) { ui.toast('Poné el nombre de la pieza'); return; }
     const x = { ...t, hh, cant: Number(t.cant) || 0, avance: Math.min(100, Math.max(0, Number(t.avance) || 0)), hhReal: Number(t.hhReal) || 0 };
-    if (x.estado === 'terminada') { x.avance = 100; if (!x.finReal) x.finReal = E.nowDT(); } else x.finReal = null;
+    if (x.estado === 'terminada') { x.avance = 100; if (!x.finReal) x.finReal = E.nowDT(); if (x.realFin && !(x.inicio && x.finReal > x.inicio)) x.realFin = false; } else { x.finReal = null; x.realFin = false; }
     if (x.estado !== orig.estado || isNew) x.crono = x.estado === 'en proceso' ? { acum: orig.crono ? Number(orig.crono.acum) || 0 : x.hhReal, desde: E.nowDT() } : x.estado === 'terminada' ? { acum: x.hhReal, desde: null } : null;
     if (!x.ops.length) x.inicio = x.inicio || null; else if (!x.inicio) x.inicio = E.nextFree(S, x.ops[0], x.turno, x.ops);
-    const mover = !parent && (isNew || ['inicio', 'hh', 'turno'].some(k => x[k] !== orig[k]) || x.ops.join() !== orig.ops.join() || (x.preds || []).join() !== (orig.preds || []).join());
+    const mover = !parent && (isNew || ['inicio', 'hh', 'turno'].some(k => x[k] !== orig[k]) || !!x.realFin !== !!orig.realFin || (x.realFin && x.finReal !== orig.finReal) || x.ops.join() !== orig.ops.join() || (x.preds || []).join() !== (orig.preds || []).join());
     up(s => E.patchTask(isNew ? { ...s, tareas: [...s.tareas, x] } : s, x.id, x, mover)); onClose();
   };
   const foot = <>
@@ -795,14 +797,19 @@ function TaskEditor({ id, draft, onClose }) {
                 <span className="mut">entra {fDT(r.ini)}{r.fin ? ` · termina ${fDT(r.fin)}` : ''}</span>
                 <button type="button" className="btn sm" onClick={() => setT(p => ({ ...p, ops: [r.op], inicio: r.ini }))}>{t.ops.length === 1 && t.ops[0] === r.op ? 'Elegido' : 'Dársela'}</button></div>)}</div>}</div>}
         <div className="g2 fld"><span>Operarios</span><div className="togs">{S.operarios.filter(o => o.activo || t.ops.includes(o.id)).map(o => <button key={o.id} type="button" className={'togb' + (t.ops.includes(o.id) ? ' on' : '')} onClick={() => togOp(o.id)}>{o.nombre}</button>)}</div></div>
-        <label>Inicio<input id="te-ini" type="datetime-local" value={t.inicio || ''} onChange={e => set('inicio', e.target.value || null)} /></label>
+        <label>{t.estado === 'terminada' ? 'Inicio (real)' : 'Inicio'}<input id="te-ini" type="datetime-local" value={t.inicio || ''} onChange={e => set('inicio', e.target.value || null)} /></label>
         <label>Horas-hombre (trabajo total)<span className="incalc"><input id="te-hh" type="number" min="0" step="0.5" value={t.hh} onChange={e => { setHhTocado(true); set('hh', e.target.value); }} /><CalcBtn cant={Number(t.cant) || 0} titulo={(t.nombre || 'Pieza') + ' · duración'} onUse={v => { setHhTocado(true); set('hh', Math.round(v * 100) / 100); }} /></span>
           {hist && <small className="hint">Se hizo {hist.n} {hist.n === 1 ? 'vez' : 'veces'}: {fHM(hist.porUnidad)} reales por unidad{(() => { const sug = Math.max(0.5, Math.round(hist.porUnidad * Math.max(1, Number(t.cant) || 1) * 2) / 2); return Math.abs(sug - hh) > 0.01 ? <> → <button type="button" className="lnk sm" onClick={() => { setHhTocado(true); set('hh', sug); }}>usar {fN(sug)} h</button></> : ' (ya aplicado)'; })()}</small>}</label>
-        <label>Fin<input id="te-fin" type="datetime-local" value={w ? w.end : ''} disabled={!t.inicio} onChange={e => setFin(e.target.value)} /></label>
+        <label>{t.estado === 'terminada' ? 'Fin planificado' : 'Fin'}<input id="te-fin" type="datetime-local" value={w ? w.end : ''} disabled={!t.inicio} onChange={e => setFin(e.target.value)} /></label>
         <div className="fld"><span>Duración en calendario</span><b className="big">{fH(hh / n)}</b><small className="mut">{fN(hh)} HH ÷ {n} operario{n > 1 ? 's' : ''}</small></div>
         {w && !w.ok && <p className="note bad g2">Faltan {fN(w.falta)} h extra por habilitar en el calendario para poder calcular el fin.</p>}
         <label>Estado<select id="te-est" value={t.estado} onChange={e => set('estado', e.target.value)}><option>pendiente</option><option>en proceso</option><option value="terminada">finalizada</option></select></label>
         <label>Avance %<input id="te-av" type="number" min="0" max="100" step="5" value={t.estado === 'terminada' ? 100 : t.avance} disabled={t.estado === 'terminada'} onChange={e => set('avance', e.target.value)} /></label>
+        {t.estado === 'terminada' && (() => { const h = t.realFin ? hhEntre(t.finReal) : 0, malo = t.realFin && t.finReal && t.inicio && t.finReal <= t.inicio;
+          return <label>Fin real<input id="te-finr" type="datetime-local" value={t.realFin ? (t.finReal || '').slice(0, 16) : ''} min={t.inicio || undefined} onChange={e => setFinReal(e.target.value)} />
+            {malo ? <small className="hint bad">Tiene que ser después del inicio ({fDT(t.inicio)}).</small>
+              : t.realFin ? <small className="hint ok">Del {fDT(t.inicio)} al {fDT(t.finReal)}: {fN(h / n)} h trabajables{n > 1 ? ` × ${n} operarios` : ''} = {fN(h)} HH. El Gantt y el calendario muestran esto.{Math.abs(h - (Number(t.hhReal) || 0)) > 0.01 && <> <button type="button" className="lnk sm" onClick={() => set('hhReal', h)}>usar {fN(h)} h</button></>} <button type="button" className="lnk sm" onClick={() => setFinReal('')}>volver a lo planificado</button></small>
+              : <small className="hint">Cargá cuándo terminó: te calculo las horas reales y el Gantt y el calendario pasan a mostrar lo que duró (hoy muestran lo planificado).</small>}</label>; })()}
         <label>Horas-hombre reales<span className="incalc"><input id="te-real" type="number" min="0" step="0.5" value={t.hhReal} onChange={e => set('hhReal', e.target.value)} /><CalcBtn cant={Number(t.cant) || 0} titulo={(t.nombre || 'Pieza') + ' · horas reales'} onUse={v => set('hhReal', Math.round(v * 100) / 100)} /></span></label>
         <div className="g2 fld preds"><button type="button" className="predh" aria-expanded={predOpen} onClick={() => setPredOpen(!predOpen)}>
             <span className="car">{predOpen ? '▾' : '▸'}</span><span>Empieza después de (predecesoras)</span><span className="cnt">{(t.preds || []).length}</span></button>
@@ -831,7 +838,7 @@ function OpTask({ t, op }) {
     {fin ? <div className="finbox">
       <div className="row"><span className="mut">Tiempo real (horas-hombre)</span><HM value={real} onChange={setReal} cant={Number(t.cant) || 0} titulo={t.nombre} /></div>
       <div className="row"><span className="mut">Proyectado {fHM(t.hh)} ·</span><Desvio real={real} plan={t.hh} /></div>
-      <div className="row"><button className="btn pri-b" onClick={() => up(s => E.finalizar(s, t.id, real))}>Confirmar</button><button className="btn" onClick={() => setFin(false)}>Cancelar</button></div></div>
+      <div className="row"><button className="btn pri-b" onClick={() => up(s => E.finalizar(s, t.id, real, true))}>Confirmar</button><button className="btn" onClick={() => setFin(false)}>Cancelar</button></div></div>
       : <div className="row">
         <input className="rng" type="range" min="0" max="100" step="5" value={av} aria-label="Avance" onChange={e => setAv(e.target.value)} onPointerUp={commit} onKeyUp={commit} onBlur={commit} /><span className="pct">{Math.round(av)}%</span>
         {run && t.ops.length > 1 && <button className="btn" title="La tarea se parte: lo hecho queda cerrado y el resto sigue con los demás" onClick={() => up(s => E.salir(s, t.id, op))}>{opName(S, op)} sale</button>}
@@ -1084,7 +1091,7 @@ function TallerTask({ t }) {
     {fin ? <div className="finbox">
       <div className="row"><span className="mut">Tiempo real</span><HM value={real} onChange={setReal} cant={Number(t.cant) || 0} titulo={t.nombre} /></div>
       <div className="row"><span className="mut">Proyectado {fHM(t.hh)} ·</span><Desvio real={real} plan={t.hh} /></div>
-      <div className="tbtns"><button className="btn big pri-b" onClick={() => up(s => E.finalizar(s, t.id, real))}>Confirmar</button><button className="btn big" onClick={() => setFin(false)}>Cancelar</button></div></div>
+      <div className="tbtns"><button className="btn big pri-b" onClick={() => up(s => E.finalizar(s, t.id, real, true))}>Confirmar</button><button className="btn big" onClick={() => setFin(false)}>Cancelar</button></div></div>
       : <div className="tbtns">
         {run ? <button className="btn big" onClick={() => up(s => E.pausar(s, t.id))}>Pausar</button> : <button className="btn big pri-b" onClick={() => up(s => E.iniciar(s, t.id))}>{pausa ? 'Reanudar' : 'Iniciar'}</button>}
         <button className={'btn big' + (run ? ' pri-b' : '')} onClick={() => { setReal(llev > 0 ? llev : t.hh); setFin(true); }}>Finalizar</button>

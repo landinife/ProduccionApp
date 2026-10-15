@@ -699,3 +699,4 @@ select option:disabled { color: var(--mut); }
 .dprog.w0 i { background-color: var(--warn); --c: var(--warn); }
 .dprog.ok, .dprog.w0 { border-color: transparent; }
 @media (max-width: 760px) { .drow:has(.dprog) { grid-template-columns: 1fr; } .drow .dprog { grid-row: auto; grid-column: 1; } }
+.hint.bad { color: var(--bad); }

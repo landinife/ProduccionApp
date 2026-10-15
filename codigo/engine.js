@@ -141,8 +141,13 @@ export function etapaSucesoras(S, a) {
 }
 export const predsDe = (S, t) => { const p = t.preds || []; if (esGrupo(S, t)) return p; const ch = S.tareas.filter(x => x.parentId === t.id).map(x => x.id); const ep = etapaPreds(S, t); const all = ch.length || ep.length ? [...p, ...ch, ...ep] : p; return all.length === p.length ? p : [...new Set(all)]; };
 export const calDur = t => t.hh / Math.max(1, t.ops.length);
+// Finalizada con fecha de fin real cargada: en el Gantt y el calendario ocupa lo que realmente duró (inicio → fin real)
+export const conFinReal = t => !!(t.realFin && t.estado === 'terminada' && t.finReal && t.inicio && t.finReal > t.inicio);
+export const durReal = (S, t) => workBetween(S, t.inicio, t.finReal, t.turno, t.ops);
+export const durDe = (S, t) => { if (conFinReal(t)) { const d = durReal(S, t); if (d > 0) return d; } return calDur(t); };
 export const finOf = (S, t) => {
   if (esGrupo(S, t)) { const fs = S.tareas.filter(x => x.parentId === t.id).map(c => finOf(S, c)).filter(Boolean).sort(); return fs[fs.length - 1] || null; }
+  if (conFinReal(t)) return t.finReal;
   return t.inicio ? addWork(S, t.inicio, calDur(t), t.turno, t.ops).end : null;
 };
 
@@ -168,8 +173,10 @@ export function derive(S) {
       ch.forEach(calc); const sub = junta(ch.map(c => SUB[c.id]));
       r = { parent: true, ...sub, segs: [], durCal: null }; SUB[t.id] = sub;
     } else {
-      const w = t.inicio ? addWork(S, t.inicio, calDur(t), t.turno, t.ops) : { end: null, segs: [], ok: true };
-      r = { parent: false, conHijos: ch.length > 0, hh: Number(t.hh) || 0, inicio: t.inicio, fin: w.end, avance: t.estado === 'terminada' ? 100 : (Number(t.avance) || 0), hhReal: Number(t.hhReal) || 0, estado: t.estado, ops: t.ops, segs: w.segs, durCal: calDur(t), ok: w.ok, falta: w.falta, sin0: !(Number(t.hh) > 0) && t.estado !== 'terminada' && !ch.length ? 1 : 0 };
+      const real = conFinReal(t), dur = durDe(S, t);
+      const w = t.inicio ? addWork(S, t.inicio, dur, t.turno, t.ops) : { end: null, segs: [], ok: true };
+      if (real) w.ok = true;
+      r = { parent: false, conHijos: ch.length > 0, finRealOk: real, hh: Number(t.hh) || 0, inicio: t.inicio, fin: real ? t.finReal : w.end, avance: t.estado === 'terminada' ? 100 : (Number(t.avance) || 0), hhReal: Number(t.hhReal) || 0, estado: t.estado, ops: t.ops, segs: w.segs, durCal: dur, ok: w.ok, falta: w.falta, sin0: !(Number(t.hh) > 0) && t.estado !== 'terminada' && !ch.length ? 1 : 0 };
       ch.forEach(calc);
       SUB[t.id] = ch.length ? junta([r, ...ch.map(c => SUB[c.id])]) : r;
     }
@@ -212,7 +219,7 @@ export function reflow(S, id) {
   };
   while (queue.length && n++ < 400) {
     const aid = queue.shift(); const a = tareas.find(t => t.id === aid);
-    if (!a || !a.inicio || a.estado === 'terminada' || !leaf(a.id)) continue;
+    if (!a || !a.inicio || (a.estado === 'terminada' && !conFinReal(a)) || !leaf(a.id)) continue;
     const fin = finOf(cur(), a);
     tareas.filter(x => (x.preds || []).includes(a.id) && x.inicio && x.estado !== 'terminada' && x.inicio < fin).forEach(x => mover(x, fin));
     etapaSucesoras(cur(), a).forEach(x0 => { const x = tareas.find(t => t.id === x0.id); if (x && x.inicio && x.estado !== 'terminada' && x.inicio < fin) mover(x, fin); });
@@ -402,7 +409,8 @@ export function iniciar(S, id) {
   S1 = { ...S1, tareas: S1.tareas.map(x => x.id === id ? { ...x, estado: 'en proceso', pausada: false, finReal: null, inicio: !x.inicio || x.inicio > now || x.estado === 'pendiente' ? ini : x.inicio, crono: { acum: x.crono ? Number(x.crono.acum) || 0 : Number(x.hhReal) || 0, desde: now } } : x) };
   return t.ops.length ? reflow(S1, id) : S1;
 }
-export function finalizar(S, id, hh) { const h = r2(Math.max(0, Number(hh) || 0)); return { ...S, tareas: S.tareas.map(x => x.id === id ? { ...x, estado: 'terminada', avance: 100, hhReal: h, finReal: nowDT(), crono: { acum: h, desde: null } } : x) }; }
+// real = se finaliza en el momento (desde el taller): el fin real es ahora y la barra pasa a mostrar lo que duró
+export function finalizar(S, id, hh, real = false) { const h = r2(Math.max(0, Number(hh) || 0)); const now = nowDT(); return { ...S, tareas: S.tareas.map(x => x.id === id ? { ...x, estado: 'terminada', avance: 100, hhReal: h, finReal: now, realFin: !!(real && x.inicio && x.inicio < now), crono: { acum: h, desde: null } } : x) }; }
 export function setEstado(S, id, e) {
   const t = S.tareas.find(x => x.id === id); if (!t || t.estado === e) return S;
   if (e === 'en proceso') return iniciar(S, id);
