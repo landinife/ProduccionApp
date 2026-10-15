@@ -150,6 +150,54 @@ function Capacidad({ w0, irA }) {
       <tr className="tot"><th className="stk">Todo el taller</th>{tot.map((x, i) => caja(x, i, () => irA(sems[i])))}</tr></tbody></table></div>
     <p className="legend"><i className="lg g" />con lugar <i className="lg y" />85% o más <i className="lg r" />sobrecargado · cuenta turno normal y horas extra habilitadas · tocá una semana para verla en detalle</p></>;
 }
+// Alertas de Producción: cada indicador se abre con su lista y la forma de corregirlo
+function Alertas({ tipo, days, ops, wk, cerrar }) {
+  const { S, V, up, ui } = useApp(); const hoy = E.today(), now = E.nowDT();
+  const abrir = id => ui.modal({ k: 'task', id });
+  const fila = (k, cuerpo, acciones, tono) => <div key={k} className={'al-r' + (tono ? ' ' + tono : '')}><div className="al-b">{cuerpo}</div><div className="al-a">{acciones}</div></div>;
+  let tit = '', cont = null;
+  if (tipo === 'carga') {
+    tit = 'Carga de la semana por operario';
+    const l = ops.map(o => ({ o, ...wk[o.id], p: wk[o.id].c ? wk[o.id].l / wk[o.id].c * 100 : 0 })).sort((a, b) => b.p - a.p);
+    cont = l.map(x => fila(x.o.id, <><b>{x.o.nombre}</b><span className="al-bar"><i className={x.p > 100 ? 'r' : x.p >= 85 ? 'y' : 'g'} style={{ width: Math.min(100, x.p) + '%' }} /></span><span className="mut">{fN(x.l)} de {fN(x.c)} h · {Math.round(x.p)}% {x.p > 100 ? '· sobrecargado' : x.p < 50 ? '· tiene lugar' : ''}</span></>,
+      <><button className="btn sm" onClick={() => ui.modal({ k: 'op', id: x.o.id })}>{x.p < 60 ? 'Darle tareas' : 'Ver'}</button><button className="btn sm" title="Adelanta lo pendiente para cerrar huecos" onClick={() => juntar(up, ui, x.o.id, x.o.nombre)}>Juntar</button></>, x.p > 100 ? 'bad' : x.p < 50 ? 'ok' : ''));
+  } else if (tipo === 'rojas') {
+    tit = 'Celdas sobrecargadas';
+    const l = []; ops.forEach(o => days.forEach(d => ['normal', 'extra'].forEach(tu => { const c = V.load[`${o.id}|${d}|${tu}`] || { h: 0, items: [] }, cap = tu === 'extra' ? E.extraDe(S, o.id, d) : E.capN(S, o.id, d); if (c.h > cap + 0.01) l.push({ o, d, tu, c, cap }); })));
+    cont = l.length ? l.map(x => { const ts = [...new Set(x.c.items.map(i => i.id))].map(id => V.byId[id]).filter(Boolean); const sobra = x.c.h - x.cap;
+      return fila(x.o.id + x.d + x.tu, <><b>{x.o.nombre} · {fDia(x.d)} · {x.tu === 'extra' ? 'horas extra' : 'turno normal'}</b><span className="mut">{fN(x.c.h)} h cargadas de {fN(x.cap)} h (sobran {fN(sobra)} h)</span>
+        <span className="al-ts">{ts.map(t => <button key={t.id} className="al-t" onClick={() => abrir(t.id)}><Chip t={t} small /> {t.nombre}</button>)}</span></>,
+        <>{ts.length > 0 && <button className="btn sm pri-b" title="Corre hacia adelante lo que no entra en ese día" onClick={() => { up(s => { const prim = ts.slice().sort((a, b) => (a.inicio || '') < (b.inicio || '') ? -1 : 1)[0]; return E.reflow(s, prim.id); }); ui.toast('Acomodado: lo que no entraba se corrió y quedó marcado para dar el OK'); }}>Acomodar</button>}
+          {x.tu === 'normal' && <button className="btn sm" title="Habilita las horas que sobran como extra que sigue lo del turno normal" onClick={() => { up(s => E.setExtraDia(s, x.o.id, x.d, Math.ceil((E.extraDe(s, x.o.id, x.d) + sobra) * 2) / 2, 'sigue')); ui.toast(`${x.o.nombre}: ${fN(Math.ceil(sobra * 2) / 2)} h extra el ${fDia(x.d)}`); }}>Cubrir con extra</button>}
+          <button className="btn sm" onClick={() => ui.modal({ k: 'op', id: x.o.id })}>Operario</button></>, 'bad'); }) : <p className="mut">No hay celdas sobrecargadas esta semana.</p>;
+  } else if (tipo === 'empujes') {
+    tit = 'Empujes sin OK';
+    const l = S.tareas.filter(t => t.empuje);
+    const ok = id => up(s => ({ ...s, tareas: s.tareas.map(t => (!id || t.id === id) && t.empuje ? { ...t, empuje: null } : t) }));
+    const rev = id => up(s => ({ ...s, tareas: s.tareas.map(t => (!id || t.id === id) && t.empuje ? { ...t, inicio: t.empuje, empuje: null } : t) }));
+    cont = l.length ? <>{l.length > 1 && <div className="row al-top"><button className="btn sm pri-b" onClick={() => ok()}>Dar OK a todas</button><button className="btn sm" onClick={() => rev()}>Volver todas atrás</button></div>}
+      {l.map(t => fila(t.id, <><button className="al-t" onClick={() => abrir(t.id)}><Chip t={t} small /> <b>{etiqueta(V, t)}</b></button><span className="mut">{t.inicio < t.empuje ? 'adelantada' : 'empujada'}: {fDT(t.empuje)} → {fDT(t.inicio)} · {t.ops.map(o => opName(S, o)).join(', ') || 'sin operario'}</span></>,
+        <><button className="btn sm pri-b" onClick={() => ok(t.id)}>OK</button><button className="btn sm" onClick={() => rev(t.id)}>Volver atrás</button></>, 'warn'))}</> : <p className="mut">No hay empujes pendientes de OK.</p>;
+  } else if (tipo === 'riesgo') {
+    tit = 'Entregas en riesgo';
+      const rs = riesgos(S, V);
+    const ultima = ids => ids.map(id => V.byId[id]).filter(t => t && !V.D[t.id].parent && t.estado !== 'terminada').sort((a, b) => (V.D[b.id].fin || '') < (V.D[a.id].fin || '') ? -1 : 1)[0];
+    cont = rs.length ? rs.map(x => { const ids = x.proy ? S.tareas.filter(t => t.proyId === x.proy).map(t => t.id) : [x.id, ...E.descendants(S, x.id)]; const u = ultima(ids); const ent = x.proy ? (S.proyectos.find(p => p.id === x.proy) || {}).entrega : V.byId[x.id].entrega;
+      return fila(x.id || x.proy, <><b>{x.txt}</b><span className="mut">entrega {fD(ent)} · termina {fD((x.proy ? ids.map(i => V.D[i].fin).filter(Boolean).sort().pop() : V.D[x.id].fin || '').slice(0, 10))} · <span className="c-bad">+{x.dias} {x.dias === 1 ? 'día' : 'días'}</span></span>
+        {u && <span className="mut">La que termina más tarde: <button className="al-t" onClick={() => abrir(u.id)}><Chip t={u} small /> {etiqueta(V, u)}</button> · {u.ops.map(o => opName(S, o)).join(', ') || 'sin operario'} · {u.turno === 'extra' ? 'horas extra' : u.turno === 'ambos' ? 'normal + extra' : 'turno normal'} · fin {fDT(V.D[u.id].fin)}</span>}</>,
+        <>{x.proy ? <button className="btn sm" onClick={() => { try { localStorage.setItem('produccionapp-proy-actual', x.proy); } catch (e) { } ui.tab('proyectos'); }}>Ver proyecto</button> : <button className="btn sm" onClick={() => abrir(x.id)}>Abrir</button>}
+          {u && u.ops.length > 0 && u.turno === 'normal' && <button className="btn sm" title="Que la última tarea use también las horas extra de cada día" onClick={() => { up(s => E.patchTask(s, u.id, { turno: 'ambos' }, true)); ui.toast('Ahora usa el turno normal y las horas extra. Habilitá extras en el operario si hace falta.'); }}>Sumarle horas extra</button>}
+          {u && u.ops.length > 0 && <button className="btn sm" onClick={() => ui.modal({ k: 'op', id: u.ops[0] })}>Extras de {opName(S, u.ops[0])}</button>}
+          <button className="btn sm" title="Pone en prioridad alta todas sus tareas" onClick={() => up(s => ({ ...s, tareas: s.tareas.map(t => ids.includes(t.id) && t.prioridad !== 'alta' ? { ...t, prioridad: 'alta' } : t) }))}>Prioridad alta</button></>, 'bad'); }) : <p className="mut">No hay entregas en riesgo.</p>;
+  } else if (tipo === 'atraso') {
+    tit = 'Tareas atrasadas';
+    const l = S.tareas.filter(t => t.ops.length && t.inicio && t.estado !== 'terminada' && !V.D[t.id].parent && ((t.estado === 'en proceso' && (V.D[t.id].fin || '') < now && !E.corriendo(t)) || (t.estado === 'pendiente' && t.inicio < now))).sort((a, b) => a.inicio < b.inicio ? -1 : 1);
+    cont = l.length ? <><div className="row al-top"><button className="btn sm pri-b" onClick={() => { let n = 0; up(s => { const r = E.reprogramar(s); n = r.n; return r.n ? r.S : s; }); ui.toast(n ? `${n} ${n === 1 ? 'tarea reprogramada' : 'tareas reprogramadas'} desde ahora` : 'Nada para reprogramar'); }}>Reprogramar todas desde ahora</button></div>
+      {l.slice(0, 60).map(t => fila(t.id, <><button className="al-t" onClick={() => abrir(t.id)}><Chip t={t} small /> <b>{etiqueta(V, t)}</b></button><span className="mut">{t.estado === 'pendiente' ? `debía empezar ${fDT(t.inicio)}` : `debía terminar ${fDT(V.D[t.id].fin)} · ${Math.round(V.D[t.id].avance)}%`} · {t.ops.map(o => opName(S, o)).join(', ')}</span></>,
+        <><button className="btn sm" onClick={() => ui.modal({ k: 'op', id: t.ops[0] })}>Operario</button><button className="btn sm" onClick={() => abrir(t.id)}>Editar</button></>, 'warn'))}{l.length > 60 && <p className="mut">y {l.length - 60} más.</p>}</> : <p className="mut">No hay tareas atrasadas.</p>;
+  }
+  return <section className="alertas"><div className="sec-h"><h3>{tit}</h3><button className="btn sm" onClick={cerrar}>Cerrar</button></div><div className="al-l">{cont}</div></section>;
+}
 function Resumen() {
   const { S, V, up, ui } = useApp();
   const [w0, setW0] = useState(() => { const t = E.today(), g = E.dow(t); return E.monday(g === 6 ? E.addDays(t, 2) : g === 0 ? E.addDays(t, 1) : t); });
@@ -165,7 +213,8 @@ function Resumen() {
   let capSem = 0, loadSem = 0, rojas = 0;
   const wk = {};
   ops.forEach(o => { let c = 0, l = 0; days.forEach(d => { const cn = E.capN(S, o.id, d), ce = E.extraDe(S, o.id, d); const ln = (V.load[`${o.id}|${d}|normal`] || {}).h || 0, le = (V.load[`${o.id}|${d}|extra`] || {}).h || 0; c += cn + ce; l += ln + le; if (semOf(ln, cn) === 'r') rojas++; if (semOf(le, ce) === 'r') rojas++; }); wk[o.id] = { c, l }; capSem += c; loadSem += l; });
-  const rs = riesgos(S, V);
+  const rs = riesgos(S, V); const [al, setAl] = useState(null); const nowR = E.nowDT();
+  const atr = S.tareas.filter(t => t.ops.length && t.inicio && t.estado !== 'terminada' && !V.D[t.id].parent && ((t.estado === 'en proceso' && (V.D[t.id].fin || '') < nowR && !E.corriendo(t)) || (t.estado === 'pendiente' && t.inicio < nowR))).length;
   const chips = (op, d, turno) => ((V.load[`${op}|${d}|${turno}`] || {}).items || []).map(it => {
     const t = V.byId[it.id]; const c = E.chipOf(S, V, t);
     if (it.sigue) return <div key={it.id + 's'} className="cchip sig" style={{ '--c': c.color }} onClick={() => ui.modal({ k: 'task', id: t.id })} title={`Sigue en la extra lo del turno normal · ${c.txt} · ${etiqueta(V, t)}`}><b>{c.txt}</b><span>↪ {t.nombre}</span><i>{fN(it.h)} h</i></div>;
@@ -231,11 +280,13 @@ function Resumen() {
         </div>
       </div>
       <div className="kpis">
-        <Kpi l="Carga de la semana" v={capSem ? Math.round(loadSem / capSem * 100) + '%' : '—'} s={`${fN(loadSem)} de ${fN(capSem)} h`} />
-        <Kpi l="Celdas sobrecargadas" v={rojas} tone={rojas ? 'bad' : ''} />
-        <Kpi l="Empujes sin OK" v={S.tareas.filter(t => t.empuje).length} tone={S.tareas.some(t => t.empuje) ? 'warn' : ''} />
-        <Kpi l="Entregas en riesgo" v={rs.length} tone={rs.length ? 'bad' : ''} s={rs[0] ? `${rs[0].txt}: +${rs[0].dias} d` : ''} />
+        <Kpi l="Carga de la semana" v={capSem ? Math.round(loadSem / capSem * 100) + '%' : '—'} s={`${fN(loadSem)} de ${fN(capSem)} h`} onClick={() => setAl(al === 'carga' ? null : 'carga')} on={al === 'carga'} />
+        <Kpi l="Celdas sobrecargadas" v={rojas} tone={rojas ? 'bad' : ''} onClick={() => setAl(al === 'rojas' ? null : 'rojas')} on={al === 'rojas'} />
+        <Kpi l="Empujes sin OK" v={S.tareas.filter(t => t.empuje).length} tone={S.tareas.some(t => t.empuje) ? 'warn' : ''} onClick={() => setAl(al === 'empujes' ? null : 'empujes')} on={al === 'empujes'} />
+        <Kpi l="Entregas en riesgo" v={rs.length} tone={rs.length ? 'bad' : ''} s={rs[0] ? `${rs[0].txt}: +${rs[0].dias} d` : ''} onClick={() => setAl(al === 'riesgo' ? null : 'riesgo')} on={al === 'riesgo'} />
+        <Kpi l="Tareas atrasadas" v={atr} tone={atr ? 'warn' : ''} s={atr ? 'debían haber empezado o terminado' : ''} onClick={() => setAl(al === 'atraso' ? null : 'atraso')} on={al === 'atraso'} />
       </div>
+      {al && <Alertas tipo={al} days={days} ops={ops} wk={wk} cerrar={() => setAl(null)} />}
       {vista === 'sem' ? <>
       <div className="scroll"><table className="cal">
         <thead><tr><th className="stk">Operario</th>{days.map(d => { const f = E.feriadoDe(S, d); return <th key={d} className={(d === hoy ? 'hoy ' : '') + (E.isWork(S, d) ? '' : 'off')}>{fDia(d)}{f && <small>{f.nombre}</small>}</th>; })}</tr></thead>
@@ -1255,7 +1306,7 @@ export function App({ db, ses, S0 }) {
   useEffect(() => db.escuchar ? db.escuchar((R, remoto) => { ref.current = R; setS(R); if (remoto) { hist.current = []; fut.current = []; setNh(0); setNf(0); } }) : undefined, []);
   useEffect(() => { document.documentElement.style.setProperty('--accent', S.cfg.accent); }, [S.cfg.accent]);
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3200); return () => clearTimeout(t); }, [toast]);
-  const ui = useMemo(() => ({ modal: setModal, toast: setToast }), []);
+  const ui = useMemo(() => ({ modal: setModal, toast: setToast, tab: k => { setTab(k); try { history.replaceState(null, '', '#' + k); } catch (e) { } } }), []);
   const close = useCallback(() => setModal(null), []);
   const act = E.seasonNow(S), h = S.cfg.horarios[act];
   return <Ctx.Provider value={{ S, V, up, ui, ses }}>

@@ -631,3 +631,15 @@ button.mk.bad { cursor: pointer; background: none; }
 @media (max-width: 700px) { .xd { grid-template-columns: 1fr auto; } .xd .seg, .xd-q { grid-column: 1 / -1; } }
 .btn.warn-b { border-color: var(--warn); color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, var(--panel2)); }
 .pitem.sig { border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); background: color-mix(in srgb, var(--warn) 8%, var(--panel)); }
+/* alertas de Producción */
+.alertas { border: 1px solid var(--line); border-radius: var(--r); background: linear-gradient(180deg, var(--panel2), var(--panel)); box-shadow: var(--sh); padding: 12px 16px 14px; margin-top: 12px; }
+.alertas h3 { margin: 0; }
+.al-l { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; max-height: 520px; overflow: auto; }
+.al-r { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); border-left: 3px solid var(--line); background: var(--panel); }
+.al-r.bad { border-left-color: var(--bad); } .al-r.warn { border-left-color: var(--warn); } .al-r.ok { border-left-color: var(--ok); }
+.al-b { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1 1 340px; } .al-a { display: flex; gap: 6px; flex-wrap: wrap; }
+.al-bar { display: block; height: 8px; border-radius: 4px; background: var(--panel2); overflow: hidden; max-width: 420px; } .al-bar i { display: block; height: 100%; }
+.al-bar i.g { background: var(--ok); } .al-bar i.y { background: var(--warn); } .al-bar i.r { background: var(--bad); }
+.al-ts { display: flex; flex-wrap: wrap; gap: 6px; }
+.al-t { background: none; border: 0; color: var(--ink); cursor: pointer; padding: 0; display: inline-flex; gap: 5px; align-items: center; text-align: left; font: inherit; } .al-t:hover { color: var(--accent); }
+.al-top { margin-bottom: 4px; }
