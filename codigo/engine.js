@@ -34,6 +34,7 @@ export function schedAt(S, d) {
 }
 export const netOf = h => (hm(h.salida) - hm(h.entrada) - (Number(h.descansoMin) || 0)) / 60;
 export const feriadoDe = (S, d) => S.feriados.find(f => f.fecha === d);
+export const choque = (a, b) => (a || 'normal') === (b || 'normal') || a === 'ambos' || b === 'ambos';   // dos turnos que se pisan
 export const isWork = (S, d) => { const g = dow(d); return g >= 1 && g <= 5 && !feriadoDe(S, d); };
 export const ausenciaDe = (S, op, d) => S.ausencias.find(a => a.opId === op && a.desde <= d && d <= a.hasta);
 export const extraDe = (S, op, d) => Number(S.extras[op + '|' + d]) || 0;
@@ -49,6 +50,11 @@ export const sigueDe = (S, op, d) => modoExtra(S, op, d) === 'sigue' ? extraDe(S
 export const eqSigue = (S, d, ops) => ops.length ? ops.reduce((a, o) => a + sigueDe(S, o, d), 0) / ops.length : 0;
 export function dayIv(S, d, turno, ops) {
   const s = schedAt(S, d), wd = isWork(S, d);
+  if (turno === 'ambos') {   // normal + extra: el turno normal y después todas las horas extra de ese día
+    const iv = !wd ? [] : s.bm > 0 && s.bi > s.in && s.bi + s.bm < s.out ? [[s.in, s.bi], [s.bi + s.bm, s.out]] : [[s.in, s.out - s.bm]];
+    const h = ops.length ? Math.min(...ops.map(o => extraDe(S, o, d))) : 0; if (h > 0) { const st = wd ? s.out : s.in; iv.push([st, st + h * 60, true]); }
+    return iv;
+  }
   if (turno !== 'extra') {
     const iv = !wd ? [] : s.bm > 0 && s.bi > s.in && s.bi + s.bm < s.out ? [[s.in, s.bi], [s.bi + s.bm, s.out]] : [[s.in, s.out - s.bm]];
     const eq = eqSigue(S, d, ops); if (eq > 0) { const st = wd ? s.out : s.in; iv.push([st, st + eq * 60, true]); }
@@ -171,8 +177,9 @@ export function derive(S) {
     const r = D[t.id]; if (r.parent) return;
     t.ops.forEach(op => r.segs.forEach(s => {
       const add = (turno, h, sigue) => { if (h <= 0.001) return; const k = `${op}|${s.d}|${turno}`; const c = load[k] = load[k] || { h: 0, items: [] }; c.h += h; c.items.push({ id: t.id, h, sigue }); };
-      add(t.turno, s.h, false);
-      if (s.xe > 0) { const eq = eqSigue(S, s.d, t.ops); add('extra', eq > 0 ? sigueDe(S, op, s.d) * s.xe / eq : 0, true); }
+      add(t.turno === 'ambos' ? 'normal' : t.turno, s.h, false);
+      if (s.xe > 0 && t.turno === 'ambos') add('extra', s.xe, false);
+      else if (s.xe > 0) { const eq = eqSigue(S, s.d, t.ops); add('extra', eq > 0 ? sigueDe(S, op, s.d) * s.xe / eq : 0, true); }
     }));
   });
   const rootOf = t => { let x = t, g = 0; while (x && x.parentId && byId[x.parentId] && g++ < 50) x = byId[x.parentId]; return x; };
@@ -207,7 +214,7 @@ export function reflow(S, id) {
     { let p = tareas.find(t => t.id === a.parentId), g = 0; while (p && p.partes && g++ < 20) p = tareas.find(t => t.id === p.parentId);   // la pieza padre que la usa espera a que termine
       if (p && p.parentId !== undefined && !esGrupo({ tareas }, p) && p.inicio && p.estado !== 'terminada') { const fp = finOf(cur(), tareas.find(t => t.id === a.parentId)) || fin; if (p.inicio < fp) mover(p, fp); } }
     for (const op of a.ops) {
-      const pisadas = tareas.filter(x => x.id !== a.id && x.turno === a.turno && x.ops.includes(op) && x.inicio && x.estado !== 'terminada' && leaf(x.id) && x.inicio >= a.inicio && x.inicio < fin)
+      const pisadas = tareas.filter(x => x.id !== a.id && choque(x.turno, a.turno) && x.ops.includes(op) && x.inicio && x.estado !== 'terminada' && leaf(x.id) && x.inicio >= a.inicio && x.inicio < fin)
         .sort((p, q) => p.inicio < q.inicio ? -1 : 1);
       let cursor = fin;
       for (const x of pisadas) cursor = mover(tareas.find(t => t.id === x.id), cursor) || cursor;
@@ -249,7 +256,7 @@ export function dupTask(S, id) {
 }
 export function nextFree(S, op, turno, ops) {
   let c = nowDT();
-  S.tareas.forEach(t => { if (t.ops.includes(op) && t.turno === turno && t.inicio && t.estado !== 'terminada' && isLeaf(S, t.id)) { const f = finOf(S, t); if (f > c) c = f; } });
+  S.tareas.forEach(t => { if (t.ops.includes(op) && choque(t.turno, turno) && t.inicio && t.estado !== 'terminada' && isLeaf(S, t.id)) { const f = finOf(S, t); if (f > c) c = f; } });
   return normStart(S, c, turno, ops || [op]);
 }
 // Asignar una tarea a un operario; con día = celda del calendario, sin día = primer hueco libre
@@ -259,7 +266,7 @@ export function assignTo(S, id, op, d, turno, fromOp) {
   const tu = turno || t.turno || 'normal'; let inicio;
   if (d) {
     let c = `${d}T00:00`;
-    S.tareas.forEach(x => { if (x.id !== id && x.ops.includes(op) && x.turno === tu && x.inicio && x.estado !== 'terminada' && isLeaf(S, x.id)) { const f = finOf(S, x); if (f.slice(0, 10) === d && f > c) c = f; } });
+    S.tareas.forEach(x => { if (x.id !== id && x.ops.includes(op) && choque(x.turno, tu) && x.inicio && x.estado !== 'terminada' && isLeaf(S, x.id)) { const f = finOf(S, x); if (f.slice(0, 10) === d && f > c) c = f; } });
     inicio = normStart(S, c, tu, ops);
     if (inicio.slice(0, 10) !== d) inicio = normStart(S, `${d}T00:00`, tu, ops);
   } else inicio = t.inicio && t.ops.length ? t.inicio : nextFree(S, op, tu, ops);
@@ -383,7 +390,7 @@ export function pasarTurno(S, id, turno, { correr } = {}) {
 }
 export function iniciar(S, id) {
   { const t = S.tareas.find(x => x.id === id), ta = t && t.ops.length ? turnoAhora(S, t.ops) : null;   // si arranca en el otro turno, el resto pasa a ese turno
-    if (t && ta && ta !== t.turno && !corriendo(t) && t.estado !== 'terminada') { const S2 = pasarTurno(S, id, ta); const nueva = S2.tareas.find(x => !S.tareas.some(y => y.id === x.id)); return iniciar(S2, nueva ? nueva.id : id); } }
+    if (t && ta && t.turno !== 'ambos' && ta !== t.turno && !corriendo(t) && t.estado !== 'terminada') { const S2 = pasarTurno(S, id, ta); const nueva = S2.tareas.find(x => !S.tareas.some(y => y.id === x.id)); return iniciar(S2, nueva ? nueva.id : id); } }
   const t0 = S.tareas.find(x => x.id === id); if (!t0) return S; const now = nowDT(); let S1 = S;
   S.tareas.filter(x => x.id !== id && corriendo(x) && x.ops.some(o => t0.ops.includes(o))).forEach(x => { S1 = partir(S1, x.id); });   // una persona, una tarea a la vez
   const t = S1.tareas.find(x => x.id === id); const ini = t.ops.length ? normStart(S1, now, t.turno, t.ops) : t.inicio;

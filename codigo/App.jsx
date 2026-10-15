@@ -64,7 +64,7 @@ const FER2026 = [['01-01', 'Año Nuevo'], ['02-16', 'Carnaval'], ['02-17', 'Carn
 const NOLAB2026 = [['03-23', 'Día no laborable'], ['07-10', 'Día no laborable'], ['12-07', 'Día no laborable']];
 function describir(p, n) {
   const out = []; let k = '';
-  const val = (S, f, v) => f === 'ops' ? ((v || []).map(o => opName(S, o)).join(', ') || 'sin asignar') : f === 'operacionId' ? operName(S, v) : f === 'inicio' ? fDT(v) : f === 'avance' ? `${Math.round(v || 0)}%` : (v === '' || v == null ? '—' : String(v));
+  const val = (S, f, v) => f === 'turno' ? ({ normal: 'normal', extra: 'horas extra', ambos: 'normal + extra' }[v] || v) : f === 'ops' ? ((v || []).map(o => opName(S, o)).join(', ') || 'sin asignar') : f === 'operacionId' ? operName(S, v) : f === 'inicio' ? fDT(v) : f === 'avance' ? `${Math.round(v || 0)}%` : (v === '' || v == null ? '—' : String(v));
   const dif = (o, t) => Object.keys(CAMPOS).filter(f => JSON.stringify(o[f]) !== JSON.stringify(t[f]));
   if (p.tareas !== n.tareas) { const old = Object.fromEntries(p.tareas.map(t => [t.id, t])), neu = new Set(n.tareas.map(t => t.id));
     const add = n.tareas.filter(t => !old[t.id]), del = p.tareas.filter(t => !neu.has(t.id)), chg = n.tareas.filter(t => old[t.id] && old[t.id] !== t && dif(old[t.id], t).length);
@@ -340,7 +340,7 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden }) {
       case 'estado': return r.parent ? <span className={'est e-' + r.estado.replace(' ', '')}>{r.estado}</span> : <select className={'ci est e-' + t.estado.replace(' ', '')} value={t.estado} onChange={e => setEstado(t, e.target.value)} aria-label="Estado"><option>pendiente</option><option>en proceso</option><option>terminada</option></select>;
       case 'operacion': return r.parent ? null : <select className={'ci' + (t.opAuto ? ' auto' : '')} title={t.opAuto ? 'Asignada automáticamente por el código o por las veces anteriores' : undefined} value={t.operacionId} onChange={e => set(t, { operacionId: e.target.value, opAuto: false })} aria-label="Operación"><option value="">—</option>{S.operaciones.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select>;
       case 'ops': return r.parent ? <span className="ro">{r.ops.map(o => opName(S, o)).join(', ')}</span> : <OpsCell t={t} />;
-      case 'turno': return r.parent ? null : <select className="ci" value={t.turno} onChange={e => { const v = e.target.value; if ((E.llevado(S, t) > 0 || Number(t.avance) > 0) && t.estado !== 'terminada') { up(s => E.pasarTurno(s, t.id, v)); ui.toast(`Lo hecho quedó en ${t.turno === 'extra' ? 'horas extra' : 'turno normal'}; lo que falta sigue en ${v === 'extra' ? 'horas extra' : 'turno normal'}`); } else set(t, { turno: v }, true); }} aria-label="Turno"><option value="normal">Normal</option><option value="extra">Extra</option></select>;
+      case 'turno': return r.parent ? null : <select className="ci" value={t.turno} onChange={e => { const v = e.target.value; if ((E.llevado(S, t) > 0 || Number(t.avance) > 0) && t.estado !== 'terminada') { up(s => E.pasarTurno(s, t.id, v)); ui.toast(`Lo hecho quedó en ${t.turno === 'extra' ? 'horas extra' : 'turno normal'}; lo que falta sigue en ${v === 'extra' ? 'horas extra' : 'turno normal'}`); } else set(t, { turno: v }, true); }} aria-label="Turno"><option value="normal">Normal</option><option value="extra">Extra</option><option value="ambos">Normal + extra</option></select>;
       case 'hh': return r.parent ? <span className="ro num">{fN(r.hh)}</span> : <div className="hhc"><EdIn className="num" type="number" min="0" step="0.5" value={t.hh} onCommit={v => set(t, { hh: num(v) }, true)} />{t.ops.length > 1 && <small title="Duración en calendario: horas-hombre dividido la cantidad de operarios">÷{t.ops.length} = {fN(r.durCal)}</small>}</div>;
       case 'inicio': return r.parent ? <span className="ro">{fDT(r.inicio)}</span> : <EdIn type="datetime-local" value={t.inicio || ''} onCommit={v => set(t, { inicio: v || null }, true)} />;
       case 'fin': return r.parent ? <span className="ro">{fDT(r.fin)}</span> : <EdIn type="datetime-local" value={r.fin || ''} disabled={!t.inicio} onCommit={v => setFin(t, v)} />;
@@ -358,7 +358,7 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden }) {
       <select value="" onChange={e => enBloque('op', e.target.value)} aria-label="Asignar operario"><option value="">Dar a operario…</option>{S.operarios.filter(o => o.activo).map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select>
       <select value="" onChange={e => enBloque('operacion', e.target.value)} aria-label="Operación"><option value="">Operación…</option>{S.operaciones.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select>
       <select value="" onChange={e => enBloque('prioridad', e.target.value)} aria-label="Prioridad"><option value="">Prioridad…</option><option>alta</option><option>media</option><option>baja</option></select>
-      <select value="" onChange={e => enBloque('turno', e.target.value)} aria-label="Turno"><option value="">Turno…</option><option value="normal">Normal</option><option value="extra">Extra</option></select>
+      <select value="" onChange={e => enBloque('turno', e.target.value)} aria-label="Turno"><option value="">Turno…</option><option value="normal">Normal</option><option value="extra">Extra</option><option value="ambos">Normal + extra</option></select>
       <button className="btn sm pri-b" onClick={() => { const ids = vivos.filter(id => !V.D[id].parent); if (!ids.length) { ui.toast('Elegí piezas con trabajo propio (no ensamblajes generales)'); return; } ui.modal({ k: 'lote', ids }); }}>✎ Editar en lote</button>
       <span className="sp" /><button className="btn sm danger" onClick={borrarSel}>Borrar</button><button className="btn sm" onClick={() => setSel(new Set())}>Quitar selección</button></div>}
     <div className="scroll xlw"><table className="tt xl" onKeyDown={nav} style={{ width: cols.reduce((a, c) => a + W[c[0]], 0) }}>
@@ -675,7 +675,7 @@ function TaskEditor({ id, draft, onClose }) {
         {t.tipo === 'proy' && !isNew && <label className="chk g2"><input type="checkbox" checked={!!t.manual} onChange={e => set('manual', e.target.checked)} /> Fecha fijada a mano 📌 (no se corre por las etapas anteriores)</label>}
         <label>Operación<select id="te-op" value={t.operacionId} onChange={e => setT(p => ({ ...p, operacionId: e.target.value, opAuto: false }))}><option value="">—</option>{S.operaciones.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select>
           {cod && (cod.operacionId ? <small className={t.operacionId === cod.operacionId ? 'hint ok' : 'hint'}>Código {cod.num} → {operName(S, cod.operacionId)}{t.operacionId !== cod.operacionId && t.operacionId ? ' (la cambiaste a mano)' : ''}</small> : <small className="hint">El código {cod.num} no tiene operación asignada. Se carga en Configuración → Códigos de operación.</small>)}</label>
-        <label>Turno<select id="te-tur" value={t.turno} onChange={e => set('turno', e.target.value)}><option value="normal">Normal</option><option value="extra">Horas extra</option></select></label>
+        <label>Turno<select id="te-tur" value={t.turno} onChange={e => set('turno', e.target.value)}><option value="normal">Normal</option><option value="extra">Horas extra</option><option value="ambos">Normal + extra</option></select></label>
         {t.estado !== 'terminada' && <div className="g2 fld recs"><span>Recomendado para {t.operacionId ? operName(S, t.operacionId) : 'esta tarea'}</span>
           {!t.operacionId ? <small className="mut">Elegí la operación para ver a quién conviene dársela.</small>
             : recs.length === 0 ? <small className="mut">Ningún operario tiene {operName(S, t.operacionId)} como operación principal o secundaria. Se carga en Configuración → Operarios.</small>
@@ -714,7 +714,7 @@ function OpTask({ t, op }) {
   const commit = () => { if (Number(av) !== r.avance) up(s => E.patchTask(s, t.id, { avance: Number(av) })); };
   return <div className={'optask' + (run ? ' run' : '')}>
     <div className="row"><Chip t={t} small /><b>{etiqueta(V, t)}</b><span className={'est e-' + (pausa ? 'pausa' : t.estado.replace(' ', ''))}>{run ? 'en curso' : pausa ? 'en pausa' : t.estado}</span></div>
-    <span className="mut">{operName(S, t.operacionId)} · {fH(t.hh)} HH{t.ops.length > 1 ? ` entre ${t.ops.length} (${fH(r.durCal)} en calendario)` : ''} · {t.turno === 'extra' ? 'extra · ' : ''}{fDT(t.inicio)} → {fDT(r.fin)}</span>
+    <span className="mut">{operName(S, t.operacionId)} · {fH(t.hh)} HH{t.ops.length > 1 ? ` entre ${t.ops.length} (${fH(r.durCal)} en calendario)` : ''} · {t.turno === 'extra' ? 'extra · ' : t.turno === 'ambos' ? 'normal + extra · ' : ''}{fDT(t.inicio)} → {fDT(r.fin)}</span>
     {(() => { const esp = espera(S, V, t); return esp && <span className="tag">⧖ Espera a {esp.nombre}{esp.fin ? ` (termina ${fDT(esp.fin)})` : ''}</span>; })()}
     {t.estado === 'en proceso' && <div className="row crono"><Bar v={t.hh ? llev / t.hh * 100 : 0} color={llev > t.hh + 0.01 ? 'var(--bad)' : undefined} /><span>Llevado <b>{fHM(llev)}</b> de {fHM(t.hh)} proyectadas{t.ops.length > 1 ? ' (suma de los operarios)' : ''}</span></div>}
     {fin ? <div className="finbox">
@@ -726,8 +726,8 @@ function OpTask({ t, op }) {
         {run && t.ops.length > 1 && <button className="btn" title="La tarea se parte: lo hecho queda cerrado y el resto sigue con los demás" onClick={() => up(s => E.salir(s, t.id, op))}>{opName(S, op)} sale</button>}
         {run ? <button className="btn" title="Parte la tarea: cierra lo hecho hasta ahora y deja el resto en pausa" onClick={() => up(s => E.pausar(s, t.id))}>Pausar</button> : <button className="btn" onClick={() => up(s => E.iniciar(s, t.id))}>{pausa ? 'Reanudar' : 'Iniciar'}</button>}
         <button className="btn pri-b" onClick={() => { setReal(llev > 0 ? llev : t.hh); setFin(true); }}>Finalizar</button>
-        {run && (() => { const ta = E.turnoAhora(S, t.ops); return ta && ta !== t.turno; })() && <button className="btn warn-b" title="La tarea sigue corriendo: lo hecho queda en su turno y desde ahora cuenta en el otro" onClick={() => up(s => E.pasarTurno(s, t.id, t.turno === 'extra' ? 'normal' : 'extra'))}>Ahora es turno {t.turno === 'extra' ? 'normal' : 'extra'}: seguir ahí</button>}
-        {(llev > 0 || t.avance > 0 || t.pausada || t.parte) && !run && <button className="btn" title={t.turno === 'extra' ? 'Lo hecho queda en horas extra; lo que falta pasa al turno normal' : 'Lo hecho queda en el turno normal; lo que falta pasa a horas extra'} onClick={() => up(s => E.pasarTurno(s, t.id, t.turno === 'extra' ? 'normal' : 'extra'))}>{t.turno === 'extra' ? 'Seguir en turno normal' : 'Seguir en horas extra'}</button>}
+        {run && t.turno !== 'ambos' && (() => { const ta = E.turnoAhora(S, t.ops); return ta && ta !== t.turno; })() && <button className="btn warn-b" title="La tarea sigue corriendo: lo hecho queda en su turno y desde ahora cuenta en el otro" onClick={() => up(s => E.pasarTurno(s, t.id, t.turno === 'extra' ? 'normal' : 'extra'))}>Ahora es turno {t.turno === 'extra' ? 'normal' : 'extra'}: seguir ahí</button>}
+        {(llev > 0 || t.avance > 0 || t.pausada || t.parte) && !run && t.turno !== 'ambos' && <button className="btn" title={t.turno === 'extra' ? 'Lo hecho queda en horas extra; lo que falta pasa al turno normal' : 'Lo hecho queda en el turno normal; lo que falta pasa a horas extra'} onClick={() => up(s => E.pasarTurno(s, t.id, t.turno === 'extra' ? 'normal' : 'extra'))}>{t.turno === 'extra' ? 'Seguir en turno normal' : 'Seguir en horas extra'}</button>}
         <button className="btn" onClick={() => up(s => E.unassign(s, t.id, op))}>Quitar</button></div>}
   </div>;
 }
@@ -772,7 +772,7 @@ function DarTareas({ op, grande }) {
   const orden = grupos.flatMap(g => g.items.map(t => t.id));
   const tog = id => setSel(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const togG = g => setSel(p => { const n = new Set(p); const all = g.items.every(t => n.has(t.id)); g.items.forEach(t => all ? n.delete(t.id) : n.add(t.id)); return n; });
-  const dar = (ids, turno) => { if (!ids.length) return; up(s => ids.reduce((a, id) => E.assignTo(a, id, op, null, turno), s)); setSel(new Set()); ui.toast(`${ids.length === 1 ? 'Asignada' : ids.length + ' tareas asignadas, una detrás de la otra,'} a ${o.nombre} en ${turno === 'extra' ? 'horas extra' : 'turno normal'}`); };
+  const dar = (ids, turno) => { if (!ids.length) return; up(s => ids.reduce((a, id) => E.assignTo(a, id, op, null, turno), s)); setSel(new Set()); ui.toast(`${ids.length === 1 ? 'Asignada' : ids.length + ' tareas asignadas, una detrás de la otra,'} a ${o.nombre} en ${turno === 'extra' ? 'horas extra' : turno === 'ambos' ? 'turno normal + extras' : 'turno normal'}`); };
   const elegidas = orden.filter(id => sel.has(id)); const hhSel = elegidas.reduce((a, id) => a + (Number(V.byId[id].hh) || 0), 0);
   const repetidas = Object.values(rep).filter(n => n > 1).length;
   return <div className={'dart' + (grande ? ' grande' : '')}>
@@ -800,11 +800,11 @@ function DarTareas({ op, grande }) {
             <div className="dn"><span className="drow"><Chip t={t} small /><b>{nomP(V, t)}</b><Pri p={t.prioridad} />
               {vista === 'origen' && rep[k] > 1 && <button className="tag rep" title="Ver todas juntas" onClick={() => { setVista('pieza'); setQ(t.codigo || t.nombre); }}>se repite ×{rep[k]}</button>}</span>
               <span className="mut">{mia ? <b className="suya">★ {operName(S, t.operacionId)}</b> : operName(S, t.operacionId)} · cant. {t.cant} · {fH(t.hh)}{t.entrega ? ` · entrega ${fD(t.entrega)}` : ''}</span></div>
-            <span className="row dbt"><button className="btn sm" onClick={() => dar([t.id], 'normal')}>Normal</button><button className="btn sm" onClick={() => dar([t.id], 'extra')}>Extra</button></span>
+            <span className="row dbt"><button className="btn sm" onClick={() => dar([t.id], 'normal')}>Normal</button><button className="btn sm" onClick={() => dar([t.id], 'extra')}>Extra</button><button className="btn sm" title="Usa el turno normal y también las horas extra de cada día" onClick={() => dar([t.id], 'ambos')}>N + E</button></span>
           </div>; })}</div>}
       </div>; })}
     {elegidas.length > 0 && <div className="dbar"><b>{elegidas.length} elegidas</b><span className="mut">{fN(hhSel)} HH · se las da una detrás de la otra</span><span className="sp" />
-      <button className="btn pri-b" onClick={() => dar(elegidas, 'normal')}>Dar en normal</button><button className="btn" onClick={() => dar(elegidas, 'extra')}>Dar en extra</button><button className="btn ghost" onClick={() => setSel(new Set())}>Cancelar</button></div>}
+      <button className="btn pri-b" onClick={() => dar(elegidas, 'normal')}>Dar en normal</button><button className="btn" onClick={() => dar(elegidas, 'extra')}>Dar en extra</button><button className="btn" onClick={() => dar(elegidas, 'ambos')}>Normal + extra</button><button className="btn ghost" onClick={() => setSel(new Set())}>Cancelar</button></div>}
   </div>;
 }
 // Edición en lote: la misma pieza repetida en varios ensamblajes. Las horas se reparten según la cantidad de cada uno.
@@ -842,7 +842,7 @@ function LoteEditor({ ids, titulo, onClose }) {
       <label>Estado<select value={f.estado} onChange={e => set('estado', e.target.value)}><option value="">— no cambiar —</option><option value="pendiente">Pendiente</option><option value="en proceso">En proceso</option><option value="terminada">Terminada</option></select></label>
       <label>Operación<select value={f.operacionId} onChange={e => set('operacionId', e.target.value)}><option value="">— no cambiar —</option>{S.operaciones.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select></label>
       <label>Prioridad<select value={f.prioridad} onChange={e => set('prioridad', e.target.value)}><option value="">— no cambiar —</option><option>alta</option><option>media</option><option>baja</option></select></label>
-      <label>Turno<select value={f.turno} onChange={e => set('turno', e.target.value)}><option value="">— no cambiar —</option><option value="normal">Normal</option><option value="extra">Extra</option></select></label>
+      <label>Turno<select value={f.turno} onChange={e => set('turno', e.target.value)}><option value="">— no cambiar —</option><option value="normal">Normal</option><option value="extra">Extra</option><option value="ambos">Normal + extra</option></select></label>
       <label>Inicio<input type="datetime-local" value={f.inicio} onChange={e => set('inicio', e.target.value)} /></label>
       <label className="chk lote-seg"><input type="checkbox" checked={f.seguidas} onChange={e => set('seguidas', e.target.checked)} /> Una detrás de la otra (si no, todas arrancan a esa hora)</label>
       <div className="g2 lote-ops"><span className="mut">Operarios {f.ops ? '' : '(no cambiar)'}</span><div className="row wrap">{ops.map(o => { const on = f.ops && f.ops.includes(o.id); return <button key={o.id} className={'togb' + (on ? ' on' : '')} onClick={() => set('ops', on ? (f.ops.filter(x => x !== o.id).length ? f.ops.filter(x => x !== o.id) : null) : [...(f.ops || []), o.id])}>{o.nombre}</button>; })}</div></div>
@@ -930,7 +930,7 @@ function OperarioPanel({ id, onClose }) {
 function Picker({ op, d, turno, onClose }) {
   const { S, V, up, ui } = useApp(); const [q, setQ] = useState('');
   const okq = t => (etiqueta(V, t) + ' ' + E.chipOf(S, V, t).txt).toLowerCase().includes(q.toLowerCase());
-  const suyas = S.tareas.filter(t => !V.D[t.id].parent && t.estado !== 'terminada' && t.ops.includes(op) && (t.turno || 'normal') !== turno && okq(t)).sort((a, b) => (a.inicio || '9') < (b.inicio || '9') ? -1 : 1);
+  const suyas = S.tareas.filter(t => !V.D[t.id].parent && t.estado !== 'terminada' && t.ops.includes(op) && t.turno !== 'ambos' && (t.turno || 'normal') !== turno && okq(t)).sort((a, b) => (a.inicio || '9') < (b.inicio || '9') ? -1 : 1);
   const l = S.tareas.filter(t => !V.D[t.id].parent && t.estado !== 'terminada' && !t.ops.includes(op) && okq(t))
     .sort((a, b) => (a.ops.length - b.ops.length) || PRI[a.prioridad] - PRI[b.prioridad]);
   return <Modal title={`Asignar a ${opName(S, op)} · ${fDia(d)} · turno ${turno}`} onClose={onClose}>
@@ -966,7 +966,7 @@ function TallerTask({ t }) {
   return <div className={'ttask' + (run ? ' run' : '')}>
     <div className="row"><Chip t={t} /><Pri p={t.prioridad} /><span className={'est e-' + (pausa ? 'pausa' : run ? 'enproceso' : t.estado.replace(' ', ''))}>{run ? 'en curso' : pausa ? 'en pausa' : t.estado}</span></div>
     <b className="tnom">{etiqueta(V, t)}</b>
-    <span className="mut">{operName(S, t.operacionId)} · cantidad {t.cant} · {fHM(t.hh)} proyectadas{t.ops.length > 1 ? ` · con ${t.ops.length - 1} más` : ''}{t.turno === 'extra' ? ' · en horas extra' : ''}</span>
+    <span className="mut">{operName(S, t.operacionId)} · cantidad {t.cant} · {fHM(t.hh)} proyectadas{t.ops.length > 1 ? ` · con ${t.ops.length - 1} más` : ''}{t.turno === 'extra' ? ' · en horas extra' : t.turno === 'ambos' ? ' · en turno normal + extras' : ''}</span>
     <span className="mut">{fDT(t.inicio)} → {fDT(r.fin)}</span>
     {esp && <span className="tag">⧖ Espera a {esp.nombre}{esp.fin ? ` (termina ${fDT(esp.fin)})` : ''}</span>}
     {(run || llev > 0) && <div className="tcrono"><b>{fHM(llev)}</b><span className="mut">de {fHM(t.hh)}</span><Bar v={t.hh ? llev / t.hh * 100 : 0} color={llev > t.hh + 0.01 ? 'var(--bad)' : undefined} /></div>}
@@ -977,8 +977,8 @@ function TallerTask({ t }) {
       : <div className="tbtns">
         {run ? <button className="btn big" onClick={() => up(s => E.pausar(s, t.id))}>Pausar</button> : <button className="btn big pri-b" onClick={() => up(s => E.iniciar(s, t.id))}>{pausa ? 'Reanudar' : 'Iniciar'}</button>}
         <button className={'btn big' + (run ? ' pri-b' : '')} onClick={() => { setReal(llev > 0 ? llev : t.hh); setFin(true); }}>Finalizar</button>
-        {run && (() => { const ta = E.turnoAhora(S, t.ops); return ta && ta !== t.turno; })() && <button className="btn big warn-b" onClick={() => up(s => E.pasarTurno(s, t.id, t.turno === 'extra' ? 'normal' : 'extra'))}>Ahora es turno {t.turno === 'extra' ? 'normal' : 'extra'}: seguir ahí</button>}
-        {(llev > 0 || t.avance > 0 || t.pausada || t.parte) && !run && <button className="btn" onClick={() => up(s => E.pasarTurno(s, t.id, t.turno === 'extra' ? 'normal' : 'extra'))}>{t.turno === 'extra' ? 'Seguir en turno normal' : 'Seguir en horas extra'}</button>}</div>}
+        {run && t.turno !== 'ambos' && (() => { const ta = E.turnoAhora(S, t.ops); return ta && ta !== t.turno; })() && <button className="btn big warn-b" onClick={() => up(s => E.pasarTurno(s, t.id, t.turno === 'extra' ? 'normal' : 'extra'))}>Ahora es turno {t.turno === 'extra' ? 'normal' : 'extra'}: seguir ahí</button>}
+        {(llev > 0 || t.avance > 0 || t.pausada || t.parte) && !run && t.turno !== 'ambos' && <button className="btn" onClick={() => up(s => E.pasarTurno(s, t.id, t.turno === 'extra' ? 'normal' : 'extra'))}>{t.turno === 'extra' ? 'Seguir en turno normal' : 'Seguir en horas extra'}</button>}</div>}
   </div>;
 }
 function Taller() {
