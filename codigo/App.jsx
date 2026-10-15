@@ -96,7 +96,7 @@ function flatten(roots, V, collapsed, vis, orden) {
 }
 // Orden de las piezas de un proyecto: el que fijaste a mano (▲▼) o, si no, por etapa de fabricación
 const ordenProy = S => l => l.map((t, i) => [t, i]).sort((a, b) => ((a[0].pos ?? 1e9) - (b[0].pos ?? 1e9)) || ((E.etapaDe(S, a[0]) ?? 999) - (E.etapaDe(S, b[0]) ?? 999)) || (a[1] - b[1])).map(x => x[0]);
-const useSet = () => { const [s, set] = useState(() => new Set()); const tog = id => set(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; }); return [s, tog]; };
+const useSet = () => { const [s, set] = useState(() => new Set()); const tog = id => set(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; }); return [s, tog, set]; };
 
 /* ================= RESUMEN ================= */
 function OpStrip() {
@@ -261,7 +261,7 @@ function Resumen() {
 function EdIn({ value, onCommit, type = 'text', className = '', ...rest }) {
   const base = value == null ? '' : value; const [v, setV] = useState(base); const fresh = useRef(false); const cur = useRef(base); cur.current = base;
   useEffect(() => { setV(base); }, [base]);
-  return <input className={'ci ' + className} type={type} value={v} onChange={e => setV(e.target.value)} onBlur={() => { if (String(v) !== String(base)) { onCommit(v); setTimeout(() => setV(cur.current), 0); } }}
+  return <input className={'ci ' + className} type={type} value={v} data-sucio={String(v) !== String(base) ? '1' : undefined} onChange={e => setV(e.target.value)} onBlur={() => { if (String(v) !== String(base)) { onCommit(v); setTimeout(() => setV(cur.current), 0); } }}
     onFocus={e => { if (type !== 'datetime-local') { fresh.current = true; e.target.select(); } }} onMouseUp={e => { if (fresh.current) { e.preventDefault(); fresh.current = false; } }}
     onKeyDown={e => { fresh.current = false; if (e.key === 'Enter') e.currentTarget.blur(); }} {...rest} />;
 }
@@ -400,7 +400,8 @@ function OrdChart({ ord, mes }) {
 /* ================= REPUESTOS ================= */
 function Repuestos() {
   const { S, V, ui } = useApp();
-  const [mes, setMes] = useState(E.today().slice(0, 7)); const [f, setF] = useState({ e: 'activas', c: '', o: '', p: '', q: '' }); const [hist, setHist] = useState(false);
+  const [mes, setMes] = useState(E.today().slice(0, 7)); const [f, setF] = useState({ e: '', c: '', o: '', p: '', q: '' }); const [hist, setHist] = useState(false);
+  const [plg, setPlg] = useState(() => prefG('rep-grupos', { terminada: true })); const togG = k => { const n = { ...plg, [k]: !plg[k] }; setPlg(n); guardaG('rep-grupos', n); };
   const roots = S.tareas.filter(t => t.tipo === 'rep' && !t.parentId);
   const ord = {}; roots.forEach(r => { (ord[r.orden || 'S/N'] = ord[r.orden || 'S/N'] || []).push(r); });
   const C = { OV: { p: 0, e: 0, t: 0 }, OC: { p: 0, e: 0, t: 0 } };
@@ -429,7 +430,7 @@ function Repuestos() {
     </section>
     <section>
       <div className="sec-h"><div className="row">
-        {sel('e', [['activas', 'Sin las terminadas'], ['pendiente', 'Pendiente'], ['en proceso', 'En proceso'], ['terminada', 'Terminada']], 'Todo estado')}
+        {sel('e', [['activas', 'Sin las terminadas'], ['pendiente', 'Pendiente'], ['en proceso', 'En proceso'], ['terminada', 'Terminada']], 'Todo estado')}<button className="btn sm" onClick={() => { const todos = ['curso', 'pausa', 'pendiente', 'terminada'].every(k => plg[k]); const n = Object.fromEntries(['curso', 'pausa', 'pendiente', 'terminada'].map(k => [k, !todos])); setPlg(n); guardaG('rep-grupos', n); }}>{['curso', 'pausa', 'pendiente', 'terminada'].every(k => plg[k]) ? 'Abrir grupos' : 'Cerrar grupos'}</button>
         {sel('c', clientes.map(c => [c, c]), 'Todo cliente')}
         {sel('o', S.operarios.map(o => [o.id, o.nombre]), 'Todo operario')}
         <input id="rf-q" type="search" placeholder="Buscar OV, pieza o cliente" value={f.q} onChange={e => setF({ ...f, q: e.target.value })} />
@@ -442,7 +443,14 @@ function Repuestos() {
       {hist ? <div className="scroll"><table className="tt"><thead><tr><th>Producto</th><th>Operación</th><th className="num">Veces</th><th className="num">HH plan (prom.)</th><th className="num">HH real (prom.)</th><th className="num">Desvío</th></tr></thead>
         <tbody>{Object.keys(H).length === 0 && <tr><td colSpan="6" className="mut pad">Todavía no hay tareas terminadas con horas reales cargadas.</td></tr>}
           {Object.entries(H).map(([k, h]) => { const [p, o] = k.split('|'); const d = (h.r - h.p) / h.p * 100; return <tr key={k}><td>{p}</td><td>{o}</td><td className="num">{h.n}</td><td className="num">{fN(h.p / h.n)}</td><td className="num">{fN(h.r / h.n)}</td><td className={'num ' + (d > 0 ? 'c-bad' : 'c-ok')}>{d > 0 ? '+' : ''}{Math.round(d)}%</td></tr>; })}</tbody></table></div>
-        : <TaskTable roots={roots.slice().sort((a, b) => PRI[a.prioridad] - PRI[b.prioridad])} tipo="rep" vis={vis} />}
+        : (() => { const corre = id => E.corriendo(V.byId[id]) || (V.kids[id] || []).some(c => corre(c.id));
+            const grupo = r => { const e = V.D[r.id].estado; return e === 'terminada' ? 'terminada' : e === 'pendiente' ? 'pendiente' : corre(r.id) ? 'curso' : 'pausa'; };
+            const G = [['curso', 'En proceso', 'var(--accent)'], ['pausa', 'En pausa', 'var(--warn)'], ['pendiente', 'Pendientes', 'var(--mut)'], ['terminada', 'Terminadas', 'var(--ok)']];
+            const ord_ = roots.slice().sort((a, b) => PRI[a.prioridad] - PRI[b.prioridad]);
+            return G.map(([k, l, c]) => { const rs = ord_.filter(r => grupo(r) === k && vis(r)); if (!rs.length && k !== 'curso') return null;
+              return <div key={k} className={'repg' + (plg[k] ? '' : ' on')} style={{ '--c': c }}>
+                <button className="dgrp-t repg-t" onClick={() => togG(k)}><span className="car">{plg[k] ? '▸' : '▾'}</span><b>{l}</b><span className="cnt">{rs.length}</span>{k === 'pausa' && <span className="mut">empezadas que no se están haciendo ahora</span>}</button>
+                {!plg[k] && (rs.length ? <TaskTable roots={rs} tipo="rep" vis={vis} /> : <p className="mut pad">Ningún repuesto en curso en este momento.</p>)}</div>; }); })()}
     </section>
   </div>;
 }
@@ -451,7 +459,7 @@ function Repuestos() {
 const LETRA = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
 const prefG = (k, d) => { try { const v = localStorage.getItem('produccionapp-gantt-' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
 const guardaG = (k, v) => { try { localStorage.setItem('produccionapp-gantt-' + k, JSON.stringify(v)); } catch (e) { } };
-function Gantt({ rows, entrega, color, collapsed, toggle, alto }) {
+function Gantt({ rows, entrega, color, collapsed, toggle, alto, todo }) {
   const { S, V, ui, up } = useApp(); const [arr, setArr] = useState(null); const t0 = E.today(), W = 28;
   const [lw, setLw] = useState(() => prefG('lw', 320)); const [mas, setMas] = useState(0);
   const box = useRef(null); const [ancho, setAncho] = useState(1200); const yaCentrado = useRef(false);
@@ -478,7 +486,7 @@ function Gantt({ rows, entrega, color, collapsed, toggle, alto }) {
       if (puede && d !== 0) { const ni = E.addDays(t.inicio.slice(0, 10), d) + t.inicio.slice(10); up(s => E.patchTask(s, t.id, { inicio: ni, manual: true }, true)); ui.toast(`Movida ${d > 0 ? '+' : ''}${d} ${Math.abs(d) === 1 ? 'día' : 'días'} y fijada a mano (📌)`); } };
     window.addEventListener('pointermove', mv); window.addEventListener('pointerup', fin); };
   return <>
-    <div className="row gbar"><button className="btn sm" onClick={irHoy}>Ir a hoy</button><button className="btn sm" onClick={() => setMas(mas + 1)}>+2 semanas</button>{mas > 0 && <button className="btn sm" onClick={() => setMas(0)}>Volver al largo normal</button>}
+    <div className="row gbar"><button className="btn sm" onClick={irHoy}>Ir a hoy</button><button className="btn sm" onClick={() => setMas(mas + 1)}>+2 semanas</button>{todo && <><button className="btn sm" onClick={() => todo(true)} title="Deja a la vista solo los ensamblajes principales">⊟ Contraer todo</button><button className="btn sm" onClick={() => todo(false)}>⊞ Expandir todo</button></>}{mas > 0 && <button className="btn sm" onClick={() => setMas(0)}>Volver al largo normal</button>}
       <span className="mut">Arrastrá una barra para moverla de día (queda fijada a mano 📌). El borde de la columna Pieza cambia su ancho.</span></div>
     <div ref={box} className={'scroll gantt' + (alto === 'compacto' ? ' compacto' : '')} style={{ '--lw': lw + 'px' }}><div style={{ minWidth: 'max-content' }}>
     <div className="g-row g-head"><div className="g-left"><span>Pieza</span><span className="num">Cant.</span><i className="rz" title="Arrastrá para cambiar el ancho. Doble clic: ancho original." onPointerDown={resize} onDoubleClick={() => setLw(320)} /></div>
@@ -488,7 +496,7 @@ function Gantt({ rows, entrega, color, collapsed, toggle, alto }) {
     {rows.map(({ t, depth, hasKids }) => { const r = V.D[t.id]; const ok = r.estado === 'terminada'; return <div key={t.id} className={'g-row' + (hasKids ? ' par' : '') + (ok ? ' done' : '')}>
       <div className="g-left"><div className="tname" style={{ paddingLeft: depth * 14 }}>
         {hasKids ? <button className="tog" onClick={() => toggle(t.id)} aria-label="Desplegar">{collapsed.has(t.id) ? '▸' : '▾'}</button> : <span className="tog" />}
-        {ok && <span className="g-ok" title="Terminada">✓</span>}<button className="tlink" title={t.nombre} onClick={() => ui.modal({ k: 'task', id: t.id })}>{t.nombre}</button></div><span className="num">{t.cant}</span></div>
+        {ok && <span className="g-ok" title="Terminada">✓</span>}<button className="tlink" title={t.nombre} onClick={() => ui.modal({ k: 'task', id: t.id })}>{t.nombre}</button><button className="g-add" title={'Agregar hijo a ' + t.nombre} aria-label="Agregar hijo" onClick={() => ui.modal({ k: 'task', draft: { ...E.blankTask(t.tipo, t.proyId), parentId: t.id, prioridad: t.prioridad } })}>＋</button></div><span className="num">{t.cant}</span></div>
       <div className="g-right" style={{ width: N * W, backgroundImage: semanas + ',' + bg }}>
         <i className="g-today" style={{ left: xHoy }} />{xEnt !== null && <i className="g-due" style={{ left: xEnt }} />}
         {r.inicio && r.fin && <div className={'g-bar' + (r.parent ? ' par' : '') + (t.empuje && !ok ? ' pushed' : '') + (ok ? ' ok' : '') + (t.manual ? ' manual' : '') + (arr && arr.id === t.id ? ' drag' : '')} style={{ left: x(r.inicio) + (arr && arr.id === t.id ? arr.d * W : 0), width: Math.max(6, x(r.fin) - x(r.inicio)), '--c': color }}
@@ -499,6 +507,16 @@ function Gantt({ rows, entrega, color, collapsed, toggle, alto }) {
   </div></div></>;
 }
 // Desglose de las métricas del proyecto: avance por pieza principal, horas por pieza principal o por operación
+// Tareas empezadas o terminadas que todavía no tienen horas reales: se completan acá mismo
+function SinHoras({ ts }) {
+  const { S, V, up } = useApp(); const [ver, setVer] = useState(true);
+  const l = ts.filter(t => !V.D[t.id].parent && !(Number(t.hhReal) > 0) && !(t.crono && Number(t.crono.acum) > 0) && !E.corriendo(t) && (t.estado === 'terminada' || Number(t.avance) > 0 || t.estado === 'en proceso'));
+  const g = {}; l.forEach(t => { const r = V.rootOf(t); (g[r.id] = g[r.id] || { r, l: [] }).l.push(t); });
+  return <div className="sinh"><button className="dgrp-t" onClick={() => setVer(!ver)}><span className="car">{ver ? '▾' : '▸'}</span><b>Tareas sin horas reales cargadas</b><span className={'cnt' + (l.length ? ' warn' : ' ok')}>{l.length}</span><span className="mut">terminadas o empezadas</span></button>
+    {ver && (l.length === 0 ? <p className="mut">Todas las tareas terminadas o empezadas tienen horas reales.</p> : Object.values(g).map(({ r, l }) => <div key={r.id} className="sinh-g"><b>{r.nombre}</b>
+      {l.map(t => <div key={t.id} className="sinh-r"><span className={'est e-' + t.estado.replace(' ', '')}>{t.estado === 'terminada' ? 'terminada' : Math.round(V.D[t.id].avance) + '%'}</span><span className="sn" title={t.nombre}>{t.nombre}</span><span className="mut">{operName(S, t.operacionId)} · plan {fN(t.hh)} h</span>
+        <label className="inl">Reales<EdIn className="num w5" type="number" min="0" step="0.25" value="" placeholder="h" onCommit={v => { const h = Math.max(0, Number(String(v).replace(',', '.')) || 0); if (h > 0) up(s => E.patchTask(s, t.id, { hhReal: h, crono: { acum: h, desde: null } })); }} /></label></div>)}</div>))}</div>;
+}
 function Desglose({ roots, ts, vista, hhv, setHhv, color, cerrar }) {
   const { S, V } = useApp();
   const filasPadre = roots.map(t => { const r = V.D[t.id]; return { k: t.id, nom: t.nombre, plan: r.hh, real: r.hhReal, av: r.avance, est: r.estado }; });
@@ -518,14 +536,16 @@ function Desglose({ roots, ts, vista, hhv, setHhv, color, cerrar }) {
         <b className="dpct">{Math.round(f.av)}%</b>
         <span className="mut dsub">{fN(f.plan * f.av / 100)} de {fN(f.plan)} HH · {f.est}</span></div>)}</div>
     : <>
-      <div className="dleg"><span><i style={{ background: 'var(--s1)' }} />Proyectadas</span><span><i style={{ background: 'var(--s2)' }} />Reales cargadas</span></div>
-      <div className="dlist">{filas.map(f => <div key={f.k} className="drow hh">
-        <span className="dnom" title={f.nom}>{f.nom}{f.n ? <small className="mut"> · {f.n} {f.n === 1 ? 'tarea' : 'tareas'}</small> : null}</span>
-        <span className="dbars"><span className="dbar"><i style={{ width: f.plan / max * 100 + '%', background: 'var(--s1)' }} /></span><span className="dbar"><i style={{ width: f.real / max * 100 + '%', background: 'var(--s2)' }} /></span></span>
-        <span className="dnum"><b>{fN(f.plan)}</b><b>{fN(f.real)}</b></span>
-        <span className="dsub">{f.real > 0 ? <Desvio real={f.real} plan={f.plan * (f.av || 0) / 100 || f.plan} /> : <span className="mut">sin horas reales</span>}</span></div>)}
-        <div className="drow hh tot"><span className="dnom">Total</span><span /><span className="dnum"><b>{fN(tot.plan)}</b><b>{fN(tot.real)}</b></span><span /></div></div>
-      <p className="mut">El desvío compara las horas reales con las proyectadas para el avance cargado (lo que debería haber llevado hasta ahora).</p></>}
+      <div className="dleg"><span><i className="lg-plan" />Total planificado (la barra completa)</span><span><i style={{ background: 'var(--ok)' }} />Real cargado</span><span><i style={{ background: 'var(--bad)' }} />Real por encima de lo esperado</span><span><i className="lg-tick" />Lo que debería llevar según el avance</span></div>
+      <div className="dlist">{filas.map(f => { const esp = f.plan * (f.av || 0) / 100, pasa = f.real > Math.max(esp, 0.01) * 1.05 && f.real > 0, pr = f.plan ? Math.min(100, f.real / f.plan * 100) : (f.real ? 100 : 0);
+        return <div key={f.k} className="drow hh1">
+          <span className="dnom" title={f.nom}>{f.nom}{f.n ? <small className="mut"> · {f.n} {f.n === 1 ? 'tarea' : 'tareas'}</small> : null}</span>
+          <span className="dtrack" title={`Real ${fN(f.real)} h de ${fN(f.plan)} h planificadas · avance ${Math.round(f.av || 0)}%`}><i className={pasa ? 'over' : ''} style={{ width: pr + '%' }} />{f.plan > 0 && <em style={{ left: Math.min(100, f.av || 0) + '%' }} />}{f.real > f.plan && f.plan > 0 && <b className="dmas">+{fN(f.real - f.plan)}</b>}</span>
+          <span className="dnum1"><b>{fN(f.real)}</b> / {fN(f.plan)} h</span>
+          <span className="dsub">{f.real > 0 ? <Desvio real={f.real} plan={esp || f.plan} /> : <span className="mut">sin horas reales</span>}</span></div>; })}
+        <div className="drow hh1 tot"><span className="dnom">Total</span><span className="dtrack"><i style={{ width: (tot.plan ? Math.min(100, tot.real / tot.plan * 100) : 0) + '%' }} /></span><span className="dnum1"><b>{fN(tot.real)}</b> / {fN(tot.plan)} h</span><span /></div></div>
+      <p className="mut">La barra completa es lo planificado; lo pintado, las horas reales cargadas. La rayita marca lo que debería haberse usado según el avance: si lo real la pasa, se pinta en rojo.</p>
+      <SinHoras ts={ts} /></>}
   </section>;
 }
 function useTopH() { useEffect(() => { const top = document.querySelector('.top'); if (!top) return; const f = () => document.documentElement.style.setProperty('--toph', top.offsetHeight + 'px'); f(); const ro = new ResizeObserver(f); ro.observe(top); return () => ro.disconnect(); }, []); }
@@ -546,7 +566,7 @@ function ProyTabs({ pid, setPid, info }) {
 function Proyectos() {
   const { S, V, up, ui } = useApp(); const [pid, setPid0] = useState(() => { try { return localStorage.getItem('produccionapp-proy-actual') || null; } catch (e) { return null; } });
   const setPid = id => { setPid0(id); try { id ? localStorage.setItem('produccionapp-proy-actual', id) : localStorage.removeItem('produccionapp-proy-actual'); } catch (e) { } if (typeof window.scrollTo === 'function') window.scrollTo({ top: 0 }); };
-  useEffect(() => { const k = e => { if (!e.altKey || e.ctrlKey || e.metaKey) return; const n = Number(e.key); if (n >= 1 && n <= 9 && S.proyectos[n - 1]) { e.preventDefault(); setPid(S.proyectos[n - 1].id); } else if (e.key === '0') { e.preventDefault(); setPid(null); } }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [S.proyectos]); const [col, tog] = useSet(); const [det, setDet] = useState(null); const [hhv, setHhv] = useState('padre'); const [altoG, setAltoG] = useState('completo'); const [q, setQ] = useState(''); const [verFin, setVerFin] = useState(() => prefG('verfin', false));
+  useEffect(() => { const k = e => { if (!e.altKey || e.ctrlKey || e.metaKey) return; const n = Number(e.key); if (n >= 1 && n <= 9 && S.proyectos[n - 1]) { e.preventDefault(); setPid(S.proyectos[n - 1].id); } else if (e.key === '0') { e.preventDefault(); setPid(null); } }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [S.proyectos]); const [col, tog, setCol] = useSet(); const [det, setDet] = useState(null); const [hhv, setHhv] = useState('padre'); const [altoG, setAltoG] = useState('completo'); const [q, setQ] = useState(''); const [verFin, setVerFin] = useState(() => prefG('verfin', false));
   useEffect(() => { if (pid) setAltoG(prefG('alto-' + pid, 'completo')); }, [pid]);
   const p = S.proyectos.find(x => x.id === pid);
   const info = pr => { const ts = S.tareas.filter(t => t.proyId === pr.id), rs = ts.filter(t => !t.parentId).map(t => V.D[t.id]); const hh = rs.reduce((a, r) => a + r.hh, 0);
@@ -603,7 +623,7 @@ function Proyectos() {
     <section><div className="sec-h"><div className="row"><h2>Árbol de piezas y Gantt</h2><div className="seg">{[['oculto', 'Oculto', 'M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c5 0 9 4.5 10 7a13 13 0 0 1-3 4M6.6 6.6C4.4 8 2.8 10 2 12c1 2.5 5 7 10 7a9.6 9.6 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2'], ['compacto', 'Compacto', 'M4 9h16M4 15h16M12 3v3l-2-2M12 3l2 2M12 21v-3l-2 2M12 21l2-2'], ['completo', 'Completo', 'M4 4h16v16H4zM4 9h16M4 14h16']].map(([k, l, d]) => <button key={k} className={altoG === k ? 'on' : ''} onClick={() => { setAltoG(k); guardaG('alto-' + p.id, k); }}><svg viewBox="0 0 24 24"><path d={d} /></svg>{l}</button>)}</div></div>
         {altoG !== 'oculto' && <span className="mut legend"><i className="lg t" />hoy <i className="lg d" />entrega</span>}</div>
       {altoG === 'oculto' ? <p className="mut">Oculto ({rows.length} {rows.length === 1 ? 'fila' : 'filas'}). Elegí Compacto o Completo para verlo.</p>
-        : <Gantt rows={rows} entrega={p.entrega} color={p.color} collapsed={col} toggle={tog} alto={altoG} />}</section>
+        : <Gantt rows={rows} entrega={p.entrega} color={p.color} collapsed={colV} toggle={tog} alto={altoG} todo={c => setCol(c ? new Set(i.ts.filter(t => (V.kids[t.id] || []).length).map(t => t.id)) : new Set())} />}</section>
     <section><div className="sec-h"><h2>Pendientes y en proceso <span className="cnt">{nAct}</span></h2><span className="mut">Mayús + Espacio (Shift + Space) marca la fila · en la casilla alcanza con Espacio</span></div><TaskTable roots={roots} tipo="proy" vis={visAct} collapsed={colV} toggle={tog} orden={ord} /></section>
     <section className="finsec"><div className="sec-h"><button className="dgrp-t fin-t" onClick={() => { setVerFin(!verFin); guardaG('verfin', !verFin); }}><span className="car">{verFin ? '▾' : '▸'}</span><h2>Terminadas <span className="cnt ok">{nFin}</span></h2></button></div>
       {verFin && (nFin ? <TaskTable roots={roots} tipo="proy" vis={visFin} collapsed={colV} toggle={tog} orden={ord} /> : <p className="mut">Todavía no hay piezas terminadas en este proyecto.</p>)}</section>
@@ -993,7 +1013,7 @@ const PlCtx = createContext({ c: () => '', h: t => t });
 const CFG_SECS = ['Atajos de teclado', 'Operarios', 'Ausencias', 'Operaciones', 'Códigos de operación', 'Horarios laborales', 'Feriados', 'Usuarios y permisos', 'Color de énfasis', 'Datos', 'Registro de cambios', 'Sesión'];
 function Atajos() {
   const PL = useContext(PlCtx);
-  const G = [['En todas las pantallas', [['Esc', 'Cierra la ventana abierta (editar tarea, operario, parte del día…)']]],
+  const G = [['En todas las pantallas', [['Esc', 'Cierra la ventana abierta (editar tarea, operario, parte del día…)'], ['Ctrl + Z', 'Deshace el último cambio (si estás escribiendo en una celda, deshace lo escrito)'], ['Ctrl + Y  /  Ctrl + Mayús + Z', 'Rehace lo que deshiciste']]],
     ['Proyectos', [['Alt + 1 … 9', 'Abre el proyecto 1 al 9, en el orden de la barra de proyectos'], ['Alt + 0', 'Vuelve a "Todos" (la lista de proyectos)'], ['Doble clic en el borde de la columna Pieza del Gantt', 'Vuelve al ancho original'], ['Arrastrar una barra del Gantt', 'Mueve la tarea de día y la deja fijada a mano 📌 (no la corren las etapas)'], ['▲ ▼ en la tabla de tareas', 'Cambia el orden de la pieza dentro de su ensamblaje']]],
     ['Tablas de Repuestos y Proyectos: moverse', [['↑ ↓ ← →', 'Pasa de celda en celda, como en Excel'], ['Enter', 'Confirma lo escrito y baja a la celda de abajo'], ['Clic en una celda', 'Selecciona todo el texto: lo que escribas lo reemplaza'], ['Doble clic en el borde de un título de columna', 'Vuelve la columna a su ancho original']]],
     ['Tablas de Repuestos y Proyectos: seleccionar filas', [['Espacio (Space)', 'En la casilla de la primera columna: marca o desmarca la fila'], ['Mayús + Espacio (Shift + Space)', 'Marca o desmarca la fila desde cualquier columna'], ['Mayús + ↑ / ↓ (Shift + flechas)', 'Va sumando filas a la selección mientras subís o bajás'], ['← al principio del nombre', 'Vuelve a la casilla de selección'], ['→, Enter o F2 desde la casilla', 'Entra al nombre de la pieza para editarlo']]]];
@@ -1155,7 +1175,7 @@ const TABS = [['resumen', 'Producción', 'M4 5h16v15H4zM4 10h16M9 5v15M15 5v15']
 const AVC = ['#5cc8c0', '#e59a57', '#b08cf0', '#e37fa7', '#8fbf5a', '#6f9df5', '#d9c15a', '#d98a8a', '#58b7e8', '#c9a0dc'];
 const Av = ({ o, i, sm }) => <span className={'av' + (sm ? ' sm' : '')} style={{ '--c': AVC[i % AVC.length] }}>{(o.nombre || '?').trim().slice(0, 2).toUpperCase()}</span>;
 export function App({ db, ses, S0 }) {
-  const [S, setS] = useState(() => S0 || db.inicial()); const ref = useRef(S); const hist = useRef([]); const [nh, setNh] = useState(0);
+  const [S, setS] = useState(() => S0 || db.inicial()); const ref = useRef(S); const hist = useRef([]); const fut = useRef([]); const [nh, setNh] = useState(0); const [nf, setNf] = useState(0);
   const [tab, setTab] = useState(() => { const h = (location.hash || '').slice(1); return TABS.some(t => t[0] === h) ? h : 'resumen'; });
   const [modal, setModal] = useState(null); const [toast, setToast] = useState(null);
   const [uid, setUid] = useState(() => { try { return localStorage.getItem(KEY + '-uid') || 'u1'; } catch (e) { return 'u1'; } });
@@ -1166,10 +1186,17 @@ export function App({ db, ses, S0 }) {
   const V = useMemo(() => E.derive(S), [S]);
   const up = useCallback(fn => { const p = ref.current, n = fn(p); if (n === p) return; const err = permiso(p, n, pmRef.current); if (err) { setToast(err); return; } const d = describir(p, n); let n2 = n.log === p.log ? n : { ...n, log: p.log };
     if (d) { const yo = yoRef.current, now = Date.now(), log = p.log || [], junta = log[0] && log[0].uid === yo.id && log[0].k === d.k && now - log[0].ts < 90000, e = { id: junta ? log[0].id : now + '-' + E.uid(), ts: now, uid: yo.id, email: yo.email || '', quien: yo.nombre, k: d.k, txt: d.txt }; n2 = { ...n2, log: junta ? [e, ...log.slice(1)] : [e, ...log].slice(0, 300) }; }
-    hist.current = [...hist.current.slice(-39), p]; ref.current = n2; setS(n2); setNh(hist.current.length); db.escribir(p, n2, setToast); }, []);
-  const undo = () => { const n = hist.current.pop(); if (!n) return; const p = ref.current; ref.current = n; setS(n); setNh(hist.current.length); db.escribir(p, n, setToast); };
+    hist.current = [...hist.current.slice(-39), { s: p, txt: d ? d.txt : 'último cambio' }]; fut.current = []; setNf(0); ref.current = n2; setS(n2); setNh(hist.current.length); db.escribir(p, n2, setToast); }, []);
+  const undo = useCallback(() => { const h = hist.current.pop(); if (!h) return; const p = ref.current; fut.current.push({ s: p, txt: h.txt }); ref.current = h.s; setS(h.s); setNh(hist.current.length); setNf(fut.current.length); db.escribir(p, h.s, setToast); setToast('Deshecho: ' + h.txt.slice(0, 120)); }, []);
+  const redo = useCallback(() => { const h = fut.current.pop(); if (!h) return; const p = ref.current; hist.current.push({ s: p, txt: h.txt }); ref.current = h.s; setS(h.s); setNh(hist.current.length); setNf(fut.current.length); db.escribir(p, h.s, setToast); setToast('Rehecho: ' + h.txt.slice(0, 120)); }, []);
+  // Ctrl+Z / Ctrl+Y (y Ctrl+Mayús+Z). Mientras escribís en un campo, deshace lo escrito en ese campo, como siempre.
+  useEffect(() => { const k = e => { if (!(e.ctrlKey || e.metaKey) || e.altKey) return; const key = e.key.toLowerCase(); if (key !== 'z' && key !== 'y') return;
+      const el = e.target; const campo = el && (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && !['checkbox', 'radio', 'range', 'file'].includes(el.type) && (!el.classList.contains('ci') || el.dataset.sucio)));
+      if (campo) return; e.preventDefault(); if (document.activeElement && document.activeElement.blur && el.tagName === 'INPUT') document.activeElement.blur();
+      if (key === 'y' || (key === 'z' && e.shiftKey)) redo(); else undo(); };
+    window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [undo, redo]);
   // cambios que llegan de otros usuarios (Firebase): se muestran al instante; el deshacer se reinicia para no pisar lo ajeno
-  useEffect(() => db.escuchar ? db.escuchar((R, remoto) => { ref.current = R; setS(R); if (remoto) { hist.current = []; setNh(0); } }) : undefined, []);
+  useEffect(() => db.escuchar ? db.escuchar((R, remoto) => { ref.current = R; setS(R); if (remoto) { hist.current = []; fut.current = []; setNh(0); setNf(0); } }) : undefined, []);
   useEffect(() => { document.documentElement.style.setProperty('--accent', S.cfg.accent); }, [S.cfg.accent]);
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3200); return () => clearTimeout(t); }, [toast]);
   const ui = useMemo(() => ({ modal: setModal, toast: setToast }), []);
@@ -1183,7 +1210,7 @@ export function App({ db, ses, S0 }) {
         <div className="top-r">{S.ejemplo !== false && <span className="tag ej">Datos de ejemplo</span>}
           {ses ? <span className="tag yo" title={yo.email}>{yo.nombre}</span> : <label className="inl vercomo" title="En esta vista previa elegís el usuario a mano para probar los permisos. En la etapa 2 lo decide el mail con el que cada uno inicia sesión.">Ver como<select id="ver-como" value={yo.id} onChange={e => { setUid(e.target.value); try { localStorage.setItem(KEY + '-uid', e.target.value); } catch (err) { } }}>{S.usuarios.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}</select></label>}
           {!pm.admin && <span className="tag warn">{pm.rep && pm.proy ? 'Edita todo, sin configuración' : pm.rep ? 'Edita Repuestos y Producción' : pm.proy ? 'Edita Proyectos' : 'Solo consulta'}</span>}<span className="tag">Horario de {act} · {h.entrada}–{h.salida}</span>
-          <button className="btn" onClick={undo} disabled={!nh}>Deshacer</button></div>
+          <span className="undo"><button className="btn" onClick={undo} disabled={!nh} title={nh ? 'Deshacer (Ctrl+Z): ' + hist.current[hist.current.length - 1].txt : 'Nada para deshacer'}>↶ Deshacer</button><button className="btn" onClick={redo} disabled={!nf} title={nf ? 'Rehacer (Ctrl+Y): ' + fut.current[fut.current.length - 1].txt : 'Nada para rehacer'} aria-label="Rehacer">↷</button></span></div>
       </header>
       <main>{tab === 'resumen' ? <Resumen /> : tab === 'repuestos' ? <Repuestos /> : tab === 'proyectos' ? <Proyectos /> : tab === 'taller' ? <Taller /> : <Config />}</main>
       {modal && modal.k === 'task' && <TaskEditor key={modal.id || modal.draft.id} id={modal.id} draft={modal.draft} onClose={close} />}
