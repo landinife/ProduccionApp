@@ -196,6 +196,45 @@ function Capacidad({ w0, irA }) {
       <tr className="tot"><th className="stk">Todo el taller</th>{tot.map((x, i) => caja(x, i, () => irA(sems[i])))}</tr></tbody></table></div>
     <p className="legend"><i className="lg g" />con lugar <i className="lg y" />85% o más <i className="lg r" />sobrecargado · cuenta turno normal y horas extra habilitadas · tocá una semana para verla en detalle</p></>;
 }
+// Calendario general de cargas: mes por mes o tira de días por operario (pasado = lo que se hizo, futuro = lo planificado)
+const tonoCarga = (l, c) => { const p = c ? l / c : (l > 0 ? 2 : 0); return p > 1.001 ? 'r' : p >= 0.85 ? 'y' : p > 0.01 ? 'g' : 'n'; };
+function CalGeneral() {
+  const { S, V, ui } = useApp(); const hoy = E.today(); const ops = S.operarios.filter(o => o.activo);
+  const [modo, setModo] = useState(() => prefG('calgen-modo', 'mes')); const [mes, setMes] = useState(hoy.slice(0, 7)); const [dsel, setDsel] = useState(null);
+  const cambiaModo = m => { setModo(m); guardaG('calgen-modo', m); };
+  const movMes = n => { const [y, m] = mes.split('-').map(Number); const d = new Date(y, m - 1 + n, 1); setMes(`${d.getFullYear()}-${E.pad(d.getMonth() + 1)}`); };
+  const lc = (o, d) => ({ c: E.capN(S, o.id, d) + E.extraDe(S, o.id, d), l: ((V.load[`${o.id}|${d}|normal`] || {}).h || 0) + ((V.load[`${o.id}|${d}|extra`] || {}).h || 0) });
+  const dia = d => ops.reduce((a, o) => { const x = lc(o, d); return { c: a.c + x.c, l: a.l + x.l }; }, { c: 0, l: 0 });
+  const [y, m] = mes.split('-').map(Number); const dias = new Date(y, m, 0).getDate(); const d1 = `${mes}-01`;
+  const mesTxt = `${E.MESES[m - 1]} ${y}`;
+  const pct = x => x.c ? Math.round(x.l / x.c * 100) + '%' : x.l > 0 ? 'sin horas' : '';
+  const detalle = dsel && (() => { const data = ops.map(o => ({ o, aus: E.ausenciaDe(S, o.id, dsel), it: [...((V.load[`${o.id}|${dsel}|normal`] || {}).items || []).map(i => ({ ...i, x: 0 })), ...((V.load[`${o.id}|${dsel}|extra`] || {}).items || []).map(i => ({ ...i, x: 1 }))], ...lc(o, dsel) })); const tot = dia(dsel);
+    return <div className="calg-det"><div className="sec-h"><h3>{fDia(dsel)}{dsel < hoy ? ' · lo que se hizo' : dsel === hoy ? ' · hoy' : ' · lo planificado'}</h3><span className="mut">{fN(tot.l)} de {fN(tot.c)} h en todo el taller</span><button className="btn sm" onClick={() => setDsel(null)}>Cerrar</button></div>
+      <div className="hoygrid">{data.map(x => <div key={x.o.id} className={'hoyc cap-' + tonoCarga(x.l, x.c)}><b>{x.o.nombre} <small className="mut">{fN(x.l)}/{fN(x.c)} h</small></b>
+        {x.aus ? <span className="mut">Ausente: {x.aus.motivo}</span> : x.it.length === 0 ? <span className="mut">Sin tareas</span> : x.it.map(i => V.byId[i.id] && <button key={i.id + i.x} className="hl al-t" onClick={() => ui.modal({ k: 'task', id: i.id })}><Chip t={V.byId[i.id]} small /> {etiqueta(V, V.byId[i.id])} <em>{i.x ? 'extra · ' : ''}{fN(i.h)} h</em></button>)}</div>)}</div></div>; })();
+  let cuerpo;
+  if (modo === 'mes') {
+    const blancos = (E.dow(d1) + 6) % 7; const celdas = [...Array(blancos).fill(null), ...Array.from({ length: dias }, (_, i) => `${mes}-${E.pad(i + 1)}`)];
+    let tl = 0, tc = 0; celdas.forEach(d => { if (d) { const x = dia(d); tl += x.l; tc += x.c; } });
+    cuerpo = <><p className="mut">{mesTxt}: {fN(tl)} h cargadas de {fN(tc)} h disponibles ({tc ? Math.round(tl / tc * 100) : 0}%) · tocá un día para ver el detalle</p>
+      <div className="calg-mes">{['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'].map(n => <span key={n} className="calg-dn">{n}</span>)}
+        {celdas.map((d, i) => { if (!d) return <span key={'b' + i} />; const x = dia(d), f = E.feriadoDe(S, d);
+          return <button key={d} className={'calg-d cap-' + tonoCarga(x.l, x.c) + (d === hoy ? ' hoy' : '') + (d < hoy ? ' pas' : '') + (E.isWork(S, d) ? '' : ' off') + (dsel === d ? ' sel' : '')} onClick={() => setDsel(dsel === d ? null : d)} title={`${fDia(d)}: ${fN(x.l)} de ${fN(x.c)} h${f ? ' · ' + f.nombre : ''}`}>
+            <b>{Number(d.slice(8))}</b>{f && <small className="calg-fer">{f.nombre}</small>}{(x.l > 0 || x.c > 0) && <><span className="calg-p">{pct(x)}</span><small className="mut">{fN(x.l)}/{fN(x.c)} h</small><span className="pbar"><i style={{ width: Math.min(100, x.c ? x.l / x.c * 100 : 0) + '%' }} /></span></>}</button>; })}</div></>;
+  } else {
+    const N = 92; const ds0 = Array.from({ length: N }, (_, i) => E.addDays(d1, i));
+    cuerpo = <><p className="mut">Tres meses desde el 1 de {mesTxt} · cada cuadro es la carga del operario ese día · tocá uno para ver el detalle</p>
+      <div className="scroll calg-tw"><table className="calg-tira"><thead><tr><th className="stk">Operario</th>{ds0.map(d => <th key={d} className={(d === hoy ? 'hoy ' : '') + (E.isWork(S, d) ? '' : 'off')} title={fDia(d)}>{d.slice(8) === '01' || d === ds0[0] ? <em>{E.MESES[Number(d.slice(5, 7)) - 1]}</em> : null}{LETRA[E.dow(d)]}<br />{Number(d.slice(8))}</th>)}</tr></thead>
+        <tbody>{ops.map(o => <tr key={o.id}><th className="stk">{o.nombre}</th>{ds0.map(d => { const x = lc(o, d); return <td key={d} className={'cap-' + tonoCarga(x.l, x.c) + (d === hoy ? ' hoy' : '') + (dsel === d ? ' sel' : '')} title={`${o.nombre} · ${fDia(d)}: ${fN(x.l)} de ${fN(x.c)} h`} onClick={() => setDsel(dsel === d ? null : d)}>{x.l > 0 ? Math.round(x.l) : ''}</td>; })}</tr>)}
+          <tr className="tot"><th className="stk">Todo el taller</th>{ds0.map(d => { const x = dia(d); return <td key={d} className={'cap-' + tonoCarga(x.l, x.c) + (d === hoy ? ' hoy' : '')} title={`${fDia(d)}: ${fN(x.l)} de ${fN(x.c)} h`} onClick={() => setDsel(dsel === d ? null : d)}>{x.c ? Math.round(x.l / x.c * 100) : ''}</td>; })}</tr></tbody></table></div></>;
+  }
+  return <div className="calg">
+    <div className="row"><div className="seg">{[['mes', 'Mes por mes'], ['tira', 'Por operario']].map(([k, l]) => <button key={k} className={modo === k ? 'on' : ''} onClick={() => cambiaModo(k)}>{l}</button>)}</div>
+      <span className="sp" /><button className="btn" onClick={() => movMes(-1)} aria-label="Mes anterior">←</button><b className="calg-t">{mesTxt}</b><button className="btn" onClick={() => movMes(1)} aria-label="Mes siguiente">→</button><button className="btn" onClick={() => setMes(hoy.slice(0, 7))}>Este mes</button></div>
+    {cuerpo}{detalle}
+    <p className="legend"><i className="lg g" />con lugar <i className="lg y" />85% o más <i className="lg r" />sobrecargado · cuenta turno normal y horas extra habilitadas · los días pasados muestran lo hecho y los futuros lo planificado{modo === 'tira' ? ' · en las filas: horas cargadas; en "Todo el taller": % de ocupación' : ''}</p>
+  </div>;
+}
 // Alertas de Producción: cada indicador se abre con su lista y la forma de corregirlo
 function Alertas({ tipo, days, ops, wk, cerrar }) {
   const { S, V, up, ui } = useApp(); const hoy = E.today(), now = E.nowDT();
@@ -246,7 +285,7 @@ function Alertas({ tipo, days, ops, wk, cerrar }) {
 }
 function Resumen() {
   const { S, V, up, ui } = useApp();
-  const [w0, setW0] = useState(() => { const t = E.today(), g = E.dow(t); return E.monday(g === 6 ? E.addDays(t, 2) : g === 0 ? E.addDays(t, 1) : t); });
+  const [w0, setW0] = useState(() => E.today());   // la semana arranca siempre en hoy (primera columna)
   const [fp, setFp] = useState(''); const [fo, setFo] = useState(''); const [vista, setVista] = useState('sem');
   const days = [0, 1, 2, 3, 4, 5, 6].map(i => E.addDays(w0, i)); const hoy = E.today();
   const ops = S.operarios.filter(o => o.activo);
@@ -314,12 +353,12 @@ function Resumen() {
     <PushBanner />
     <section>
       <div className="sec-h">
-        <div className="row"><h2>{vista === 'sem' ? `Semana del ${fD(w0)} al ${fD(days[6])}` : 'Carga de las próximas semanas'}</h2>
-          <div className="seg"><button className={vista === 'sem' ? 'on' : ''} onClick={() => setVista('sem')}>Semana</button><button className={vista === 'cap' ? 'on' : ''} onClick={() => setVista('cap')}>6 semanas</button></div></div>
+        <div className="row"><h2>{vista === 'sem' ? `Del ${fDia(w0)} al ${fDia(days[6])}` : vista === 'cap' ? 'Carga de las próximas semanas' : 'Calendario de cargas'}</h2>
+          <div className="seg"><button className={vista === 'sem' ? 'on' : ''} onClick={() => setVista('sem')}>Semana</button><button className={vista === 'cap' ? 'on' : ''} onClick={() => setVista('cap')}>6 semanas</button><button className={vista === 'cal' ? 'on' : ''} onClick={() => setVista('cal')}>Calendario</button></div></div>
         <div className="row">
-          <button className="btn" onClick={() => setW0(E.addDays(w0, -7))} aria-label="Semana anterior">←</button>
-          <button className="btn" onClick={() => setW0(E.monday(hoy))}>Hoy</button>
-          <button className="btn" onClick={() => setW0(E.addDays(w0, 7))} aria-label="Semana siguiente">→</button>
+          {vista !== 'cal' && <><button className="btn" onClick={() => setW0(E.addDays(w0, -7))} aria-label="Semana anterior">←</button>
+          <button className="btn" onClick={() => setW0(hoy)}>Hoy</button>
+          <button className="btn" onClick={() => setW0(E.addDays(w0, 7))} aria-label="Semana siguiente">→</button></>}
           <button className="btn" onClick={() => ui.modal({ k: 'hoy' })}>Parte del día</button>
           <button className="btn" title="Adelanta las tareas pendientes de todos para cerrar los huecos libres" onClick={() => juntar(up, ui, null)}>Juntar tareas</button>
           <button className="btn" title="Corre desde ahora lo que quedó atrasado según el avance real. Queda marcado en el cartel para dar el OK." onClick={() => { let n = 0; up(s => { const r = E.reprogramar(s); n = r.n; return r.n ? r.S : s; }); ui.toast(n ? `${n} ${n === 1 ? 'tarea reprogramada' : 'tareas reprogramadas'} desde ahora. Revisalas en el cartel.` : 'No hay tareas atrasadas.'); }}>Reprogramar atrasadas</button>
@@ -334,7 +373,7 @@ function Resumen() {
       </div>
       {al && <Alertas tipo={al} days={days} ops={ops} wk={wk} cerrar={() => setAl(null)} />}
       {vista === 'sem' ? <>
-      <div className="scroll"><table className="cal">
+      <div className="scroll calw"><table className="cal">
         <thead><tr><th className="stk">Operario</th>{days.map(d => { const f = E.feriadoDe(S, d); return <th key={d} className={(d === hoy ? 'hoy ' : '') + (E.isWork(S, d) ? '' : 'off')}>{fDia(d)}{f && <small>{f.nombre}</small>}</th>; })}</tr></thead>
         <tbody>{ops.map(o => <tr key={o.id}>
           <th className="stk"><button className="oplink" onClick={() => ui.modal({ k: 'op', id: o.id })}><Av o={o} i={S.operarios.indexOf(o)} sm />{o.nombre}</button>
@@ -343,7 +382,7 @@ function Resumen() {
           {days.map(d => cell(o, d))}</tr>)}</tbody>
       </table></div>
       <p className="legend"><i className="lg g" />con lugar <i className="lg y" />completo <i className="lg r" />sobrecargado · N turno normal · E horas extra (sigue: continúa lo del turno normal ese día; aparte: otro trabajo) · arrastrá una tarea para moverla de día o de operario · si la pasás de extra a normal (o al revés) en el mismo operario, lo anterior queda y sigue desde ese día; también con el + de la celda</p>
-      </> : <Capacidad w0={w0} irA={d => { setW0(d); setVista('sem'); }} />}
+      </> : vista === 'cap' ? <Capacidad w0={w0} irA={d => { setW0(d); setVista('sem'); }} /> : <CalGeneral />}
     </section>
     <section>
       <div className="sec-h"><h2>Tareas pendientes</h2>

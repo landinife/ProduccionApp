@@ -700,3 +700,38 @@ select option:disabled { color: var(--mut); }
 .dprog.ok, .dprog.w0 { border-color: transparent; }
 @media (max-width: 760px) { .drow:has(.dprog) { grid-template-columns: 1fr; } .drow .dprog { grid-row: auto; grid-column: 1; } }
 .hint.bad { color: var(--bad); }
+/* calendario semanal: encabezado fijo y barra de desplazamiento siempre a la vista */
+.scroll.calw { max-height: calc(100vh - var(--toph, 64px) - 24px); max-height: calc(100dvh - var(--toph, 64px) - 24px); overflow: auto; }
+.calw .cal thead th { position: sticky; top: 0; z-index: 3; }
+.calw .cal thead th.stk { z-index: 4; }
+@media (max-width: 760px) { .scroll.calw { max-height: calc(100dvh - var(--toph, 56px) - 90px); } }
+/* calendario general de cargas */
+.calg { display: flex; flex-direction: column; gap: 10px; }
+.calg-t { font: 600 18px var(--f-d); letter-spacing: .04em; text-transform: uppercase; min-width: 90px; text-align: center; }
+.calg-mes { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.calg-dn { font: 600 12px var(--f-d); letter-spacing: .08em; text-transform: uppercase; color: var(--mut); text-align: center; }
+.calg-d { min-height: 86px; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); text-align: left; cursor: pointer; min-width: 0; overflow: hidden; }
+.calg-d:hover { border-color: var(--accent); }
+.calg-d b { font: 600 16px var(--f-d); } .calg-d .pbar { width: 100%; margin-top: auto; }
+.calg-d small { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.calg-p { font: 700 18px/1 var(--f-d); } .calg-d.cap-y .calg-p { color: var(--warn); } .calg-d.cap-r .calg-p { color: var(--bad); }
+.calg-fer { color: var(--warn); }
+.calg-d.cap-g, .calg-tira td.cap-g { background-color: color-mix(in srgb, var(--ok) 12%, var(--panel)); }
+.calg-d.cap-y, .calg-tira td.cap-y { background-color: color-mix(in srgb, var(--warn) 16%, var(--panel)); }
+.calg-d.cap-r, .calg-tira td.cap-r { background-color: color-mix(in srgb, var(--bad) 18%, var(--panel)); }
+.calg-d.cap-g .pbar i { background: var(--ok); } .calg-d.cap-y .pbar i { background: var(--warn); } .calg-d.cap-r .pbar i { background: var(--bad); }
+.calg-d.off { background-image: repeating-linear-gradient(135deg, transparent 0 6px, var(--stripe) 6px 12px); }
+.calg-d.pas { opacity: .8; } .calg-d.hoy { box-shadow: inset 0 0 0 2px var(--accent); } .calg-d.sel, .calg-tira td.sel { outline: 2px solid var(--ink); outline-offset: -2px; }
+.calg-tw { max-height: calc(100dvh - var(--toph, 64px) - 24px); overflow: auto; }
+.calg-tira { border-collapse: collapse; width: auto; }
+.calg-tira th, .calg-tira td { border: 1px solid var(--line); text-align: center; }
+.calg-tira thead th { position: sticky; top: 0; z-index: 3; background: var(--panel2); font: 600 11px/1.2 var(--f-d); letter-spacing: 0; min-width: 28px; padding: 14px 2px 4px; }
+.calg-tira thead th em { position: absolute; top: 2px; left: 3px; font-style: normal; color: var(--ink); letter-spacing: .06em; }
+.calg-tira thead th.stk { z-index: 4; } .calg-tira th.stk { text-align: left; padding: 4px 10px; min-width: 120px; color: var(--ink); text-transform: none; font: 600 14px var(--f-d); }
+.calg-tira th.off { color: color-mix(in srgb, var(--mut) 60%, transparent); } .calg-tira th.hoy { background: color-mix(in srgb, var(--accent) 30%, var(--panel2)); color: var(--ink); }
+.calg-tira td { width: 28px; height: 28px; font-size: 11px; cursor: pointer; background: var(--panel); }
+.calg-tira td.hoy { box-shadow: inset 2px 0 0 var(--accent), inset -2px 0 0 var(--accent); }
+.calg-tira tr.tot th, .calg-tira tr.tot td { border-top: 2px solid var(--mut); }
+.calg-det { border: 1px solid var(--line); border-radius: var(--r); padding: 10px 14px 14px; background: linear-gradient(180deg, var(--panel2), var(--panel)); }
+.calg-det .hoyc.cap-n { background: var(--bg); } .calg-det .hl { text-align: left; }
+@media (max-width: 760px) { .calg-d { min-height: 62px; padding: 4px 5px; } .calg-d small.mut, .calg-fer { display: none; } .calg-p { font-size: 14px; } .calg-mes { gap: 3px; } }
