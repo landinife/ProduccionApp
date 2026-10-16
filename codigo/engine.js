@@ -1,4 +1,4 @@
-// ===== Motor de fechas, cargas y empuje (sin React: reutilizable en la etapa 2) =====
+// ===== Motor de fechas, cargas y empuje (sin React: se puede reutilizar en la versión Android) =====
 export const pad = n => String(n).padStart(2, '0');
 export const ds = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 export const pd = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
@@ -289,15 +289,8 @@ export function unassign(S, id, op) {
   const ops = t.ops.filter(o => o !== op);
   return patchTask(S, id, { ops, inicio: ops.length ? t.inicio : null, empuje: ops.length ? t.empuje : null }, false);
 }
-export function applyRoute(S, id, plantilla) {
-  const t = S.tareas.find(x => x.id === id); if (!t) return S; let prev = null;
-  const nuevos = plantilla.pasos.map(p => { const o = S.operaciones.find(x => x.id === p.operacionId); const n = { ...blankTask(t.tipo, t.proyId), id: uid(), parentId: id, nombre: o ? o.nombre : 'Paso', operacionId: p.operacionId, hh: Number(p.hh) || 1, prioridad: t.prioridad, preds: prev ? [prev] : [] }; prev = n.id; return n; });
-  return { ...S, tareas: [...S.tareas, ...nuevos] };
-}
 export const blankTask = (tipo, proyId) => ({ id: uid(), tipo, proyId: proyId || null, parentId: null, orden: '', cliente: '', entrega: '', creada: today(), codigo: '', nombre: '', cant: 1, prioridad: 'media', operacionId: '', ops: [], turno: 'normal', inicio: null, hh: 9, estado: 'pendiente', avance: 0, hhReal: 0, finReal: null, preds: [], empuje: null });
 
-// Cambia las extras de un operario en un día y arrastra la cola: todo lo que venía detrás de una tarea
-// que ahora termina a otra hora se mueve con ella (conserva la separación que tenía y respeta sus predecesoras).
 // Habilita horas extra (para trabajo aparte) a los operarios de una tarea en turno extra, día por día desde su inicio, hasta que entre
 export function habilitarExtras(S, id, h, soloDias) {
   let S2 = S; const dias = []; const t0 = S.tareas.find(x => x.id === id); if (!t0 || !t0.inicio || !t0.ops.length) return { S, dias };
@@ -312,6 +305,8 @@ export function habilitarExtras(S, id, h, soloDias) {
   S2 = patchTask(S2, id, {}, true);
   return { S: S2, dias };
 }
+// Cambia las extras de un operario en un día y arrastra la cola: todo lo que venía detrás de una tarea
+// que ahora termina a otra hora se mueve con ella (conserva la separación que tenía y respeta sus predecesoras).
 export function setExtraDia(S, op, d, horas, modo) {
   const k = op + '|' + d;
   let S2 = { ...S, extras: { ...S.extras, [k]: Math.max(0, Number(horas) || 0) }, extraModo: { ...(S.extraModo || {}), [k]: modo || modoExtra(S, op, d) } };
@@ -531,7 +526,6 @@ export function sample() {
     extras: {}, extraModo: {},
     usuarios: usuariosEjemplo(),
     proyectos: [{ id: 'p1', nombre: 'Escaldadora 6000 aves/h', ini: 'ESC', color: '#e59a57', entrega: day(13) }, { id: 'p2', nombre: 'Transportador aéreo 120 m', ini: 'TRA', color: '#b08cf0', entrega: day(11) }],
-    plantillas: [{ id: 'r1', nombre: 'Pieza de chapa inox', pasos: [{ operacionId: 'k1', hh: 3 }, { operacionId: 'k2', hh: 4 }, { operacionId: 'k5', hh: 8 }, { operacionId: 'k7', hh: 4 }] }, { id: 'r2', nombre: 'Eje torneado', pasos: [{ operacionId: 'k3', hh: 6 }, { operacionId: 'k4', hh: 3 }] }],
     tareas: []
   };
   ['o8', 'o9'].forEach(o => [0, 1, 2, 3].forEach(n => { S.extras[o + '|' + day(n)] = 2; }));

@@ -297,7 +297,7 @@ body { background:
 .top { background: linear-gradient(180deg, color-mix(in srgb, var(--panel2) 92%, transparent), color-mix(in srgb, var(--panel) 94%, transparent)); backdrop-filter: blur(8px); border-bottom: 0; box-shadow: 0 1px 0 var(--line), 0 8px 24px rgba(0,0,0,.35); padding-block: 10px; }
 .top::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: linear-gradient(90deg, var(--accent), transparent 55%); }
 .top h1 { display: flex; align-items: center; gap: 9px; font-size: 27px; }
-.logo { width: 28px; height: 28px; flex: none; filter: drop-shadow(0 0 8px var(--glow)); } .logo path { fill: none; stroke: var(--accent); stroke-width: 2.2; stroke-linejoin: round; } .logo circle { fill: var(--accent); }
+.logo { width: 28px; height: 28px; flex: none; filter: drop-shadow(0 0 8px var(--glow)); } .logo path { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; } .logo rect { fill: var(--accent); }
 .tabs { gap: 4px; }
 .tabs button { display: flex; align-items: center; gap: 7px; border: 0; border-radius: 8px; padding: 8px 14px; transition: background .15s, color .15s; }
 .tabs button svg { width: 17px; height: 17px; flex: none; } .tabs button path { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }

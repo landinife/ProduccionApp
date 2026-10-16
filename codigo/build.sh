@@ -1,6 +1,7 @@
 #!/bin/bash
 set -e
-cd /home/claude/prod
+# Arma la vista previa de un solo archivo (ProduccionApp.html y test.html), que guarda los datos en el navegador
+cd "$(dirname "$0")"
 export NODE_PATH=/opt/npm-tools/node_modules
 /opt/npm-tools/node_modules/.bin/esbuild main-local.jsx --bundle --minify --format=iife --jsx=automatic --define:process.env.NODE_ENV='"production"' --outfile=bundle.js --log-level=warning
 node -e '

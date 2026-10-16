@@ -1,13 +1,11 @@
-// Arma la versión web: dist/ (para Netlify) o web/test/ (con Firebase simulado)
+// Arma la versión web en dist/. Lo que queda en dist/ se copia a la raíz del repositorio, que publica GitHub Pages.
 const esbuild = require('/opt/npm-tools/node_modules/esbuild'); const fs = require('fs'); const path = require('path');
-const test = process.argv[2] === 'test'; const out = test ? 'web/test/sitio' : 'dist';
-const fake = { name: 'fake', setup(b) { b.onResolve({ filter: /sdk\.js$/ }, a => a.importer.includes('datos-firebase') ? { path: path.resolve('web/test/sdk-fake.js') } : undefined); } };
+const out = 'dist';
 fs.rmSync(out, { recursive: true, force: true }); fs.mkdirSync(out, { recursive: true });
-esbuild.buildSync === undefined;
 esbuild.build({ entryPoints: ['web/main-web.jsx'], bundle: true, minify: true, format: 'esm', jsx: 'automatic', outfile: out + '/app.js', nodePaths: ['/opt/npm-tools/node_modules'],
-  define: { 'process.env.NODE_ENV': '"production"' }, external: ['https://www.gstatic.com/*'], plugins: test ? [fake] : [], logLevel: 'warning', legalComments: 'none' }).then(() => {
+  define: { 'process.env.NODE_ENV': '"production"' }, external: ['https://www.gstatic.com/*'], logLevel: 'warning', legalComments: 'none' }).then(() => {
   fs.copyFileSync('styles.css', out + '/styles.css');
-  ['manifest.webmanifest', 'sw.js', 'icon.svg', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png', '_headers'].forEach(f => { if (fs.existsSync('web/pub/' + f)) fs.copyFileSync('web/pub/' + f, out + '/' + f); });
+  ['manifest.webmanifest', 'sw.js', 'icon.svg', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png'].forEach(f => { if (fs.existsSync('web/pub/' + f)) fs.copyFileSync('web/pub/' + f, out + '/' + f); });
   fs.writeFileSync(out + '/index.html', `<!doctype html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>ProducciónApp</title><meta name="theme-color" content="#151a20"><meta name="description" content="Control de producción del taller">

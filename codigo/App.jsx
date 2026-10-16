@@ -88,7 +88,7 @@ function CalcBtn({ onUse, cant, titulo, className = '' }) {
     {ab && <Calculadora cant={cant} titulo={titulo} onUse={onUse} onClose={() => setAb(false)} />}</>;
 }
 function Desvio({ real, plan }) { const d = real - plan; if (!(plan > 0)) return null; return <span className={Math.abs(d) < 0.02 ? 'mut' : d > 0 ? 'c-bad' : 'c-ok'}>{Math.abs(d) < 0.02 ? 'igual a lo proyectado' : `${d > 0 ? '+' : '−'}${fHM(Math.abs(d))} (${d > 0 ? '+' : '−'}${Math.round(Math.abs(d) / plan * 100)}%)`}</span>; }
-// Qué puede cambiar cada usuario. En la etapa 2 las mismas reglas van también en Firebase.
+// Qué puede cambiar cada usuario. Las mismas reglas están también en Firebase (codigo/reglas-produccionapp.txt).
 function permiso(p, n, pm) {
   if (pm.admin) return null;
   if (['cfg', 'operarios', 'operaciones', 'feriados', 'usuarios', 'codigos'].some(k => p[k] !== n[k])) return 'Solo un administrador puede cambiar la configuración.';
@@ -1308,7 +1308,8 @@ function UsuariosFB() {
   </section>;
 }
 /* ================= PANTALLAS DE ENTRADA (versión web) ================= */
-const Logo = () => <svg className="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l8.66 5v10L12 22l-8.66-5V7z" /><circle cx="12" cy="12" r="3.4" /></svg>;
+// Logo: tablero de producción con barras de Gantt
+const Logo = () => <svg className="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 4.5h17v15h-17zM3.5 8.5h17" /><rect x="6" y="10.6" width="7" height="1.8" rx=".9" /><rect x="10" y="13.4" width="8" height="1.8" rx=".9" /><rect x="7.5" y="16.2" width="5" height="1.8" rx=".9" /></svg>;
 export function Pantalla({ children }) { return <div className="pant"><div className="pcaja"><h1 className="pmarca"><Logo />Producción<span>App</span></h1>{children}</div></div>; }
 export function Login({ google, entrar, reset }) {
   const [mail, setMail] = useState(''); const [pass, setPass] = useState(''); const [msg, setMsg] = useState(''); const [busy, setBusy] = useState(false);
@@ -1379,7 +1380,7 @@ export function App({ db, ses, S0 }) {
   return <Ctx.Provider value={{ S, V, up, ui, ses }}>
     <div className="app" style={{ '--accent': S.cfg.accent }}>
       <header className="top">
-        <h1><svg className="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l8.66 5v10L12 22l-8.66-5V7z" /><circle cx="12" cy="12" r="3.4" /></svg>Producción<span>App</span></h1>
+        <h1><Logo />Producción<span>App</span></h1>
         <nav className="tabs">{TABS.map(([k, l, d, c]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => { setTab(k); try { history.replaceState(null, '', '#' + k); } catch (e) { } }}><svg viewBox="0 0 24 24" aria-hidden="true"><path d={d} /></svg><span className="tl">{l}</span><span className="ts">{c || l}</span></button>)}</nav>
         <div className="top-r">{S.ejemplo !== false && <span className="tag ej">Datos de ejemplo</span>}
           {ses ? <span className="tag yo" title={yo.email}>{yo.nombre}</span> : <label className="inl vercomo" title="En esta vista previa elegís el usuario a mano para probar los permisos. En la etapa 2 lo decide el mail con el que cada uno inicia sesión.">Ver como<select id="ver-como" value={yo.id} onChange={e => { setUid(e.target.value); try { localStorage.setItem(KEY + '-uid', e.target.value); } catch (err) { } }}>{S.usuarios.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}</select></label>}
