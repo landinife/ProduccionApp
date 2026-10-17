@@ -1,15 +1,91 @@
-// ============================================================================
-// REGLAS DE SEGURIDAD DE PRODUCCIÓNAPP (Firestore, proyecto tpfapps-5f226)
-//
-// Cómo agregarlas SIN romper ViajesApp ni StockApp:
-//  1. Firebase → Firestore Database → pestaña Reglas (Rules).
-//  2. Buscá la línea   match /databases/{database}/documents {
-//  3. Pegá TODO el bloque de abajo justo ANTES de la llave } que cierra ese match
-//     (dejá intacto lo que ya está de viajesapp_ y de StockApp).
-//  4. Tocá Publicar (Publish).
-// ============================================================================
+rules_version = '2';
+// Reglas de Firestore completas — proyecto tpfapps-5f226 (17/10/2026)
+// Incluye: ViajesApp, StockApp, ComprasApp y ProducciónApp.
+// Para cambiar las reglas, editar SIEMPRE este archivo completo y publicarlo entero en
+// Firebase → Base de datos Firestore (Firestore Database) → Reglas (Rules) → Publicar (Publish).
+service cloud.firestore {
+  match /databases/{database}/documents {
 
-    // ================= ProducciónApp =================
+    // ---------- ViajesApp: solo las cuentas de Google de esta lista ----------
+    function viajesAppOk() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in [
+          'flandinitpf@gmail.com'
+        ];
+    }
+    match /viajesapp_viajes/{viaje} {
+      allow read, write: if viajesAppOk();
+    }
+    match /viajesapp_config/{doc} {
+      allow read, write: if viajesAppOk();
+    }
+
+    // ---------- StockApp ----------
+    // Administrador: entra con Google y es el único que crea o quita usuarios.
+    function stockAdmin() {
+      return request.auth != null
+        && request.auth.token.email == 'flandinitpf@gmail.com'
+        && request.auth.token.firebase.sign_in_provider == 'google.com';
+    }
+    // Usuarios con correo y contraseña creados por el administrador desde Configuración.
+    function stockOk() {
+      return request.auth != null &&
+        (stockAdmin() || exists(/databases/$(database)/documents/stockapp_usuarios/$(request.auth.token.email)));
+    }
+    // Edición de ítems y configuración: el administrador y los usuarios con la casilla "Puede editar".
+    function stockEditor() {
+      return stockAdmin() || (stockOk() &&
+        get(/databases/$(database)/documents/stockapp_usuarios/$(request.auth.token.email)).data.editor == true);
+    }
+    // ComprasApp: usuarios de StockApp con la casilla "Compras"
+    function comprasOk() {
+      return stockAdmin() || (request.auth != null &&
+        exists(/databases/$(database)/documents/stockapp_usuarios/$(request.auth.token.email)) &&
+        get(/databases/$(database)/documents/stockapp_usuarios/$(request.auth.token.email)).data.get('compras', false) == true);
+    }
+    match /stockapp_usuarios/{email} {
+      allow read: if stockOk();
+      allow write: if stockAdmin();
+    }
+    match /stockapp_config/{doc} {
+      allow read: if stockOk();
+      allow write: if stockEditor();
+    }
+    // ComprasApp: contador de códigos compartido
+    match /stockapp_config/codigos {
+      allow write: if comprasOk();
+    }
+    match /stockapp_items/{doc} {
+      allow read: if stockOk();
+      allow create, delete: if stockEditor();
+      // ComprasApp: alta de materiales desde una OC
+      allow create: if comprasOk();
+      // Sin permiso de edición solo se puede mover stock y marcar pedidos.
+      allow update: if stockEditor() || (stockOk() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock', 'actualizado', 'pedidoCurso', 'reservas']))
+        // ComprasApp: ingreso por recepción, pedido en curso y costo
+        || (comprasOk() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock', 'actualizado', 'pedidoCurso', 'costo', 'moneda']));
+    }
+    match /stockapp_movimientos/{doc} {
+      allow read, create: if stockOk();
+      // Solo se puede marcar como anulado (quien lo cargó o un editor); nunca borrar.
+      allow update: if stockOk()
+        && (stockEditor() || resource.data.email == request.auth.token.email)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['anulado', 'anuladoPor', 'anuladoFecha']);
+      allow delete: if false;
+    }
+
+    // ---------- ComprasApp ----------
+    match /compras_config/{doc}       { allow read, write: if comprasOk(); }
+    match /compras_oc/{id}            { allow read, create, update: if comprasOk(); allow delete: if stockAdmin(); }
+    match /compras_proveedores/{id}   { allow read, write: if comprasOk(); }
+    match /compras_contadores/{id}    { allow read, write: if comprasOk(); }
+    match /compras_recepciones/{id}   { allow read, create, update: if comprasOk(); allow delete: if stockAdmin(); }
+    match /compras_precios/{id}       { allow read, write: if comprasOk(); }
+
+    // ---------- ProducciónApp ----------
     function prodEmail() { return request.auth.token.email.lower(); }
     function prodDueno() { return request.auth != null && prodEmail() == 'flandinitpf@gmail.com'; }
     function prodRuta() { return /databases/$(database)/documents/produccion_usuarios/$(prodEmail()); }
@@ -27,8 +103,8 @@
       allow write: if prodAdmin();
     }
 
-    // Configuración general: horarios, operarios, feriados... (administrador)
-    // Horas extra y ausencias: quien edita Repuestos y Producción. Datos de proyectos: quien edita Proyectos.
+    // Configuración general (administrador). Horas extra y ausencias: quien edita Repuestos y Producción.
+    // Datos de proyectos: quien edita Proyectos.
     match /produccion_config/{id} {
       allow read: if prodMiembro();
       allow create, delete: if prodAdmin();
@@ -57,4 +133,5 @@
       allow update: if prodMiembro() && resource.data.email == prodEmail() && request.resource.data.email == prodEmail();
       allow delete: if prodAdmin();
     }
-    // ================= fin ProducciónApp =================
+  }
+}
