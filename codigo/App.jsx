@@ -7,6 +7,11 @@ const Ctx = createContext(null);
 const useApp = () => useContext(Ctx);
 const KEY = 'produccionapp-preview-v2';
 const PRI = { alta: 0, media: 1, baja: 2 };
+/* tema claro u oscuro: se recuerda en este navegador y se aplica antes de dibujar, así la pantalla de carga ya sale con el tema elegido */
+const TEMA_K = 'produccionapp-tema';
+const leerTema = () => { try { return localStorage.getItem(TEMA_K) === 'claro' ? 'claro' : 'oscuro'; } catch (e) { return 'oscuro'; } };
+const ponerTema = t => { try { document.documentElement.dataset.theme = t === 'claro' ? 'light' : 'dark'; const m = document.querySelector('meta[name=theme-color]'); if (m) m.content = t === 'claro' ? '#eef2f6' : '#151a20'; } catch (e) { } };
+ponerTema(leerTema());
 const ACCENTS = ['#4fb0ff', '#5cc8c0', '#f08a4b', '#b08cf0', '#e37fa7', '#9bd05a'];
 export const loadState = () => { try { const r = JSON.parse(localStorage.getItem(KEY)); if (r && r.v === 1 && r.tareas) return { ...r, tareas: r.tareas.map(t => t.codigo ? { ...t, nombre: `${t.codigo} ${t.nombre}`.trim(), codigo: '' } : t).map(t => t.estado === 'en proceso' && !t.crono ? { ...t, crono: { acum: Number(t.hhReal) || 0, desde: E.nowDT() } } : t), usuarios: r.usuarios || E.usuariosEjemplo() }; } catch (e) { } return E.sample(); };
 const semOf = (h, cap) => h <= 0.01 ? 'n' : h > cap + 0.01 ? 'r' : h >= cap - 0.01 ? 'y' : 'g';
@@ -28,6 +33,19 @@ function Chip({ t, small }) {
 const estTxt = e => e === 'terminada' ? 'finalizada' : e;
 const aviso0 = r => `Finalizada, pero adentro ${r.sin0 === 1 ? 'queda 1 pieza' : `quedan ${r.sin0} piezas`} sin tiempo cargado (0 h) y sin finalizar`;
 const Pri = ({ p }) => <span className={'pri pri-' + p}>{p}</span>;
+/* lista vacía: ícono + mensaje + pista, en vez de un texto gris suelto */
+const ICV = { ok: 'M5 12.5l4.5 4.5L19 7.5', reloj: 'M12 7v5l3 2M12 3a9 9 0 100 18 9 9 0 000-18z', caja: 'M4 8l8-4 8 4v8l-8 4-8-4zM4 8l8 4 8-4M12 12v8', gente: 'M9 11a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 4.5a3.5 3.5 0 010 6.5M18 14c2 .6 3.5 2.8 3.5 6', buscar: 'M11 18a7 7 0 100-14 7 7 0 000 14zM20 20l-4-4' };
+export function Vacio({ ic = 'caja', t, children, chico }) {
+  return <div className={'evacio' + (chico ? ' chico' : '')} role="status"><svg viewBox="0 0 24 24" aria-hidden="true"><path d={ICV[ic] || ICV.caja} /></svg><div><b>{t}</b>{children && <span>{children}</span>}</div></div>;
+}
+/* pantalla de carga con la forma de la app (barra, indicadores y filas) mientras llegan los datos */
+export function Cargando({ txt = 'Cargando datos…' }) {
+  return <div className="app esq-app" aria-busy="true" aria-label={txt}>
+    <header className="top"><h1><Logo />Producción<span>App</span></h1><nav className="tabs">{[0, 1, 2, 3, 4].map(i => <span key={i} className="esq esq-tab" />)}</nav></header>
+    <main><div className="view"><section><span className="esq esq-h" /><div className="kpis">{[0, 1, 2, 3].map(i => <span key={i} className="esq esq-kpi" />)}</div></section>
+      <section><span className="esq esq-h" />{[0, 1, 2, 3, 4, 5].map(i => <span key={i} className="esq esq-fila" style={{ width: (96 - i * 7) + '%' }} />)}</section>
+      <p className="mut esq-txt">{txt}</p></div></main></div>;
+}
 function etiqueta(V, t) { const p = t.parentId && V.byId[t.parentId]; return p && !p.partes ? `${t.nombre} · ${p.nombre}` : t.nombre; }
 function Modal({ title, onClose, children, wide, foot }) {
   useEffect(() => { const k = e => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [onClose]);
@@ -147,7 +165,7 @@ const useSet = () => { const [s, set] = useState(() => new Set()); const tog = i
 /* ================= RESUMEN ================= */
 function OpStrip() {
   const { S, V, ui } = useApp(); const hoy = E.today(), now = E.nowDT();
-  if (!S.operarios.some(o => o.activo)) return <p className="note">Todavía no hay operarios cargados. Agregalos en Configuración para empezar a programar.</p>;
+  if (!S.operarios.some(o => o.activo)) return <Vacio ic="gente" t="Todavía no hay operarios cargados">Agregalos en Configuración para empezar a programar.</Vacio>;
   return <div className="opstrip">
     {S.operarios.filter(o => o.activo).map((o, oi) => {
       const mine = S.tareas.filter(t => t.ops.includes(o.id) && !V.D[t.id].parent && t.estado !== 'terminada');
@@ -338,7 +356,7 @@ function Resumen() {
     .sort((a, b) => PRI[a.prioridad] - PRI[b.prioridad] || ((a.inicio || '9') < (b.inicio || '9') ? -1 : 1));
   const lista = (tit, tipo) => { const l = pend(tipo); return <div className="pcol">
     <h3>{tit} <span className="cnt">{l.length}</span></h3>
-    {l.length === 0 && <p className="mut">No hay tareas pendientes con este filtro.</p>}
+    {l.length === 0 && <Vacio ic="buscar" chico t="No hay tareas pendientes con este filtro" />}
     {l.map(t => <div key={t.id} className="pitem" draggable onDragStart={e => e.dataTransfer.setData('text/plain', JSON.stringify({ id: t.id }))} onClick={() => ui.modal({ k: 'task', id: t.id })}>
       <Chip t={t} small /><span className="pn">{etiqueta(V, t)}</span><Pri p={t.prioridad} />
       <span className="mut">{fH(t.hh)} · {t.ops.length ? t.ops.map(o => opName(S, o)).join(', ') + ' · ' + fDT(t.inicio) : 'Sin asignar'}</span>
@@ -731,7 +749,7 @@ function Proyectos() {
       <span className="mut">{fD(i.ini && i.ini.slice(0, 10))} → {fD(i.fin && i.fin.slice(0, 10))} · {fN(i.hh)} HH</span>
       {pr.entrega && <span className={'tag ' + (late ? 'bad' : '')}>{late ? `se pasa ${E.diffDays(pr.entrega, i.fin.slice(0, 10))} d de la entrega` : `entrega ${fD(pr.entrega)}`}</span>}
     </button>; })}
-      {S.proyectos.length === 0 && <p className="mut">Todavía no hay proyectos. Creá el primero.</p>}</div>
+      {S.proyectos.length === 0 && <Vacio ic="caja" t="Todavía no hay proyectos">Creá el primero con el botón de arriba.</Vacio>}</div>
   </section></div>;
   const i = info(p); const setP = (k, v) => up(s => ({ ...s, proyectos: s.proyectos.map(x => x.id === p.id ? { ...x, [k]: v } : x) }));
   const roots = i.ts.filter(t => !t.parentId);
@@ -776,7 +794,7 @@ function Proyectos() {
         : <Gantt rows={rows} entrega={p.entrega} color={p.color} collapsed={colV} toggle={tog} alto={altoG} todo={c => setCol(c ? new Set(i.ts.filter(t => (V.kids[t.id] || []).length).map(t => t.id)) : new Set())} />}</section>
     <section><div className="sec-h"><h2>Pendientes y en proceso <span className="cnt">{nAct}</span></h2><span className="mut">Mayús + Espacio (Shift + Space) marca la fila · en la casilla alcanza con Espacio</span></div><TaskTable roots={roots} tipo="proy" vis={visAct} collapsed={colV} toggle={tog} orden={ord} /></section>
     <section className="finsec"><div className="sec-h"><button className="dgrp-t fin-t" onClick={() => { setVerFin(!verFin); guardaG('verfin', !verFin); }}><span className="car">{verFin ? '▾' : '▸'}</span><h2>Finalizadas <span className="cnt ok">{nFin}</span></h2></button></div>
-      {verFin && (nFin ? <TaskTable roots={roots} tipo="proy" vis={visFin} collapsed={colV} toggle={tog} orden={ord} /> : <p className="mut">Todavía no hay piezas finalizadas en este proyecto.</p>)}</section>
+      {verFin && (nFin ? <TaskTable roots={roots} tipo="proy" vis={visFin} collapsed={colV} toggle={tog} orden={ord} /> : <Vacio ic="reloj" chico t="Todavía no hay piezas finalizadas en este proyecto" />)}</section>
   </div>;
 }
 
@@ -941,7 +959,7 @@ function DarTareas({ op, grande }) {
       <select value={fp} onChange={e => setFp(e.target.value)} aria-label="Prioridad"><option value="">Toda prioridad</option><option value="alta">Alta</option><option value="media">Media</option><option value="baja">Baja</option></select>
       {filtrando && <button className="btn sm" onClick={() => { setQ(''); setFOp(''); setFp(''); }}>Limpiar filtros</button>}
     </div>
-    {todas.length === 0 ? <p className="mut">No quedan tareas sin asignar.</p> : libres.length === 0 && <p className="mut">Ninguna tarea coincide con los filtros.</p>}
+    {todas.length === 0 ? <Vacio ic="ok" t="No hay tareas para darle">Todas las tareas ya tienen operario asignado.</Vacio> : libres.length === 0 && <Vacio ic="buscar" chico t="Ninguna tarea coincide con los filtros" />}
     {grupos.map(g => { const op_ = abierto(g); const n = g.items.filter(t => sel.has(t.id)).length; const hh = g.items.reduce((a, t) => a + (Number(t.hh) || 0), 0);
       return <div key={g.k} className={'dgrp' + (op_ ? ' on' : '') + (g.items.length ? '' : ' vacio')} style={{ '--c': g.color }}>
         <div className="dgrp-h">
@@ -1071,7 +1089,7 @@ function OperarioPanel({ id, onClose }) {
       {pau.length > 0 && <h3>En pausa <span className="cnt">{pau.length}</span></h3>}
       {pau.map(t => <OpTask key={t.id} t={t} op={id} />)}
       <h3>Le sigue <span className="cnt">{sig.length}</span></h3>
-      {sig.length === 0 && <p className="mut">Sin tareas en cola.</p>}
+      {sig.length === 0 && <Vacio ic="ok" chico t="Sin tareas en cola" />}
       {sig.slice(0, 6).map(t => <OpTask key={t.id} t={t} op={id} />)}
     </div>;
   };
@@ -1096,7 +1114,7 @@ function Picker({ op, d, turno, onClose }) {
       {suyas.map(t => <div key={t.id} className="pitem st sig" onClick={() => { up(s => E.partirEnDia(s, t.id, d, turno)); ui.toast(`Desde el ${fDia(d)} sigue en ${turno === 'extra' ? 'horas extra' : 'turno normal'}`); onClose(); }}>
         <Chip t={t} small /><span className="pn">{etiqueta(V, t)}</span><Pri p={t.prioridad} /><span className="mut">{t.turno === 'extra' ? 'en horas extra' : 'en turno normal'} · {fDT(t.inicio)} → {fDT(V.D[t.id].fin)} · lo que falta sigue acá desde el {fDia(d)}</span></div>)}
       <h3>Otras tareas</h3></>}
-    {l.length === 0 && <p className="mut">No hay tareas para asignar.</p>}
+    {l.length === 0 && <Vacio ic="ok" chico t="No hay tareas para asignar" />}
     {l.map(t => <div key={t.id} className="pitem st" onClick={() => { up(s => E.assignTo(s, t.id, op, d, turno)); onClose(); }}>
       <Chip t={t} small /><span className="pn">{etiqueta(V, t)}</span><Pri p={t.prioridad} /><span className="mut">{fH(t.hh)} · {t.ops.length ? 'ya la tiene ' + t.ops.map(o => opName(S, o)).join(', ') + ' (se suma)' : 'sin asignar'}</span></div>)}
   </Modal>;
@@ -1130,10 +1148,10 @@ function TallerTask({ t }) {
     {fin ? <div className="finbox">
       <div className="row"><span className="mut">Tiempo real</span><HM value={real} onChange={setReal} cant={Number(t.cant) || 0} titulo={t.nombre} /></div>
       <div className="row"><span className="mut">Proyectado {fHM(t.hh)} ·</span><Desvio real={real} plan={t.hh} /></div>
-      <div className="tbtns"><button className="btn big pri-b" onClick={() => up(s => E.finalizar(s, t.id, real, true))}>Confirmar</button><button className="btn big" onClick={() => setFin(false)}>Cancelar</button></div></div>
+      <div className="tbtns"><button className="btn big t-fin" onClick={() => up(s => E.finalizar(s, t.id, real, true))}>Confirmar</button><button className="btn big" onClick={() => setFin(false)}>Cancelar</button></div></div>
       : <div className="tbtns">
-        {run ? <button className="btn big" onClick={() => up(s => E.pausar(s, t.id))}>Pausar</button> : <button className="btn big pri-b" onClick={() => up(s => E.iniciar(s, t.id))}>{pausa ? 'Reanudar' : 'Iniciar'}</button>}
-        <button className={'btn big' + (run ? ' pri-b' : '')} onClick={() => { setReal(llev > 0 ? llev : t.hh); setFin(true); }}>Finalizar</button>
+        {run ? <button className="btn big t-pausa" onClick={() => up(s => E.pausar(s, t.id))}><svg className="bi" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z" /></svg>Pausar</button> : <button className="btn big t-ini" onClick={() => up(s => E.iniciar(s, t.id))}><svg className="bi" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>{pausa ? 'Reanudar' : 'Iniciar'}</button>}
+        <button className="btn big t-fin" onClick={() => { setReal(llev > 0 ? llev : t.hh); setFin(true); }}>Finalizar</button>
         {run && t.turno !== 'ambos' && (() => { const ta = E.turnoAhora(S, t.ops); return ta && ta !== t.turno; })() && <button className="btn big warn-b" onClick={() => up(s => E.pasarTurno(s, t.id, t.turno === 'extra' ? 'normal' : 'extra'))}>Ahora es turno {t.turno === 'extra' ? 'normal' : 'extra'}: seguir ahí</button>}
         {(llev > 0 || t.avance > 0 || t.pausada || t.parte) && !run && t.turno !== 'ambos' && <button className="btn" onClick={() => up(s => E.pasarTurno(s, t.id, t.turno === 'extra' ? 'normal' : 'extra'))}>{t.turno === 'extra' ? 'Seguir en turno normal' : 'Seguir en horas extra'}</button>}</div>}
   </div>;
@@ -1150,7 +1168,7 @@ function Taller() {
     return <button key={x.id} className={'tq' + (o && x.id === o.id ? ' on' : '') + (au ? ' aus' : '')} onClick={() => elegir(o && x.id === o.id ? '' : x.id)} title={au ? 'Ausente: ' + au.motivo : run ? 'Trabajando' : 'Sin tarea en curso'}>
       <Av o={x} i={S.operarios.indexOf(x)} /><b>{x.nombre}</b><i className={'dot ' + (au ? 'aus' : run ? 'run' : '')} /></button>; })}</div>;
   if (!o) return <div className="view taller"><section><div className="sec-h"><h2>¿Quién sos?</h2><span className="mut">Tocá tu nombre</span></div>
-    {ops.length === 0 && <p className="note">Todavía no hay operarios cargados. Se agregan en Configuración.</p>}
+    {ops.length === 0 && <Vacio ic="gente" t="Todavía no hay operarios cargados">Se agregan en Configuración.</Vacio>}
     {tira}</section></div>;
   const mine = S.tareas.filter(t => t.ops.includes(o.id) && !V.D[t.id].parent && t.estado !== 'terminada').sort((a, b) => (a.inicio || '9') < (b.inicio || '9') ? -1 : 1);
   const en = mine.filter(t => E.corriendo(t)), pau = mine.filter(t => t.pausada || (t.estado === 'en proceso' && !E.corriendo(t))), sig = mine.filter(t => t.estado === 'pendiente' && !t.pausada);
@@ -1160,12 +1178,12 @@ function Taller() {
     <div className="sec-h"><div className="row"><Av o={o} i={S.operarios.indexOf(o)} /><h2>{o.nombre}</h2></div></div>
     <p className="mut">{fDia(hoy)}{aus ? ` · hoy figura ausente (${aus.motivo})` : ` · ${fN(((V.load[`${o.id}|${hoy}|normal`] || {}).h || 0) + ((V.load[`${o.id}|${hoy}|extra`] || {}).h || 0))} h programadas hoy`}</p>
     <h3>Ahora</h3>
-    {en.length === 0 && <p className="note">No hay ninguna tarea en curso. Iniciá una de la lista de abajo.</p>}
+    {en.length === 0 && <Vacio ic="reloj" t="No hay ninguna tarea en curso">Iniciá una de la lista de abajo.</Vacio>}
     {en.map(t => <TallerTask key={t.id} t={t} />)}
     {pau.length > 0 && <h3>En pausa <span className="cnt">{pau.length}</span></h3>}
     {pau.map(t => <TallerTask key={t.id} t={t} />)}
     <h3>Lo que sigue <span className="cnt">{sig.length}</span></h3>
-    {sig.length === 0 && <p className="mut">No hay más tareas asignadas.</p>}
+    {sig.length === 0 && <Vacio ic="ok" chico t="No hay más tareas asignadas" />}
     {sig.slice(0, 6).map(t => <TallerTask key={t.id} t={t} />)}
     {hechas.length > 0 && <><h3>Finalizadas hoy <span className="cnt">{hechas.length}</span></h3>{hechas.map(t => <DoneRow key={t.id} t={t} />)}</>}
   </section><section><DarTareas op={o.id} grande /></section></div>;
@@ -1415,6 +1433,7 @@ export function App({ db, ses, S0 }) {
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3200); return () => clearTimeout(t); }, [toast]);
   const ui = useMemo(() => ({ modal: setModal, toast: setToast, tab: k => { setTab(k); try { history.replaceState(null, '', '#' + k); } catch (e) { } } }), []);
   const close = useCallback(() => setModal(null), []);
+  const [tema, setTema] = useState(leerTema); useEffect(() => { ponerTema(tema); }, [tema]);
   const act = E.seasonNow(S), h = S.cfg.horarios[act];
   return <Ctx.Provider value={{ S, V, up, ui, ses }}>
     <div className="app" style={{ '--accent': S.cfg.accent }}>
@@ -1424,6 +1443,7 @@ export function App({ db, ses, S0 }) {
         <div className="top-r">{S.ejemplo !== false && <span className="tag ej">Datos de ejemplo</span>}
           {ses ? <span className="tag yo" title={yo.email}>{yo.nombre}</span> : <label className="inl vercomo" title="En esta vista previa elegís el usuario a mano para probar los permisos. En la etapa 2 lo decide el mail con el que cada uno inicia sesión.">Ver como<select id="ver-como" value={yo.id} onChange={e => { setUid(e.target.value); try { localStorage.setItem(KEY + '-uid', e.target.value); } catch (err) { } }}>{S.usuarios.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}</select></label>}
           {!pm.admin && <span className="tag warn">{pm.rep && pm.proy ? 'Edita todo, sin configuración' : pm.rep ? 'Edita Repuestos y Producción' : pm.proy ? 'Edita Proyectos' : 'Solo consulta'}</span>}<span className="tag">Horario de {act} · {h.entrada}–{h.salida}</span>
+          <button className="btn tema" onClick={() => { const n = tema === 'claro' ? 'oscuro' : 'claro'; setTema(n); try { localStorage.setItem(TEMA_K, n); } catch (e) { } }} title={tema === 'claro' ? 'Pasar al tema oscuro' : 'Pasar al tema claro (mejor con mucha luz en el taller)'} aria-label={tema === 'claro' ? 'Tema oscuro' : 'Tema claro'}>{tema === 'claro' ? '☾' : '☀'}<span className="tl">{tema === 'claro' ? ' Oscuro' : ' Claro'}</span></button>
           <span className="undo"><button className="btn" onClick={undo} disabled={!nh} title={nh ? 'Deshacer (Ctrl+Z): ' + hist.current[hist.current.length - 1].txt : 'Nada para deshacer'}>↶ Deshacer</button><button className="btn" onClick={redo} disabled={!nf} title={nf ? 'Rehacer (Ctrl+Y): ' + fut.current[fut.current.length - 1].txt : 'Nada para rehacer'} aria-label="Rehacer">↷</button></span></div>
       </header>
       <main>{tab === 'resumen' ? <Resumen /> : tab === 'repuestos' ? <Repuestos /> : tab === 'proyectos' ? <Proyectos /> : tab === 'taller' ? <Taller /> : <Config />}</main>

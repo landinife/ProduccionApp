@@ -1,7 +1,7 @@
 // Entrada de la versión web: inicio de sesión + datos en Firebase
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { App, Login, Inicio, Pantalla } from '../App.jsx';
+import { App, Login, Inicio, Pantalla, Cargando } from '../App.jsx';
 import * as FB from './datos-firebase.js';
 
 function Gate() {
@@ -11,9 +11,9 @@ function Gate() {
   const email = u && (u.email || '').toLowerCase(), dueno = email === FB.DUENO;
   const yo = u && { email, nombre: u.displayName || email.split('@')[0] };
   useEffect(() => { if (dueno && st.fase === 'listo' && !st.S.usuarios.some(x => x.email === email)) FB.asegurarDueno(yo); }, [dueno, st]);
-  if (u === undefined) return <Pantalla><p className="mut">Cargando…</p></Pantalla>;
+  if (u === undefined) return <Cargando txt="Cargando…" />;
   if (!u) return <Login google={FB.google} entrar={FB.entrar} reset={FB.reset} />;
-  if (st.fase === 'cargando') return <Pantalla><p className="mut">Cargando datos…</p></Pantalla>;
+  if (st.fase === 'cargando') return <Cargando />;
   if (st.fase === 'sinacceso') return <Pantalla><p>El mail <b>{email}</b> no tiene acceso a ProducciónApp.</p><p className="mut">Pedile al administrador que te agregue en Configuración → Usuarios.</p><button className="btn big" onClick={FB.salir}>Salir y entrar con otro usuario</button></Pantalla>;
   if (st.fase === 'error') return <Pantalla><p>No se pudieron cargar los datos.</p><p className="mut">{st.error}</p><button className="btn big" onClick={() => location.reload()}>Reintentar</button><button className="btn big" onClick={FB.salir}>Cerrar sesión</button></Pantalla>;
   if (st.fase === 'sinconfig') return <Inicio dueno={dueno} elegir={S => FB.inicializar(S, yo)} />;
