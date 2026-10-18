@@ -831,3 +831,28 @@ select.ci.est.e-pendiente { background: transparent; }
 @media (prefers-reduced-motion: no-preference) { .esq { animation: esq-brillo 1.4s ease-in-out infinite; } @keyframes esq-brillo { to { background-position: -120% 0; } } }
 .tbtns .btn.big { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 .tbtns .btn .bi { width: 20px; height: 20px; flex: none; fill: currentColor; }
+
+/* ================= Pestaña Tiempos (18/10) ================= */
+.tgrupos { display: flex; flex-direction: column; gap: 8px; }
+.tgrp { --c: var(--accent); }
+.tgrp .dgrp-t b { font: 600 16px var(--f-d); letter-spacing: .02em; overflow-wrap: anywhere; }
+.tg-res { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 0 12px 10px 32px; font-size: 13px; cursor: pointer; }
+.tg-prom { font: 700 18px var(--f-d); color: var(--accent); }
+.tgrp .scroll { margin: 0 10px 10px; box-shadow: none; }
+.ttiem td { vertical-align: middle; }
+.ttiem td .ci.num { width: 76px; } .ttiem select.ci { min-width: 150px; }
+.ttiem tr.fuera td { opacity: .5; } .ttiem tr.fuera td:last-child { opacity: 1; }
+.ttiem tr.cot td { background: color-mix(in srgb, var(--warn) 6%, var(--panel)); }
+.tdes, .tfal { display: block; font-size: 12px; }
+.acts button.on { color: var(--warn); }
+input.vh { width: 96px; text-align: right; } .fch { font-size: 12px; min-width: 64px; }
+.cotres { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: 10px; margin-top: 6px; }
+.cotres > div { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--bg); }
+.cotres b { font: 700 22px/1.1 var(--f-d); } .cotres small { font-size: 12px; }
+.cotres .tot { border-color: var(--accent); } .cotres .tot b { color: var(--accent); }
+@media (max-width: 760px) { .tg-res { padding-left: 12px; } .tiempos .sec-h .row { width: 100%; } #ti-q { flex: 1 1 160px; min-width: 0; } }
+.ttiem .ci { border-color: var(--line); background: var(--bg); }
+.tgrp .dgrp-t { flex-wrap: nowrap; align-items: flex-start; } .tgrp .dgrp-t b { min-width: 0; } .tgrp .dgrp-t .car { padding-top: 3px; }
+input.vh { color: var(--ink); }
+.tchips .ptab b { font: 700 16px var(--f-d); letter-spacing: .06em; }
+.tops { margin-top: -2px; } .tops .togb small { opacity: .7; margin-left: 3px; }

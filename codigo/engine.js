@@ -440,13 +440,75 @@ export function codOp(S, nombre) {
 }
 // clave para reconocer la misma pieza en otras órdenes: el código completo, o el nombre si no tiene código
 export const claveCod = nombre => { const m = /TPF[RD][\w\-./]*/i.exec(nombre || ''); return m ? m[0].toUpperCase().replace(/[-./]+$/, '') : (nombre || '').replace(/\s*\(parte \d+\)\s*$/i, '').trim().toLowerCase(); };
+// serie del código (TPFR o TPFD) y número único de pieza: los últimos dígitos de TPFR-111-222-333-4444
+export const serieCod = k => { const m = /^TPF([RD])/i.exec(k || ''); return m ? 'TPF' + m[1].toUpperCase() : ''; };
+export const numPieza = k => { if (!serieCod(k)) return null; const m = /(\d+)\D*$/.exec(k); return m ? Number(m[1]) : null; };
+// tiempo estándar de una pieza: promedio de horas reales por unidad de las veces que se fabricó (sin las descartadas)
 export function historial(S, nombre) {
   const k = claveCod(nombre); if (!k) return null;
-  const l = S.tareas.filter(t => t.estado === 'terminada' && Number(t.hhReal) > 0 && !t.parte && claveCod(t.nombre) === k && !esGrupo(S, t));
+  const l = fabricaciones(S).filter(f => f.k === k && !f.fuera);
   if (!l.length) return null;
-  const pu = l.reduce((a, t) => a + Number(t.hhReal) / Math.max(1, Number(t.cant) || 1), 0) / l.length;
-  const cnt = {}; l.forEach(t => { if (t.operacionId) cnt[t.operacionId] = (cnt[t.operacionId] || 0) + 1; });
+  const pu = l.reduce((a, f) => a + f.hu, 0) / l.length;
+  const cnt = {}; l.forEach(f => { if (f.operacionId) cnt[f.operacionId] = (cnt[f.operacionId] || 0) + 1; });
   return { n: l.length, porUnidad: pu, operacionId: Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0] || null };
+}
+
+// ===== Tiempos y costos =====
+// Cada vez que se fabricó una pieza: tareas finalizadas con horas reales. Si la tarea se partió en partes, cuenta la pieza entera (suma de las partes).
+const _fab = new WeakMap();
+export function fabricaciones(S) {
+  let c = _fab.get(S.tareas); if (c) return c;
+  const hijos = {}; S.tareas.forEach(t => { if (t.parentId) (hijos[t.parentId] = hijos[t.parentId] || []).push(t); });
+  c = [];
+  S.tareas.forEach(t => {
+    if (t.parte) return;
+    const ps = t.partes ? (hijos[t.id] || []).filter(x => x.parte) : null;
+    if (ps && ps.length) {   // pieza hecha en partes
+      if (!ps.every(x => x.estado === 'terminada')) return;
+      const hh = ps.reduce((a, x) => a + (Number(x.hhReal) || 0), 0); if (!(hh > 0)) return;
+      const fin = ps.map(x => x.finReal || x.inicio || '').sort().pop();
+      c.push(regFab(t, hh, fin, [...new Set(ps.flatMap(x => x.ops || []))]));
+      return;
+    }
+    if (t.estado !== 'terminada' || !(Number(t.hhReal) > 0) || hijos[t.id]) return;
+    c.push(regFab(t, Number(t.hhReal), t.finReal || t.inicio || t.creada, t.ops || []));
+  });
+  _fab.set(S.tareas, c); return c;
+}
+const regFab = (t, hh, fecha, ops) => { const cant = Math.max(1, Number(t.cant) || 1);
+  return { id: t.id, k: claveCod(t.nombre), nombre: t.nombre.replace(/\s*\(parte \d+\)\s*$/i, ''), tipo: t.tipo, proyId: t.proyId, parentId: t.parentId, orden: t.orden, cliente: t.cliente,
+    operacionId: t.operacionId, cant, hh, hu: hh / cant, plan: Number(t.hh) || 0, fecha: (fecha || '').slice(0, 10), ops, material: t.material || '', peso: t.peso, fuera: !!t.tiempoFuera }; };
+
+// valor hora de mano de obra: el del código de la pieza; si la pieza no tiene código, el de un código de la misma operación
+export function valorHora(S, nombre, operacionId) {
+  const cs = (S.codigos || []).filter(x => Number(x.valorHora) > 0);
+  const c = codOp(S, nombre);
+  const x = (c && cs.find(y => String(y.num).trim() === c.num)) || (operacionId && cs.find(y => y.operacionId === operacionId)) || null;
+  return x ? { valor: Number(x.valorHora), fecha: x.vhFecha || '', num: x.num } : null;
+}
+export const materialDe = (S, id) => (S.materiales || []).find(m => m.id === id) || null;
+// costo de una fabricación o cotización: material (peso total × $/kg) + mano de obra (HH × valor hora de la operación)
+export function costo(S, r) {
+  const vh = valorHora(S, r.nombre, r.operacionId), m = materialDe(S, r.material), peso = Number(r.peso) || 0, hh = Number(r.hh) || 0, cant = Math.max(1, Number(r.cant) || 1);
+  const mo = vh ? hh * vh.valor : 0, mat = m && peso > 0 ? peso * (Number(m.precio) || 0) : 0, total = mo + mat;
+  const falta = []; if (!vh) falta.push('valor hora'); if (!m) falta.push('material'); else if (!(peso > 0)) falta.push('peso');
+  return { mo, mat, total, unit: total / cant, vh, m, falta };
+}
+// todas las piezas con su historial y sus cotizaciones, agrupadas por código (padre) con cada vez que se hizo (hijos)
+export function tiempos(S) {
+  const G = new Map();
+  const g = (k, nombre) => { let x = G.get(k); if (!x) { x = { k, nombre, regs: [] }; G.set(k, x); } return x; };
+  fabricaciones(S).forEach(f => { g(f.k, f.nombre).regs.push({ ...f, cot: false }); });
+  (S.cotizaciones || []).forEach(q => { const k = claveCod(q.nombre); if (!k) return; const cant = Math.max(1, Number(q.cant) || 1), hh = Number(q.hh) || 0;
+    g(k, q.nombre).regs.push({ ...q, k, cot: true, cant, hh, hu: hh / cant, fecha: q.fecha || '', ops: [] }); });
+  return [...G.values()].map(x => {
+    x.regs.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
+    const v = x.regs.filter(r => !r.cot && !r.fuera), ult = x.regs.find(r => !r.cot) || x.regs[0];
+    x.nombre = ult.nombre; x.operacionId = (v[0] || ult).operacionId || (codOp(S, x.nombre) || {}).operacionId || '';
+    x.n = v.length; x.nCot = x.regs.filter(r => r.cot).length; x.prom = v.length ? v.reduce((a, r) => a + r.hu, 0) / v.length : null;
+    x.ult = (x.regs.find(r => !r.cot) || {}).fecha || ''; x.serie = serieCod(x.k); x.num = numPieza(x.k);
+    return x;
+  }).sort((a, b) => (a.num == null) - (b.num == null) || (a.num || 0) - (b.num || 0) || a.k.localeCompare(b.k));
 }
 // completa operación (por código o historial) y, si se pide, las horas según lo que llevó antes
 export function autoCompletar(S, t, conHoras) {
@@ -520,7 +582,9 @@ export function sample() {
       horarios: { invierno: { entrada: '07:00', salida: '17:00', descansoIni: '12:00', descansoMin: 60 }, verano: { entrada: '06:00', salida: '15:30', descansoIni: '10:30', descansoMin: 30 } } },
     operarios: nombres.map((n, i) => ({ id: 'o' + (i + 1), nombre: n, activo: true, op1: ['k5', 'k5', 'k3', 'k1', 'k2', 'k6', 'k7', 'k5', 'k3', 'k4'][i], op2: ['k6', 'k2', 'k4', 'k2', 'k1', 'k5', 'k6', 'k6', 'k4', 'k3'][i] })),
     operaciones: opers.map((n, i) => ({ id: 'k' + (i + 1), nombre: n })),
-    codigos: [['110', 'k1'], ['120', 'k2'], ['200', 'k3'], ['210', 'k4'], ['300', 'k5'], ['400', 'k6'], ['500', 'k7']].map(([num, operacionId], i) => ({ id: 'c' + i, num, operacionId })),
+    codigos: [['110', 'k1', 9500], ['120', 'k2', 9000], ['200', 'k3', 11000], ['210', 'k4', 12000], ['300', 'k5', 10500], ['400', 'k6', 8500], ['500', 'k7', 8000]].map(([num, operacionId, valorHora], i) => ({ id: 'c' + i, num, operacionId, valorHora, vhFecha: '2026-10-01' })),
+    materiales: [{ id: 'm1', nombre: 'Acero inoxidable 304', precio: 9800, fecha: '2026-10-01' }, { id: 'm2', nombre: 'Acero SAE 1045', precio: 2600, fecha: '2026-10-01' }, { id: 'm3', nombre: 'Bronce SAE 64', precio: 21000, fecha: '2026-10-01' }, { id: 'm4', nombre: 'Goma', precio: 5200, fecha: '2026-10-01' }],
+    cotizaciones: [],
     feriados: [{ fecha: '2026-10-12', nombre: 'Diversidad Cultural' }, { fecha: '2026-12-08', nombre: 'Inmaculada Concepción' }, { fecha: '2026-12-25', nombre: 'Navidad' }],
     ausencias: [{ id: 'a1', opId: 'o10', desde: day(3), hasta: day(4), motivo: 'Vacaciones' }],
     extras: {}, extraModo: {},
@@ -560,23 +624,23 @@ export function sample() {
   mk('r11', R, { parentId: 'r1', nombre: 'Corte láser', operacionId: 'k1', ops: ['o4'], inicio: at(1), hh: 6, prioridad: 'alta', cant: 200 });
   mk('r12', R, { parentId: 'r1', nombre: 'Plegado', operacionId: 'k2', ops: ['o5'], inicio: at(2, '13:00'), hh: 5, prioridad: 'alta', cant: 200, preds: ['r11'] });
   mk('r13', R, { parentId: 'r1', nombre: 'Pulido', operacionId: 'k7', ops: ['o7'], inicio: at(3), hh: 14, prioridad: 'alta', cant: 200, preds: ['r12'] });
-  mk('r2', R, { orden: 'OV-4512', cliente: 'Avícola del Litoral', nombre: 'TPFR-200-015 Eje pelador de mollejas', cant: 4, operacionId: 'k3', ops: ['o3'], inicio: at(1, '14:00'), hh: 12, prioridad: 'media', entrega: day(4) });
-  mk('r3', R, { orden: 'OV-4520', cliente: 'Granja San Benito', nombre: 'TPFR-200-022 Cuchilla circular Ø150', cant: 30, operacionId: 'k3', ops: ['o9'], inicio: at(0), hh: 18, estado: 'en proceso', avance: 50, hhReal: 10, prioridad: 'media', entrega: day(6) });
-  mk('r4', R, { orden: 'OC-0231', cliente: 'Stock', nombre: 'TPFR-210-008 Piñón Z18 de transportador', cant: 20, operacionId: 'k4', hh: 16, prioridad: 'baja' });
-  mk('r5', R, { orden: 'OC-0232', cliente: 'Stock', nombre: 'TPFR-200-040 Buje de bronce Ø40', cant: 50, operacionId: 'k3', hh: 9, prioridad: 'baja' });
-  mk('r6', R, { orden: 'OV-4521', cliente: 'Frigorífico El Ceibo', nombre: 'TPFR-120-031 Guía de cuello inox', cant: 12, operacionId: 'k2', hh: 7, prioridad: 'alta', entrega: day(5) });
+  mk('r2', R, { orden: 'OV-4512', cliente: 'Avícola del Litoral', nombre: 'TPFR-200-110-020-0015 Eje pelador de mollejas', cant: 4, operacionId: 'k3', ops: ['o3'], inicio: at(1, '14:00'), hh: 12, prioridad: 'media', entrega: day(4) });
+  mk('r3', R, { orden: 'OV-4520', cliente: 'Granja San Benito', nombre: 'TPFD-200-140-030-0022 Cuchilla circular Ø150', cant: 30, operacionId: 'k3', ops: ['o9'], inicio: at(0), hh: 18, estado: 'en proceso', avance: 50, hhReal: 10, prioridad: 'media', entrega: day(6) });
+  mk('r4', R, { orden: 'OC-0231', cliente: 'Stock', nombre: 'TPFR-210-130-010-0008 Piñón Z18 de transportador', cant: 20, operacionId: 'k4', hh: 16, prioridad: 'baja' });
+  mk('r5', R, { orden: 'OC-0232', cliente: 'Stock', nombre: 'TPFR-200-110-020-0040 Buje de bronce Ø40', cant: 50, operacionId: 'k3', hh: 9, prioridad: 'baja' });
+  mk('r6', R, { orden: 'OV-4521', cliente: 'Frigorífico El Ceibo', nombre: 'TPFR-120-150-010-0031 Guía de cuello inox', cant: 12, operacionId: 'k2', hh: 7, prioridad: 'alta', entrega: day(5) });
   mk('r7', R, { orden: 'OV-4498', cliente: 'Frigorífico El Ceibo', nombre: 'Tolva de descarga inox', cant: 1, operacionId: 'k5', ops: ['o8'], inicio: `${addDays(B, -5)}T07:00`, hh: 18, estado: 'terminada', avance: 100, hhReal: 21, finReal: `${addDays(B, -4)}T17:00`, entrega: addDays(B, -3) });
-  mk('r8', R, { orden: 'OC-0229', cliente: 'Stock', nombre: 'TPFR-200-040 Buje de bronce Ø40', cant: 50, operacionId: 'k3', ops: ['o10'], inicio: `${addDays(B, -4)}T07:00`, hh: 9, estado: 'terminada', avance: 100, hhReal: 8, finReal: `${addDays(B, -4)}T16:00` });
-  mk('r10', R, { orden: 'OV-4521', cliente: 'Frigorífico El Ceibo', nombre: 'TPFR-200-040 Buje de bronce Ø40', cant: 8, operacionId: 'k3', hh: 3, prioridad: 'media', entrega: day(5) });
-  mk('t4', P2, { codigo: 'TPFR-200-040', nombre: 'Buje de bronce Ø40', cant: 16, operacionId: 'k3', hh: 4 });
-  mk('r9', R, { orden: 'OC-0229', cliente: 'Stock', nombre: 'TPFR-210-008 Piñón Z18 de transportador', cant: 20, operacionId: 'k4', ops: ['o10'], inicio: `${addDays(B, -3)}T07:00`, hh: 16, estado: 'terminada', avance: 100, hhReal: 19, finReal: `${addDays(B, -2)}T15:00` });
+  mk('r8', R, { orden: 'OC-0229', cliente: 'Stock', nombre: 'TPFR-200-110-020-0040 Buje de bronce Ø40', cant: 50, operacionId: 'k3', ops: ['o10'], inicio: `${addDays(B, -4)}T07:00`, hh: 9, estado: 'terminada', avance: 100, hhReal: 8, finReal: `${addDays(B, -4)}T16:00` });
+  mk('r10', R, { orden: 'OV-4521', cliente: 'Frigorífico El Ceibo', nombre: 'TPFR-200-110-020-0040 Buje de bronce Ø40', cant: 8, operacionId: 'k3', hh: 3, prioridad: 'media', entrega: day(5) });
+  mk('t4', P2, { codigo: 'TPFR-200-110-020-0040', nombre: 'Buje de bronce Ø40', cant: 16, operacionId: 'k3', hh: 4 });
+  mk('r9', R, { orden: 'OC-0229', cliente: 'Stock', nombre: 'TPFR-210-130-010-0008 Piñón Z18 de transportador', cant: 20, operacionId: 'k4', ops: ['o10'], inicio: `${addDays(B, -3)}T07:00`, hh: 16, estado: 'terminada', avance: 100, hhReal: 19, finReal: `${addDays(B, -2)}T15:00` });
   // historial de meses anteriores, para que las métricas tengan qué mostrar
-  const prods = [['Dedo desplumador de goma', 'k7'], ['Eje de transportador', 'k3'], ['Cuchilla de corte de cloaca', 'k4'], ['Guía de patas inox', 'k2'], ['Rodillo tensor', 'k3'], ['Bandeja de goteo', 'k5']];
+  const prods = [['TPFR-500-160-010-0112 Dedo desplumador de goma', 'k7', 'm4', 0.08], ['TPFR-200-110-020-0031 Eje de transportador', 'k3', 'm2', 2.4], ['TPFD-210-140-030-0017 Cuchilla de corte de cloaca', 'k4', 'm1', 0.6], ['TPFR-120-150-010-0044 Guía de patas inox', 'k2', 'm1', 1.1], ['TPFD-200-140-030-0052 Rodillo tensor', 'k3', 'm2', 3.2], ['TPFR-300-170-010-0009 Bandeja de goteo', 'k5', 'm1', 4.5]];
   const clis = ['Avícola del Litoral', 'Granja San Benito', 'Frigorífico El Ceibo'];
   let nro = 4400, nst = 200;
   [[5, 3], [4, 5], [3, 4], [2, 6], [1, 5]].forEach(([atras, n]) => { const b = pd(B); const m0 = ds(new Date(b.getFullYear(), b.getMonth() - atras, 1));
-    for (let i = 0; i < n; i++) { const oc = i % 3 === 2, c = addDays(m0, 2 + i * 4), [nom, k] = prods[(atras + i) % prods.length], hh = 6 + ((atras * 3 + i * 5) % 13), f = addDays(c, 6 + ((atras + i * 3) % 5) * 6);
-      mk('h' + atras + i, R, { orden: oc ? 'OC-0' + (nst++) : 'OV-' + (nro++), cliente: oc ? 'Stock' : clis[(atras + i) % 3], nombre: nom, cant: 5 + i * 10, operacionId: k, ops: ['o' + (1 + (atras + i) % 10)], inicio: `${addDays(c, 1)}T07:00`, hh, estado: 'terminada', avance: 100, hhReal: Math.round(hh * (0.85 + ((atras + i) % 4) * 0.12) * 2) / 2, finReal: `${f}T15:00`, creada: c }); } });
+    for (let i = 0; i < n; i++) { const oc = i % 3 === 2, c = addDays(m0, 2 + i * 4), [nom, k, mat, kg] = prods[(atras + i) % prods.length], hh = 6 + ((atras * 3 + i * 5) % 13), f = addDays(c, 6 + ((atras + i * 3) % 5) * 6);
+      mk('h' + atras + i, R, { orden: oc ? 'OC-0' + (nst++) : 'OV-' + (nro++), cliente: oc ? 'Stock' : clis[(atras + i) % 3], nombre: nom, cant: 5 + i * 10, operacionId: k, ops: ['o' + (1 + (atras + i) % 10)], inicio: `${addDays(c, 1)}T07:00`, hh, estado: 'terminada', avance: 100, hhReal: Math.round(hh * (0.85 + ((atras + i) % 4) * 0.12) * 2) / 2, finReal: `${f}T15:00`, creada: c, material: mat, peso: Math.round(kg * (5 + i * 10) * 10) / 10 }); } });
   T.forEach(t => { if (!t.id.startsWith('h')) t.creada = t.estado === 'terminada' ? addDays(B, -7) : t.tipo === 'rep' ? addDays(B, -(2 + T.indexOf(t) % 5)) : addDays(B, -10); });
   T.forEach(t => { if (t.codigo) { t.nombre = `${t.codigo} ${t.nombre}`; t.codigo = ''; } });
   S.tareas = T;
