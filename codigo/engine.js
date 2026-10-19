@@ -439,9 +439,10 @@ export function codOp(S, nombre) {
   return { num: m[1], operacionId: c ? c.operacionId : null };
 }
 // clave para reconocer la misma pieza en otras órdenes: el código completo, o el nombre si no tiene código
-export const claveCod = nombre => { const m = /TPF[RD][\w\-./]*/i.exec(nombre || ''); return m ? m[0].toUpperCase().replace(/[-./]+$/, '') : (nombre || '').replace(/\s*\(parte \d+\)\s*$/i, '').trim().toLowerCase(); };
-// serie del código (TPFR o TPFD) y número único de pieza: los últimos dígitos de TPFR-111-222-333-4444
-export const serieCod = k => { const m = /^TPF([RD])/i.exec(k || ''); return m ? 'TPF' + m[1].toUpperCase() : ''; };
+// también reconoce los códigos TPF-XXXX-0000 (TPF-AMCL, TPF-FP, TPF-PF…), que van a la sub-pestaña "Otros"
+export const claveCod = nombre => { const m = /TPF(?:[RD]|-[A-Z]{2,})[\w\-./]*/i.exec(nombre || ''); return m ? m[0].toUpperCase().replace(/\.SLDPRT$/, '').replace(/[-./]+$/, '') : (nombre || '').replace(/\s*\(parte \d+\)\s*$/i, '').trim().toLowerCase(); };
+// serie del código (TPFR, TPFD u Otros) y número único de pieza: los últimos dígitos de TPFR-111-222-333-4444
+export const serieCod = k => { const m = /^TPF([RD])/i.exec(k || ''); return m ? 'TPF' + m[1].toUpperCase() : /^TPF-/i.test(k || '') ? 'Otros' : ''; };
 export const numPieza = k => { if (!serieCod(k)) return null; const m = /(\d+)\D*$/.exec(k); return m ? Number(m[1]) : null; };
 // tiempo estándar de una pieza: promedio de horas reales por unidad de las veces que se fabricó (sin las descartadas)
 export function historial(S, nombre) {
@@ -457,7 +458,8 @@ export function historial(S, nombre) {
 // Cada vez que se fabricó una pieza: tareas finalizadas con horas reales. Si la tarea se partió en partes, cuenta la pieza entera (suma de las partes).
 const _fab = new WeakMap();
 export function fabricaciones(S) {
-  let c = _fab.get(S.tareas); if (c) return c;
+  let c0 = _fab.get(S.tareas); if (c0 && c0.h === S.historico) return c0.l;
+  let c;
   const hijos = {}; S.tareas.forEach(t => { if (t.parentId) (hijos[t.parentId] = hijos[t.parentId] || []).push(t); });
   c = [];
   S.tareas.forEach(t => {
@@ -473,26 +475,44 @@ export function fabricaciones(S) {
     if (t.estado !== 'terminada' || !(Number(t.hhReal) > 0) || hijos[t.id]) return;
     c.push(regFab(t, Number(t.hhReal), t.finReal || t.inicio || t.creada, t.ops || []));
   });
-  _fab.set(S.tareas, c); return c;
+  // historial importado de la planilla de tiempos: cuenta en el promedio igual que una tarea finalizada
+  (S.historico || []).forEach(h => { const hh = Number(h.hh) || 0; if (!(hh > 0)) return; const cant = Math.max(1, Number(h.cant) || 1);
+    c.push({ id: h.id, k: claveCod(h.nombre), nombre: h.nombre, tipo: 'hist', hist: true, fila: h.fila, operacionId: h.operacionId || '', cant, hh, hu: hh / cant, plan: 0, fecha: h.fecha || '',
+      ops: [], opsTxt: h.opsTxt || '', material: h.material || '', peso: h.peso, hhCat: h.hhCat || null, det: h.det || '', obs: h.obs || '', fuera: !!h.tiempoFuera }); });
+  _fab.set(S.tareas, { h: S.historico, l: c }); return c;
 }
 const regFab = (t, hh, fecha, ops) => { const cant = Math.max(1, Number(t.cant) || 1);
   return { id: t.id, k: claveCod(t.nombre), nombre: t.nombre.replace(/\s*\(parte \d+\)\s*$/i, ''), tipo: t.tipo, proyId: t.proyId, parentId: t.parentId, orden: t.orden, cliente: t.cliente,
     operacionId: t.operacionId, cant, hh, hu: hh / cant, plan: Number(t.hh) || 0, fecha: (fecha || '').slice(0, 10), ops, material: t.material || '', peso: t.peso, fuera: !!t.tiempoFuera }; };
 
-// valor hora de mano de obra: el del código de la pieza; si la pieza no tiene código, el de un código de la misma operación
+// ---- Costos en USD ----
+// Tarifas de mano de obra por categoría (Mecanizado, Corte Láser, Armado y Soldado, Ensamble): cada operación se asocia a una tarifa
+export const tarifaDe = (S, id) => (S.tarifas || []).find(x => x.id === id) || null;
+const vhDe = x => x && Number(x.valor) > 0 ? { valor: Number(x.valor), fecha: x.fecha || '', nombre: x.nombre, id: x.id } : null;
+// valor hora de la operación de la pieza (la cargada o la que sale del código)
 export function valorHora(S, nombre, operacionId) {
-  const cs = (S.codigos || []).filter(x => Number(x.valorHora) > 0);
-  const c = codOp(S, nombre);
-  const x = (c && cs.find(y => String(y.num).trim() === c.num)) || (operacionId && cs.find(y => y.operacionId === operacionId)) || null;
-  return x ? { valor: Number(x.valorHora), fecha: x.vhFecha || '', num: x.num } : null;
+  const op = operacionId || (codOp(S, nombre) || {}).operacionId; const o = op && (S.operaciones || []).find(x => x.id === op);
+  return vhDe(o && tarifaDe(S, o.tarifaId));
 }
 export const materialDe = (S, id) => (S.materiales || []).find(m => m.id === id) || null;
-// costo de una fabricación o cotización: material (peso total × $/kg) + mano de obra (HH × valor hora de la operación)
+// costo de una fabricación o cotización: material (peso total × USD/kg) + mano de obra.
+// Mano de obra: si viene el detalle por tarifa (historial importado), suma cada parte × su tarifa; si no, HH × la tarifa de la operación.
 export function costo(S, r) {
-  const vh = valorHora(S, r.nombre, r.operacionId), m = materialDe(S, r.material), peso = Number(r.peso) || 0, hh = Number(r.hh) || 0, cant = Math.max(1, Number(r.cant) || 1);
-  const mo = vh ? hh * vh.valor : 0, mat = m && peso > 0 ? peso * (Number(m.precio) || 0) : 0, total = mo + mat;
-  const falta = []; if (!vh) falta.push('valor hora'); if (!m) falta.push('material'); else if (!(peso > 0)) falta.push('peso');
-  return { mo, mat, total, unit: total / cant, vh, m, falta };
+  const m = materialDe(S, r.material), peso = Number(r.peso) || 0, hh = Number(r.hh) || 0, cant = Math.max(1, Number(r.cant) || 1);
+  let mo = 0, vh = null, det = null; const falta = [];
+  if (r.hhCat && Object.keys(r.hhCat).length) {
+    det = Object.entries(r.hhCat).map(([id, h]) => { const t = vhDe(tarifaDe(S, id)); return { id, h: Number(h) || 0, t, nombre: (tarifaDe(S, id) || {}).nombre || '?' }; });
+    if (det.some(d => !d.t)) falta.push('tarifa'); mo = det.reduce((a, d) => a + (d.t ? d.h * d.t.valor : 0), 0); vh = det.find(d => d.t) ? det.find(d => d.t).t : null;
+  } else { vh = valorHora(S, r.nombre, r.operacionId); if (vh) mo = hh * vh.valor; else falta.push('tarifa'); }
+  const mat = m && peso > 0 ? peso * (Number(m.precio) || 0) : 0, total = mo + mat;
+  if (!m) falta.push('material'); else if (!(peso > 0)) falta.push('peso'); else if (!(Number(m.precio) > 0)) falta.push('precio del material');
+  return { mo, mat, total, unit: total / cant, vh, det, m, falta };
+}
+// a qué tarifa corresponde una operación por su nombre (para vincular solas las operaciones al importar)
+export function tarifaSugerida(S, nombreOp) {
+  const n = (nombreOp || '').toLowerCase(), T = S.tarifas || [], f = re => T.find(t => re.test(t.nombre.toLowerCase()));
+  if (/l[aá]ser/.test(n)) return f(/l[aá]ser/); if (/sold|armad/.test(n)) return f(/sold|armad/); if (/ensam|mont/.test(n)) return f(/ensam/);
+  if (/torn|fres|router|centro|mecan|cnc|rectif/.test(n)) return f(/mecan/); return null;
 }
 // todas las piezas con su historial y sus cotizaciones, agrupadas por código (padre) con cada vez que se hizo (hijos)
 export function tiempos(S) {
@@ -581,10 +601,11 @@ export function sample() {
     cfg: { accent: '#4fb0ff', temporadas: [{ desde: '2026-01-01', t: 'invierno' }],
       horarios: { invierno: { entrada: '07:00', salida: '17:00', descansoIni: '12:00', descansoMin: 60 }, verano: { entrada: '06:00', salida: '15:30', descansoIni: '10:30', descansoMin: 30 } } },
     operarios: nombres.map((n, i) => ({ id: 'o' + (i + 1), nombre: n, activo: true, op1: ['k5', 'k5', 'k3', 'k1', 'k2', 'k6', 'k7', 'k5', 'k3', 'k4'][i], op2: ['k6', 'k2', 'k4', 'k2', 'k1', 'k5', 'k6', 'k6', 'k4', 'k3'][i] })),
-    operaciones: opers.map((n, i) => ({ id: 'k' + (i + 1), nombre: n })),
-    codigos: [['110', 'k1', 9500], ['120', 'k2', 9000], ['200', 'k3', 11000], ['210', 'k4', 12000], ['300', 'k5', 10500], ['400', 'k6', 8500], ['500', 'k7', 8000]].map(([num, operacionId, valorHora], i) => ({ id: 'c' + i, num, operacionId, valorHora, vhFecha: '2026-10-01' })),
-    materiales: [{ id: 'm1', nombre: 'Acero inoxidable 304', precio: 9800, fecha: '2026-10-01' }, { id: 'm2', nombre: 'Acero SAE 1045', precio: 2600, fecha: '2026-10-01' }, { id: 'm3', nombre: 'Bronce SAE 64', precio: 21000, fecha: '2026-10-01' }, { id: 'm4', nombre: 'Goma', precio: 5200, fecha: '2026-10-01' }],
-    cotizaciones: [],
+    operaciones: opers.map((n, i) => ({ id: 'k' + (i + 1), nombre: n, tarifaId: ['tf2', 'tf3', 'tf1', 'tf1', 'tf3', 'tf3', 'tf4'][i] })),
+    codigos: [['110', 'k1'], ['120', 'k2'], ['200', 'k3'], ['210', 'k4'], ['300', 'k5'], ['400', 'k6'], ['500', 'k7']].map(([num, operacionId], i) => ({ id: 'c' + i, num, operacionId })),
+    tarifas: [{ id: 'tf1', nombre: 'Mecanizado', valor: 28, fecha: '2026-10-01' }, { id: 'tf2', nombre: 'Corte Láser', valor: 28, fecha: '2026-10-01' }, { id: 'tf3', nombre: 'Armado y Soldado', valor: 13, fecha: '2026-10-01' }, { id: 'tf4', nombre: 'Ensamble', valor: 9.5, fecha: '2026-10-01' }],
+    materiales: [{ id: 'm1', nombre: 'Macizo AISI 304', precio: 4.4, fecha: '2026-10-01' }, { id: 'm2', nombre: 'Macizo SAE 1045', precio: 1.9, fecha: '2026-10-01' }, { id: 'm3', nombre: 'Buje Bronce SAE 64', precio: 29, fecha: '2026-10-01' }, { id: 'm4', nombre: 'Placa UMHW', precio: 10.19, fecha: '2026-10-01' }],
+    cotizaciones: [], historico: [],
     feriados: [{ fecha: '2026-10-12', nombre: 'Diversidad Cultural' }, { fecha: '2026-12-08', nombre: 'Inmaculada Concepción' }, { fecha: '2026-12-25', nombre: 'Navidad' }],
     ausencias: [{ id: 'a1', opId: 'o10', desde: day(3), hasta: day(4), motivo: 'Vacaciones' }],
     extras: {}, extraModo: {},

@@ -29,7 +29,7 @@ const C = {
   usuarios: collection(db, 'produccion_usuarios'),
   log: collection(db, 'produccion_log')
 };
-const CFG = ['cfg', 'operarios', 'operaciones', 'codigos', 'materiales', 'cotizaciones', 'feriados', 'ausencias', 'proyectos', 'ejemplo'];
+const CFG = ['cfg', 'operarios', 'operaciones', 'codigos', 'materiales', 'tarifas', 'cotizaciones', 'historico', 'feriados', 'ausencias', 'proyectos', 'ejemplo'];
 const MAPAS = ['extras', 'extraModo'];
 const limpio = o => JSON.parse(JSON.stringify(o === undefined ? null : o));
 

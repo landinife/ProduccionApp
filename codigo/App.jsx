@@ -59,7 +59,8 @@ function Modal({ title, onClose, children, wide, foot }) {
 }
 function Bar({ v, color }) { return <span className="pbar"><i style={{ width: Math.min(100, Math.max(0, v)) + '%', background: color || 'var(--accent)' }} /></span>; }
 const fHM = h => { const tm = Math.round((Number(h) || 0) * 60); return tm < 60 ? `${tm} min` : `${Math.floor(tm / 60)} h${tm % 60 ? ` ${tm % 60} min` : ''}`; };
-const fPlata = n => '$ ' + Math.round(Number(n) || 0).toLocaleString('es-AR');
+// importes en dólares (USD), con 2 decimales
+const fPlata = n => 'US$ ' + (Number(n) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fFecha = d => d ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(2, 4)}` : '—';
 function HM({ value, onChange, cant, titulo }) { const tm = Math.round((Number(value) || 0) * 60), h = Math.floor(tm / 60), m = tm % 60;
   return <span className="hm"><input type="number" min="0" value={h} aria-label="Horas" onChange={e => onChange(Math.max(0, Math.floor(Number(e.target.value) || 0)) + m / 60)} /><small>h</small>
@@ -111,7 +112,7 @@ function Desvio({ real, plan }) { const d = real - plan; if (!(plan > 0)) return
 // Qué puede cambiar cada usuario. Las mismas reglas están también en Firebase (codigo/reglas-produccionapp.txt).
 function permiso(p, n, pm) {
   if (pm.admin) return null;
-  if (['cfg', 'operarios', 'operaciones', 'feriados', 'usuarios', 'codigos', 'materiales', 'cotizaciones'].some(k => p[k] !== n[k])) return 'Solo un administrador puede cambiar la configuración.';
+  if (['cfg', 'operarios', 'operaciones', 'feriados', 'usuarios', 'codigos', 'materiales', 'cotizaciones', 'tarifas', 'historico'].some(k => p[k] !== n[k])) return 'Solo un administrador puede cambiar la configuración.';
   const DEF = ['nombre', 'cant', 'prioridad', 'operacionId', 'hh', 'preds', 'parentId', 'entrega', 'proyId'];
   const old = Object.fromEntries(p.tareas.map(t => [t.id, t])); const seen = new Set(); let rep = false, proyDef = p.proyectos !== n.proyectos, proyProg = false;
   n.tareas.forEach(t => { seen.add(t.id); const o = old[t.id]; if (o === t) return;
@@ -138,7 +139,7 @@ function describir(p, n) {
     if (add.length) out.push('Agregó ' + lista(add)); if (del.length) out.push('Borró ' + lista(del));
     if (chg.length) out.push(chg.slice(0, 3).map(t => `"${t.nombre}": ${dif(old[t.id], t).map(f => `${CAMPOS[f]} ${val(p, f, old[t.id][f])} → ${val(n, f, t[f])}`).join(', ')}`).join(' · ') + (chg.length > 3 ? ` · y ${chg.length - 3} tareas más` : ''));
     if (out.length) k = 't:' + [...add, ...del, ...chg].slice(0, 4).map(t => t.id).join() + ':' + (chg[0] ? dif(old[chg[0].id], chg[0]).join() : ''); }
-  [['proyectos', 'Cambió proyectos'], ['extras', 'Cambió horas extra'], ['extraModo', 'Cambió el uso de una extra'], ['ausencias', 'Cambió ausencias'], ['operarios', 'Cambió operarios'], ['operaciones', 'Cambió operaciones'], ['codigos', 'Cambió códigos de operación'], ['materiales', 'Cambió materiales'], ['cotizaciones', 'Cambió cotizaciones'], ['feriados', 'Cambió feriados'], ['usuarios', 'Cambió usuarios o permisos'], ['cfg', 'Cambió horarios o apariencia']]
+  [['proyectos', 'Cambió proyectos'], ['extras', 'Cambió horas extra'], ['extraModo', 'Cambió el uso de una extra'], ['ausencias', 'Cambió ausencias'], ['operarios', 'Cambió operarios'], ['operaciones', 'Cambió operaciones'], ['codigos', 'Cambió códigos de operación'], ['materiales', 'Cambió materiales'], ['tarifas', 'Cambió tarifas de mano de obra'], ['historico', 'Cambió el historial importado'], ['cotizaciones', 'Cambió cotizaciones'], ['feriados', 'Cambió feriados'], ['usuarios', 'Cambió usuarios o permisos'], ['cfg', 'Cambió horarios o apariencia']]
     .forEach(([key, txt]) => { if (p[key] !== n[key] && !(key === 'extraModo' && p.extras !== n.extras)) { out.push(txt); k += '|' + key; } });
   return out.length ? { k, txt: out.join(' · ') } : null;
 }
@@ -1237,7 +1238,7 @@ function ListEdit({ title, items, onAdd, onDel, render, addLabel, extra }) {
     {items.map((it, i) => <div key={it.id || i} className="lrow">{render(it, i)}<button className="btn sm danger" onClick={() => onDel(it, i)}>Borrar</button></div>)}</section>;
 }
 const PlCtx = createContext({ c: () => '', h: t => t });
-const CFG_SECS = ['Atajos de teclado', 'Operarios', 'Ausencias', 'Operaciones', 'Códigos de operación', 'Materiales', 'Horarios laborales', 'Feriados', 'Usuarios y permisos', 'Color de énfasis', 'Datos', 'Registro de cambios', 'Sesión'];
+const CFG_SECS = ['Atajos de teclado', 'Operarios', 'Ausencias', 'Operaciones', 'Códigos de operación', 'Tarifas de mano de obra', 'Materiales', 'Horarios laborales', 'Feriados', 'Usuarios y permisos', 'Color de énfasis', 'Datos', 'Registro de cambios', 'Sesión'];
 function Atajos() {
   const PL = useContext(PlCtx);
   const G = [['En todas las pantallas', [['Esc', 'Cierra la ventana abierta (editar tarea, operario, parte del día…)'], ['Ctrl + Z', 'Deshace el último cambio (si estás escribiendo en una celda, deshace lo escrito)'], ['Ctrl + Y  /  Ctrl + Mayús + Z', 'Rehace lo que deshiciste']]],
@@ -1265,6 +1266,9 @@ function Config() {
     const orden = tipo => { const out = []; const go = t => { out.push(fila(t)); (V.kids[t.id] || []).forEach(go); }; S.tareas.filter(t => t.tipo === tipo && !t.parentId).forEach(go); return out; };
     X.utils.book_append_sheet(wb, X.utils.json_to_sheet(orden('rep')), 'Repuestos'); X.utils.book_append_sheet(wb, X.utils.json_to_sheet(orden('proy')), 'Proyectos');
     saveFile(`produccion-${E.today()}.xlsx`, X.write(wb, { type: 'array', bookType: 'xlsx' }), ui.toast); };
+  const [imp, setImp] = useState(null);
+  const leerHist = e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; if (!window.XLSX) { ui.toast('No se pudo cargar el lector de Excel'); return; }
+    const fr = new FileReader(); fr.onload = () => { try { const d = leerPlanillaHist(window.XLSX.read(fr.result, { type: 'array', cellDates: true })); d.archivo = f.name; setImp(d); } catch (err) { ui.toast(err && err.message ? err.message : 'No se pudo leer el archivo'); } }; fr.readAsArrayBuffer(f); };
   const restaurar = e => { const f = e.target.files[0]; if (!f) return; const fr = new FileReader(); fr.onload = () => { try { const d = JSON.parse(fr.result); if (!d.tareas || !d.cfg) throw 0; up(s => ({ ...d, usuarios: ses ? s.usuarios : (d.usuarios || s.usuarios), log: s.log })); ui.toast('Copia restaurada'); } catch (err) { ui.toast('Ese archivo no es una copia de ProducciónApp'); } }; fr.readAsText(f); e.target.value = ''; };
   return <PlCtx.Provider value={PL}><div className="view cfg"><div className="cfg-top"><span className="mut">Tocá el título de cada sección para abrirla o cerrarla.</span><span className="sp" /><button className="btn sm" onClick={() => setAb(CFG_SECS)}>Abrir todas</button><button className="btn sm" onClick={() => setAb([])}>Cerrar todas</button></div>
     <Atajos />
@@ -1278,24 +1282,31 @@ function Config() {
         <input aria-label="Motivo" value={a.motivo} onChange={e => setL('ausencias', a.id, { motivo: e.target.value })} /></>} />
     <ListEdit title="Operaciones" items={S.operaciones} addLabel="+ Operación" onAdd={() => up(s => ({ ...s, operaciones: [...s.operaciones, { id: E.uid(), nombre: 'Nueva operación' }] }))}
       onDel={o => up(s => ({ ...s, operaciones: s.operaciones.filter(x => x.id !== o.id) }))}
-      render={(o, i) => <><label className="inl" title="Orden de fabricación: las de etapa menor se hacen primero. 0 = en paralelo: no espera a otras etapas ni las frena (las piezas que la necesitan igual esperan a sus hijas).">Etapa<input className="w4" type="number" min="0" aria-label="Etapa" value={E.etapaOp(o)} onChange={e => setL('operaciones', o.id, { etapa: e.target.value === '' ? null : Number(e.target.value) })} /></label><input aria-label="Nombre" value={o.nombre} onChange={e => setL('operaciones', o.id, { nombre: e.target.value })} />{E.etapaOp(o) === 0 && <span className="tag">en paralelo</span>}</>} />
+      render={(o, i) => <><label className="inl" title="Orden de fabricación: las de etapa menor se hacen primero. 0 = en paralelo: no espera a otras etapas ni las frena (las piezas que la necesitan igual esperan a sus hijas).">Etapa<input className="w4" type="number" min="0" aria-label="Etapa" value={E.etapaOp(o)} onChange={e => setL('operaciones', o.id, { etapa: e.target.value === '' ? null : Number(e.target.value) })} /></label><input aria-label="Nombre" value={o.nombre} onChange={e => setL('operaciones', o.id, { nombre: e.target.value })} />
+        <label className="inl" title="Con qué tarifa de mano de obra se calcula el costo de esta operación">Tarifa<select aria-label="Tarifa" value={o.tarifaId || ''} onChange={e => setL('operaciones', o.id, { tarifaId: e.target.value })}><option value="">—</option>{(S.tarifas || []).map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}</select></label>
+        {E.etapaOp(o) === 0 && <span className="tag">en paralelo</span>}</>} />
     <section className={'card' + PL.c('Códigos de operación')}><div className="sec-h"><h2>{PL.h('Códigos de operación')}</h2><div className="row"><button className="btn" onClick={aplicarCod}>Aplicar a las piezas cargadas</button><button className="btn" onClick={() => up(s => ({ ...s, codigos: [...(s.codigos || []), { id: E.uid(), num: '', operacionId: s.operaciones[0] ? s.operaciones[0].id : '' }] }))}>+ Código</button></div></div>
-      <p className="mut">En los códigos TPFR y TPFD, los 3 primeros números indican la operación. Al cargar o importar una pieza, la operación se completa sola y después la podés cambiar. El $/h es el valor de la hora de mano de obra: se usa para los costos de la pestaña Tiempos y guarda la fecha en que lo cambiaste.</p>
+      <p className="mut">En los códigos TPFR y TPFD, los 3 primeros números indican la operación. Al cargar o importar una pieza, la operación se completa sola y después la podés cambiar. El costo de la hora sale de la tarifa de cada operación (Configuración → Operaciones).</p>
       {(S.codigos || []).length === 0 && <p className="mut">Todavía no hay códigos cargados.</p>}
       {(S.codigos || []).slice().sort((a, b) => String(a.num).localeCompare(String(b.num))).map(c => <div key={c.id} className="lrow">
         <input aria-label="Número" className="w4" inputMode="numeric" maxLength="3" placeholder="000" value={c.num} onChange={e => setL('codigos', c.id, { num: e.target.value.replace(/\D/g, '').slice(0, 3) })} />
         <span className="mut">→</span><select aria-label="Operación" value={c.operacionId} onChange={e => setL('codigos', c.id, { operacionId: e.target.value })}>{S.operaciones.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select>
-        <label className="inl" title="Valor de la hora de mano de obra de esta operación, para calcular costos">$/h<input aria-label="Valor hora" className="vh" type="number" min="0" step="100" value={c.valorHora ?? ''} placeholder="0" onChange={e => setL('codigos', c.id, { valorHora: e.target.value === '' ? null : Number(e.target.value), vhFecha: E.today() })} /></label>
-        <span className="mut fch" title="Fecha del valor hora">{c.valorHora > 0 ? 'al ' + fFecha(c.vhFecha) : ''}</span>
         {(S.codigos || []).filter(x => x.num && x.num === c.num).length > 1 && <span className="tag bad">número repetido</span>}
         <span className="sp" /><button className="btn sm danger" onClick={() => up(s => ({ ...s, codigos: s.codigos.filter(x => x.id !== c.id) }))}>Borrar</button></div>)}
       <div className="lrow prueba"><label className="inl">Probar un código<input value={prueba} placeholder="TPFR-120-045-01" onChange={e => setPrueba(e.target.value)} /></label>
         {prueba.trim() && (() => { const r = E.codOp(S, prueba); return <span className={r && r.operacionId ? 'c-ok' : 'c-bad'}>{!r ? 'No reconozco un código TPFR o TPFD con 3 números' : r.operacionId ? `${r.num} → ${operName(S, r.operacionId)}` : `${r.num} → sin operación asignada`}</span>; })()}</div></section>
+    <ListEdit title="Tarifas de mano de obra" items={S.tarifas || []} addLabel="+ Tarifa" onAdd={() => up(s => ({ ...s, tarifas: [...(s.tarifas || []), { id: E.uid(), nombre: 'Tarifa nueva', valor: null, fecha: E.today() }] }))}
+      onDel={t => { if (confirm(`¿Borrar la tarifa "${t.nombre}"? Las operaciones que la usan quedan sin tarifa.`)) up(s => ({ ...s, tarifas: s.tarifas.filter(x => x.id !== t.id), operaciones: s.operaciones.map(o => o.tarifaId === t.id ? { ...o, tarifaId: '' } : o) })); }}
+      extra={<span className="mut">Costo de la hora en USD. Cada operación se asocia a una tarifa.</span>}
+      render={t => { const ops = S.operaciones.filter(o => o.tarifaId === t.id); return <><input aria-label="Nombre" value={t.nombre} onChange={e => setL('tarifas', t.id, { nombre: e.target.value })} />
+        <label className="inl">USD/h<input aria-label="USD por hora" className="vh" type="number" min="0" step="0.5" value={t.valor ?? ''} placeholder="0" onChange={e => setL('tarifas', t.id, { valor: e.target.value === '' ? null : Number(e.target.value), fecha: E.today() })} /></label>
+        <span className="mut fch">{t.valor > 0 ? 'al ' + fFecha(t.fecha) : ''}</span>
+        <span className="mut tops-l">{ops.length ? ops.map(o => o.nombre).join(', ') : 'ninguna operación'}</span></>; }} />
     <ListEdit title="Materiales" items={S.materiales || []} addLabel="+ Material" onAdd={() => up(s => ({ ...s, materiales: [...(s.materiales || []), { id: E.uid(), nombre: 'Material nuevo', precio: null, fecha: E.today() }] }))}
       onDel={m => { if (confirm(`¿Borrar el material "${m.nombre}"? Las piezas que lo usan quedan sin material.`)) up(s => ({ ...s, materiales: s.materiales.filter(x => x.id !== m.id) })); }}
-      extra={<span className="mut">Precio por kg. Se usa en los costos de la pestaña Tiempos.</span>}
+      extra={<span className="mut">Precio por kg en USD. Se usa en los costos de la pestaña Tiempos.</span>}
       render={m => <><input aria-label="Nombre" value={m.nombre} onChange={e => setL('materiales', m.id, { nombre: e.target.value })} />
-        <label className="inl">$/kg<input aria-label="Precio por kg" className="vh" type="number" min="0" step="10" value={m.precio ?? ''} placeholder="0" onChange={e => setL('materiales', m.id, { precio: e.target.value === '' ? null : Number(e.target.value), fecha: E.today() })} /></label>
+        <label className="inl">USD/kg<input aria-label="Precio por kg" className="vh" type="number" min="0" step="0.01" value={m.precio ?? ''} placeholder="0" onChange={e => setL('materiales', m.id, { precio: e.target.value === '' ? null : Number(e.target.value), fecha: E.today() })} /></label>
         <span className="mut fch">{m.precio > 0 ? 'al ' + fFecha(m.fecha) : ''}</span></>} />
     <section className={'card' + PL.c('Horarios laborales')}><div className="sec-h"><h2>{PL.h('Horarios laborales')}</h2><button className="btn pri-b" onClick={cambiar}>Pasar a horario de {otra}</button></div>
       <p className="mut">Activo: <b className="acc">{act}</b> desde el {fD(S.cfg.temporadas[S.cfg.temporadas.length - 1].desde)}. Queda así hasta que lo cambies.</p>
@@ -1320,10 +1331,13 @@ function Config() {
       <div className="row"><button className="btn" onClick={exportar}>Exportar repuestos y proyectos a .xlsx</button>
         <button className="btn" onClick={() => saveFile(`produccionapp-copia-${E.today()}.json`, JSON.stringify(S), ui.toast)}>Guardar copia de seguridad</button>
         <label className="btn filebtn">Restaurar una copia<input id="cfg-rest" type="file" accept=".json" onChange={restaurar} /></label>
+        <label className="btn filebtn" title="Planilla de revisión con las hojas Importar, Tarifas y Materiales">Importar historial de tiempos (.xlsx)<input id="cfg-hist" type="file" accept=".xlsx,.xls" onChange={leerHist} /></label>
         {!ses && <button className="btn danger" onClick={() => { up(() => E.sample()); ui.toast('Datos de ejemplo restablecidos'); }}>Restablecer datos de ejemplo</button>}</div>
       <div className="blanco">{conf ? <><b>Se borran todas las tareas, proyectos, operarios, ausencias y horas extra.</b><span className="mut">Quedan las operaciones, los horarios, los feriados y los usuarios.</span>
         <div className="row"><button className="btn danger" onClick={() => { up(s => ({ ...s, ejemplo: false, tareas: [], proyectos: [], operarios: [], ausencias: [], extras: {}, extraModo: {} })); setConf(false); ui.toast('Lista para cargar tus datos. Si fue un error, tocá Deshacer.'); }}>Sí, empezar en blanco</button><button className="btn" onClick={() => setConf(false)}>Cancelar</button></div></>
         : <><button className="btn pri-b" onClick={() => setConf(true)}>Empezar en blanco con mis datos</button><span className="mut">Saca los datos de ejemplo para que cargues los tuyos.</span></>}</div>
+      {(S.historico || []).length > 0 && <p className="mut">Historial importado: {S.historico.length} fabricaciones. Se ven en la pestaña Tiempos con origen "planilla".</p>}
+      {imp && <ImportHist d={imp} onClose={() => setImp(null)} />}
       <p className="mut">{ses ? 'Los datos se guardan en la nube y se comparten con todos los usuarios. Bajá una copia de seguridad cada tanto.' : 'En esta vista previa los cambios se guardan solo en este navegador.'}</p></section>
     <section className={'card full' + PL.c('Registro de cambios')}><div className="sec-h"><h2>{PL.h('Registro de cambios')}</h2>
         <select id="log-q" value={lq} onChange={e => setLq(e.target.value)} aria-label="Usuario"><option value="">Todos los usuarios</option>{S.usuarios.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}</select></div>
@@ -1406,6 +1420,66 @@ export function Inicio({ elegir, dueno }) {
   </Pantalla>;
 }
 
+/* ================= IMPORTAR HISTORIAL DE TIEMPOS ================= */
+// Lee la planilla de revisión (hojas Importar, Tarifas y Materiales). De "Importar" toma solo las filas con Estado = Importar.
+const CATS_HIST = [['HH Mecanizado', 'Mecanizado'], ['HH Corte Láser', 'Corte Láser'], ['HH Armado y Soldado', 'Armado y Soldado'], ['HH Ensamble', 'Ensamble']];
+const xFecha = v => { if (v instanceof Date && !isNaN(v)) return new Date(v.getTime() + 12 * 36e5).toISOString().slice(0, 10); const m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(String(v).trim()); return m ? `${m[3].length === 2 ? '20' + m[3] : m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : ''; };
+const xNum = v => { if (typeof v === 'number') return v; const n = Number(String(v).replace(',', '.')); return String(v).trim() !== '' && isFinite(n) ? n : null; };
+function leerPlanillaHist(wb) {
+  const X = window.XLSX, hoja = n => wb.Sheets[wb.SheetNames.find(x => x.trim().toLowerCase() === n.toLowerCase())];
+  const H = hoja('Importar'); if (!H) throw new Error('El archivo no tiene la hoja "Importar". Usá la planilla de revisión de tiempos.');
+  const rows = X.utils.sheet_to_json(H, { defval: '' });
+  if (!rows.length || !('Estado' in rows[0]) || !('Código' in rows[0])) throw new Error('La hoja "Importar" no tiene las columnas esperadas (Estado, Código, …).');
+  const filas = rows.filter(r => String(r.Estado).trim().toLowerCase() === 'importar').map(r => {
+    const cats = {}; CATS_HIST.forEach(([col, n]) => { const h = xNum(r[col]); if (h > 0) cats[n] = h; });
+    return { fila: r['Fila Datos'], nombre: `${String(r['Código']).trim()} ${String(r['Descripción']).trim()}`.trim(), cant: xNum(r['Cant.']) || 1, fecha: xFecha(r.Fecha),
+      opsTxt: String(r.Operarios || '').trim(), mat: String(r['Materia prima'] || '').trim(), kg: xNum(r['kg MP']), cats, obs: String(r.Observaciones || '').trim() };
+  }).filter(f => f.nombre && Object.keys(f.cats).length);
+  const T = hoja('Tarifas'), M = hoja('Materiales');
+  const tarifas = T ? X.utils.sheet_to_json(T, { defval: '' }).map(r => ({ nombre: String(r['Categoría de mano de obra'] || '').trim(), valor: xNum(r['USD/h']) })).filter(t => t.nombre) : [];
+  const materiales = M ? X.utils.sheet_to_json(M, { defval: '' }).map(r => ({ nombre: String(r['Materia prima'] || '').trim(), precio: xNum(r['USD/kg']), fecha: xFecha(r['Fecha del precio']) })).filter(m => m.nombre) : [];
+  return { filas, tarifas, materiales };
+}
+// Arma el estado nuevo: tarifas y materiales (actualiza por nombre o agrega), operaciones sin tarifa vinculadas solas, y el historial (reemplaza el importado antes)
+function aplicarHist(s, d) {
+  const eq = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase(), hoy = E.today();
+  let tarifas = [...(s.tarifas || [])]; const tN = [], tA = [];
+  [...d.tarifas, ...CATS_HIST.map(([, n]) => ({ nombre: n, valor: null }))].forEach(t => { const x = tarifas.find(y => eq(y.nombre, t.nombre));
+    if (!x) { tarifas.push({ id: E.uid(), nombre: t.nombre, valor: t.valor, fecha: hoy }); tN.push(t.nombre); }
+    else if (t.valor != null && Number(x.valor) !== t.valor) { tarifas = tarifas.map(y => y === x ? { ...y, valor: t.valor, fecha: hoy } : y); tA.push(t.nombre); } });
+  let materiales = [...(s.materiales || [])]; const mN = [], mA = [];
+  [...d.materiales, ...d.filas.filter(f => f.mat).map(f => ({ nombre: f.mat, precio: null, fecha: '' }))].forEach(m => { const x = materiales.find(y => eq(y.nombre, m.nombre));
+    if (!x) { materiales.push({ id: E.uid(), nombre: m.nombre, precio: m.precio, fecha: m.fecha || hoy }); mN.push(m.nombre); }
+    else if (m.precio != null && Number(x.precio) !== m.precio) { materiales = materiales.map(y => y === x ? { ...y, precio: m.precio, fecha: m.fecha || hoy } : y); mA.push(m.nombre); } });
+  const s1 = { ...s, tarifas }; const vinc = [];
+  const operaciones = s.operaciones.map(o => { if (o.tarifaId && tarifas.some(t => t.id === o.tarifaId)) return o; const t = E.tarifaSugerida(s1, o.nombre); if (!t) return o; vinc.push(`${o.nombre} → ${t.nombre}`); return { ...o, tarifaId: t.id }; });
+  const idT = n => tarifas.find(t => eq(t.nombre, n)).id, idM = n => (materiales.find(m => eq(m.nombre, n)) || {}).id || '';
+  const nuevos = d.filas.map(f => { const hhCat = {}; Object.entries(f.cats).forEach(([n, h]) => { hhCat[idT(n)] = h; });
+    return { id: E.uid(), src: 'planilla', fila: f.fila, nombre: f.nombre, cant: f.cant, fecha: f.fecha, opsTxt: f.opsTxt, material: f.mat ? idM(f.mat) : '', peso: f.kg, hh: Object.values(f.cats).reduce((a, h) => a + h, 0), hhCat,
+      det: Object.entries(f.cats).map(([n, h]) => `${n} ${fN(h)} h`).join(' · '), obs: f.obs, tiempoFuera: false }; });
+  const antes = (s.historico || []).filter(h => h.src === 'planilla').length;
+  const historico = [...(s.historico || []).filter(h => h.src !== 'planilla'), ...nuevos];
+  return { S: { ...s, tarifas, materiales, operaciones, historico }, info: { tN, tA, mN, mA, vinc, antes, n: nuevos.length, piezas: new Set(nuevos.map(h => E.claveCod(h.nombre))).size, hh: nuevos.reduce((a, h) => a + h.hh, 0),
+    sinPrecio: materiales.filter(m => !(Number(m.precio) > 0) && nuevos.some(h => h.material === m.id)).map(m => m.nombre) } };
+}
+function ImportHist({ d, onClose }) {
+  const { S, up, ui } = useApp(); const { info } = useMemo(() => aplicarHist(S, d), [S, d]);
+  const ok = () => { up(s => aplicarHist(s, d).S); ui.toast(`Historial importado: ${info.n} fabricaciones. Lo ves en la pestaña Tiempos.`); onClose(); };
+  const L = (t, l) => l.length > 0 && <p><b>{t}:</b> {l.join(', ')}</p>;
+  return <Modal title="Importar historial de tiempos" onClose={onClose} foot={<><span className="mut">{d.archivo}</span><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!info.n} onClick={ok}>Importar</button></>}>
+    <div className="imph">
+      <div className="cotres"><div><span className="mut">Fabricaciones</span><b>{info.n}</b><small className="mut">filas con Estado = Importar</small></div>
+        <div><span className="mut">Piezas</span><b>{info.piezas}</b><small className="mut">códigos distintos</small></div>
+        <div><span className="mut">Horas</span><b>{fN(Math.round(info.hh))}</b><small className="mut">horas en total</small></div></div>
+      {info.antes > 0 && <p className="note">Ya había {info.antes} fabricaciones importadas de una planilla: se reemplazan por estas. Las tareas de la app no se tocan.</p>}
+      {L('Tarifas nuevas', info.tN)}{L('Tarifas actualizadas', info.tA)}{L('Materiales nuevos', info.mN)}{L('Materiales con precio actualizado', info.mA)}
+      {L('Operaciones que se vinculan a una tarifa', info.vinc)}
+      {info.sinPrecio.length > 0 && <p className="mut">Sin precio por kg (completalos en Configuración → Materiales): {info.sinPrecio.join(', ')}.</p>}
+      <p className="mut">Las fabricaciones importadas cuentan en el promedio por unidad. Si alguna está mal cargada, la podés descartar o borrar desde Tiempos.</p>
+    </div>
+  </Modal>;
+}
+
 /* ================= TIEMPOS ================= */
 // Historial de tiempos y costos por pieza: el padre es el código (con el promedio por unidad para planificar),
 // los hijos son cada vez que se fabricó. Las cotizaciones manuales se ven junto a su pieza pero no entran en el promedio.
@@ -1413,23 +1487,24 @@ function Tiempos() {
   const { S, V, up, ui, pm } = useApp();
   const [q, setQ] = useState(''); const [ab, setAb] = useState(() => prefG('tiempos-abiertas', [])); const [cot, setCot] = useState(null);
   useEffect(() => { guardaG('tiempos-abiertas', ab); }, [ab]);
-  const G = useMemo(() => E.tiempos(S), [S.tareas, S.cotizaciones, S.codigos]);
-  // sub-pestañas TPFR / TPFD (y "Sin código" solo si hay piezas sin código) y filtro por operación
+  const G = useMemo(() => E.tiempos(S), [S.tareas, S.cotizaciones, S.codigos, S.historico, S.operaciones]);
+  // sub-pestañas TPFR / TPFD (y "Otros" y "Sin código" solo si hay piezas de ese tipo) y filtro por operación
   const [serie, setSerie] = useState(() => prefG('tiempos-serie', 'TPFR')); const [fop, setFop] = useState(() => prefG('tiempos-op', ''));
   useEffect(() => { guardaG('tiempos-serie', serie); guardaG('tiempos-op', fop); }, [serie, fop]);
-  const series = [['TPFR', 'TPFR'], ['TPFD', 'TPFD'], ...(G.some(g => !g.serie) ? [['', 'Sin código']] : [])];
+  const series = [['TPFR', 'TPFR'], ['TPFD', 'TPFD'], ...(G.some(g => g.serie === 'Otros') ? [['Otros', 'Otros']] : []), ...(G.some(g => !g.serie) ? [['', 'Sin código']] : [])];
   const enSerie = G.filter(g => g.serie === serie);
   const opsSerie = S.operaciones.map(o => [o, enSerie.filter(g => g.operacionId === o.id).length]).filter(([, n]) => n > 0);
   const qq = q.trim().toLowerCase(); const vis = enSerie.filter(g => (!fop || g.operacionId === fop) && (!qq || g.nombre.toLowerCase().includes(qq) || g.k.toLowerCase().includes(qq)));
   const tog = k => setAb(a => a.includes(k) ? a.filter(x => x !== k) : [...a, k]);
   // cambiar material, peso o descarte: en la tarea (fabricación) o en la cotización
-  const setReg = (r, patch) => r.cot ? up(s => ({ ...s, cotizaciones: (s.cotizaciones || []).map(x => x.id === r.id ? { ...x, ...patch } : x) })) : up(s => ({ ...s, tareas: s.tareas.map(t => t.id === r.id ? { ...t, ...patch } : t) }));
+  const setReg = (r, patch) => r.hist ? up(s => ({ ...s, historico: (s.historico || []).map(x => x.id === r.id ? { ...x, ...patch } : x) })) : r.cot ? up(s => ({ ...s, cotizaciones: (s.cotizaciones || []).map(x => x.id === r.id ? { ...x, ...patch } : x) })) : up(s => ({ ...s, tareas: s.tareas.map(t => t.id === r.id ? { ...t, ...patch } : t) }));
+  const borrarHist = r => { if (confirm(`¿Borrar del historial esta fabricación de "${r.nombre}" (fila ${r.fila} de la planilla)?`)) { up(s => ({ ...s, historico: (s.historico || []).filter(x => x.id !== r.id) })); ui.toast('Fabricación borrada del historial'); } };
   const borrarCot = r => { if (confirm(`¿Borrar la cotización de "${r.nombre}"?`)) { up(s => ({ ...s, cotizaciones: (s.cotizaciones || []).filter(x => x.id !== r.id) })); ui.toast('Cotización borrada'); } };
-  const origen = r => { if (r.cot) return <span className="tag">cotización</span>; const t = V.byId[r.id]; if (!t) return '—';
+  const origen = r => { if (r.cot) return <span className="tag">cotización</span>; if (r.hist) return <span title={r.obs || undefined}><span className="tag">planilla</span><small className="mut"> · fila {r.fila}</small></span>; const t = V.byId[r.id]; if (!t) return '—';
     if (r.tipo === 'rep') { const rt = V.rootOf(t); return <span>{rt.orden || 'S/N'}<small className="mut"> · {rt.cliente}</small></span>; }
     const p = S.proyectos.find(x => x.id === r.proyId); return <span>{p ? p.nombre : 'Proyecto'}</span>; };
   const nFab = enSerie.reduce((a, g) => a + g.n, 0), conDatos = enSerie.filter(g => g.n > 0).length;
-  const faltan = [!(S.materiales || []).some(m => m.precio > 0) && 'materiales', !(S.codigos || []).some(c => c.valorHora > 0) && 'valor hora en los códigos'].filter(Boolean);
+  const faltan = [!(S.materiales || []).some(m => m.precio > 0) && 'materiales', !(S.tarifas || []).some(t => t.valor > 0) && 'las tarifas de mano de obra'].filter(Boolean);
   return <div className="view tiempos">
     <div className="ptabs tchips" role="tablist">{series.map(([k, l]) => <button key={k || 'sin'} role="tab" aria-selected={serie === k} className={'ptab' + (serie === k ? ' on' : '')} onClick={() => { setSerie(k); setFop(''); }}><b>{l}</b><small className="mut">{G.filter(g => g.serie === k).length}</small></button>)}</div>
     <section>
@@ -1442,7 +1517,7 @@ function Tiempos() {
         {opsSerie.map(([o, n]) => <button key={o.id} className={'togb' + (fop === o.id ? ' on' : '')} onClick={() => setFop(fop === o.id ? '' : o.id)}>{o.nombre} <small>{n}</small></button>)}</div>}
       <p className="mut">{serie || 'Sin código'}: ordenadas por número de pieza. {conDatos} {conDatos === 1 ? 'pieza' : 'piezas'} con historial · {nFab} {nFab === 1 ? 'vez fabricada' : 'veces fabricadas'}. El promedio por unidad es el que se sugiere al cargar la pieza de nuevo. Los costos usan los precios de Configuración (con su fecha).</p>
       {faltan.length > 0 && <p className="note">Para ver costos falta cargar en Configuración: {faltan.join(' y ')}.</p>}
-      {vis.length === 0 ? <Vacio ic={qq ? 'buscar' : 'reloj'} t={qq || fop ? 'Ninguna pieza coincide con el filtro' : `Todavía no hay tiempos ${serie ? 'de piezas ' + serie : 'de piezas sin código'}`}>{qq || fop ? 'Probá con otra búsqueda u otra operación.' : 'Aparecen solos cuando se finaliza una tarea con horas reales cargadas.'}</Vacio>
+      {vis.length === 0 ? <Vacio ic={qq ? 'buscar' : 'reloj'} t={qq || fop ? 'Ninguna pieza coincide con el filtro' : `Todavía no hay tiempos ${serie === 'Otros' ? 'de otros códigos' : serie ? 'de piezas ' + serie : 'de piezas sin código'}`}>{qq || fop ? 'Probá con otra búsqueda u otra operación.' : 'Aparecen solos cuando se finaliza una tarea con horas reales cargadas.'}</Vacio>
         : <div className="tgrupos">{vis.map(g => { const on = ab.includes(g.k) || (!!qq && vis.length <= 3);
           const cs = g.regs.filter(r => !r.cot && !r.fuera).map(r => E.costo(S, r)).filter(c => !c.falta.length); const cu = cs.length ? cs.reduce((a, c) => a + c.unit, 0) / cs.length : null;
           return <div key={g.k} className={'dgrp tgrp' + (on ? ' on' : '')}>
@@ -1452,20 +1527,21 @@ function Tiempos() {
               {g.n > 0 && g.n < 3 && <span className="tag warn" title="Con 1 o 2 veces el promedio todavía no es confiable">pocos datos</span>}
               {cu != null && <span>≈ <b>{fPlata(cu)}</b> <span className="mut">por unidad</span></span>}
               {g.nCot > 0 && <span className="tag">{g.nCot} {g.nCot === 1 ? 'cotización' : 'cotizaciones'}</span>}
-              <span className="mut">{operName(S, g.operacionId)}{g.ult ? ` · última ${fFecha(g.ult)}` : ''}</span>
+              <span className="mut">{g.operacionId ? operName(S, g.operacionId) : [...new Set(g.regs.flatMap(r => r.hhCat ? Object.keys(r.hhCat).map(id => (E.tarifaDe(S, id) || {}).nombre).filter(Boolean) : []))].join(' + ') || '—'}{g.ult ? ` · última ${fFecha(g.ult)}` : ''}</span>
             </div>
             {on && <div className="scroll"><table className="tt ttiem"><thead><tr><th>Fecha</th><th>Origen</th><th className="num">Cant.</th><th>Operarios</th><th className="num">HH</th><th className="num">Por unidad</th><th>Material</th><th className="num">Peso kg</th><th className="num">Costo total</th><th className="num">Costo unit.</th><th></th></tr></thead>
               <tbody>{g.regs.map(r => { const c = E.costo(S, r), d = !r.cot && r.plan > 0 ? (r.hh - r.plan) / r.plan * 100 : null;
                 return <tr key={(r.cot ? 'q' : 't') + r.id} className={(r.fuera ? 'fuera ' : '') + (r.cot ? 'cot' : '')}>
                   <td>{fFecha(r.fecha)}</td><td>{origen(r)}</td><td className="num">{fN(r.cant)}</td>
-                  <td>{r.ops.length ? r.ops.map(o => opName(S, o)).join(', ') : <span className="mut">—</span>}</td>
-                  <td className="num">{fN(r.hh)}{d != null && Math.abs(d) >= 1 && <small className={'tdes ' + (d > 0 ? 'c-bad' : 'c-ok')} title={`Planificado: ${fN(r.plan)} HH`}>{d > 0 ? '+' : ''}{Math.round(d)}%</small>}</td>
+                  <td>{r.ops.length ? r.ops.map(o => opName(S, o)).join(', ') : r.opsTxt ? r.opsTxt : <span className="mut">—</span>}</td>
+                  <td className="num" title={r.det || undefined}>{fN(r.hh)}{d != null && Math.abs(d) >= 1 && <small className={'tdes ' + (d > 0 ? 'c-bad' : 'c-ok')} title={`Planificado: ${fN(r.plan)} HH`}>{d > 0 ? '+' : ''}{Math.round(d)}%</small>}</td>
                   <td className="num"><b>{fHM(r.hu)}</b></td>
-                  <td><select className="ci" aria-label="Material" value={r.material || ''} disabled={r.cot && !pm.admin} onChange={e => setReg(r, { material: e.target.value })}><option value="">—</option>{(S.materiales || []).map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}</select></td>
-                  <td className="num"><EdIn className="num" type="number" min="0" step="0.1" value={r.peso ?? ''} disabled={r.cot && !pm.admin} onCommit={v => setReg(r, { peso: v === '' ? null : Number(v) })} /></td>
-                  <td className="num" title={`Material ${fPlata(c.mat)} + mano de obra ${fPlata(c.mo)}${c.vh ? ` (${fN(r.hh)} HH × ${fPlata(c.vh.valor)}/h)` : ''}`}>{c.total > 0 ? fPlata(c.total) : '—'}{c.falta.length > 0 && <small className="mut tfal">falta {c.falta.join(', ')}</small>}</td>
+                  <td><select className="ci" aria-label="Material" value={r.material || ''} disabled={(r.cot || r.hist) && !pm.admin} onChange={e => setReg(r, { material: e.target.value })}><option value="">—</option>{(S.materiales || []).map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}</select></td>
+                  <td className="num"><EdIn className="num" type="number" min="0" step="0.1" value={r.peso ?? ''} disabled={(r.cot || r.hist) && !pm.admin} onCommit={v => setReg(r, { peso: v === '' ? null : Number(v) })} /></td>
+                  <td className="num" title={`Material ${fPlata(c.mat)} + mano de obra ${fPlata(c.mo)}${c.det ? ` (${c.det.map(x => `${x.nombre} ${fN(x.h)} h × ${x.t ? fPlata(x.t.valor) : '?'}/h`).join(' + ')})` : c.vh ? ` (${fN(r.hh)} HH × ${fPlata(c.vh.valor)}/h)` : ''}`}>{c.total > 0 ? fPlata(c.total) : '—'}{c.falta.length > 0 && <small className="mut tfal">falta {c.falta.join(', ')}</small>}</td>
                   <td className="num"><b>{c.total > 0 ? fPlata(c.unit) : '—'}</b></td>
-                  <td><div className="acts">{r.cot ? pm.admin && <><button onClick={() => setCot(r)} title="Editar la cotización">✎</button><button onClick={() => borrarCot(r)} title="Borrar la cotización">🗑</button></>
+                  <td><div className="acts">{r.hist ? <>{pm.admin && <button onClick={() => borrarHist(r)} title="Borrar esta fabricación del historial">🗑</button>}<button className={r.fuera ? 'on' : ''} onClick={() => { setReg(r, { tiempoFuera: !r.fuera }); ui.toast(r.fuera ? 'Vuelve a contar en el promedio' : 'Descartada: ya no cuenta en el promedio'); }} title={r.fuera ? 'Volver a contarla en el promedio' : 'Descartar del promedio (por ejemplo, si está mal cargada)'}>{r.fuera ? 'Incluir' : 'Descartar'}</button></>
+                    : r.cot ? pm.admin && <><button onClick={() => setCot(r)} title="Editar la cotización">✎</button><button onClick={() => borrarCot(r)} title="Borrar la cotización">🗑</button></>
                     : <><button onClick={() => ui.modal({ k: 'task', id: r.id })} title="Abrir la tarea">✎</button><button className={r.fuera ? 'on' : ''} onClick={() => { setReg(r, { tiempoFuera: !r.fuera }); ui.toast(r.fuera ? 'Vuelve a contar en el promedio' : 'Descartada: ya no cuenta en el promedio'); }} title={r.fuera ? 'Volver a contarla en el promedio' : 'Descartar del promedio (por ejemplo, si salió mal)'}>{r.fuera ? 'Incluir' : 'Descartar'}</button></>}</div></td>
                 </tr>; })}</tbody></table></div>}
           </div>; })}</div>}
@@ -1499,7 +1575,7 @@ function CotEditor({ r, onClose }) {
     </div>
     <div className="cotres">
       <div><span className="mut">Material</span><b>{k.m && Number(c.peso) > 0 ? fPlata(k.mat) : '—'}</b><small className="mut">{k.m ? `${fN(Number(c.peso) || 0)} kg × ${fPlata(k.m.precio)}/kg · al ${fFecha(k.m.fecha)}` : 'elegí el material'}</small></div>
-      <div><span className="mut">Mano de obra</span><b>{k.vh ? fPlata(k.mo) : '—'}</b><small className="mut">{k.vh ? `${fN(Number(c.hh) || 0)} HH × ${fPlata(k.vh.valor)}/h · al ${fFecha(k.vh.fecha)}` : 'sin valor hora para esta operación'}</small></div>
+      <div><span className="mut">Mano de obra</span><b>{k.vh ? fPlata(k.mo) : '—'}</b><small className="mut">{k.vh ? `${fN(Number(c.hh) || 0)} HH × ${fPlata(k.vh.valor)}/h · al ${fFecha(k.vh.fecha)}` : 'sin tarifa para esta operación'}</small></div>
       <div className="tot"><span className="mut">Costo total</span><b>{fPlata(k.total)}</b><small className="mut">{fPlata(k.unit)} por unidad</small></div>
     </div>
   </Modal>;
