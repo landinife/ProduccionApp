@@ -856,3 +856,8 @@ input.vh { width: 96px; text-align: right; } .fch { font-size: 12px; min-width: 
 input.vh { color: var(--ink); }
 .tchips .ptab b { font: 700 16px var(--f-d); letter-spacing: .06em; }
 .tops { margin-top: -2px; } .tops .togb small { opacity: .7; margin-left: 3px; }
+
+/* ================= Tarifas e historial importado (19/10) ================= */
+.tops-l { font-size: 12px; flex: 1 1 160px; min-width: 0; }
+.imph { display: flex; flex-direction: column; gap: 8px; } .imph p { margin: 0; }
+.imph .cotres { margin: 0 0 4px; }
