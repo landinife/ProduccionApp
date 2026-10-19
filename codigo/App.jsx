@@ -147,6 +147,14 @@ function espera(S, V, t) { const pr = E.predsDe(S, t); if (t.estado === 'termina
   pr.forEach(pid => { const p = V.byId[pid], r = p && V.D[pid]; if (!p || r.estado === 'terminada') return; if (!best || (r.fin || '') > (best.fin || '')) best = { nombre: p.nombre, fin: r.fin }; }); return best; }
 function juntar(up, ui, op, nombre) { let n = 0; up(s => { const r = E.compactar(s, op); n = r.n; return r.n ? r.S : s; });
   ui.toast(n ? `${n} ${n === 1 ? 'tarea adelantada' : 'tareas adelantadas'}${nombre ? ' de ' + nombre : ''}. Quedan marcadas en el cartel de Producción.` : 'No hay huecos para cerrar: las tareas ya están juntas o esperan a otra.'); }
+// Avisa cómo se movió la cadena del operario al cerrar una tarea
+const avisoCadena = r => r && r.n ? (r.dir < 0
+  ? `Terminó antes de lo planificado: ${r.n === 1 ? 'la tarea que venía detrás se adelantó' : r.n + ' tareas que venían detrás se adelantaron'}. Quedan marcadas en el cartel de Producción.`
+  : `Terminó después de lo planificado: ${r.n === 1 ? 'la tarea que venía detrás se corrió' : r.n + ' tareas que venían detrás se corrieron'}. Quedan marcadas en el cartel de Producción.`) : '';
+// Finalizar una tarea y que la cadena siga (vivo = desde el Taller, en el momento)
+function cerrarTarea(up, ui, id, hh, vivo, msg) { let r = null;
+  up(s => { const t = s.tareas.find(x => x.id === id); if (!t) return s; const l = E.llevado(s, t); r = E.finalizarYEncadenar(s, id, hh !== undefined ? hh : (l > 0 ? l : t.hhReal), vivo); return r.S; });
+  const a = avisoCadena(r); if (a || msg) ui.toast(a || msg); }
 function Kpi({ l, v, s, tone, onClick, on }) { const c = 'kpi' + (tone ? ' ' + tone : '') + (onClick ? ' click' : '') + (on ? ' on' : ''); const inner = <><span>{l}{onClick && <i className="kar">{on ? '▴' : '▾'}</i>}</span><b>{v}</b>{s && <em>{s}</em>}</>;
   return onClick ? <button type="button" className={c} aria-expanded={!!on} onClick={onClick}>{inner}</button> : <div className={c}>{inner}</div>; }
 
@@ -382,6 +390,7 @@ function Resumen() {
           <button className="btn" onClick={() => setW0(E.addDays(w0, 7))} aria-label="Semana siguiente">→</button></>}
           <button className="btn" onClick={() => ui.modal({ k: 'hoy' })}>Parte del día</button>
           <button className="btn" title="Adelanta las tareas pendientes de todos para cerrar los huecos libres" onClick={() => juntar(up, ui, null)}>Juntar tareas</button>
+          <label className="chk cadena" title="Cuando una tarea se finaliza antes de lo planificado (desde el Taller, la tabla o el editor), las pendientes que venían pegadas detrás en el mismo operario se adelantan solas. Si había un hueco a propósito o una tarea fijada a mano 📌, ahí se corta."><input type="checkbox" checked={S.cfg.adelantarCola !== false} onChange={e => up(s => ({ ...s, cfg: { ...s.cfg, adelantarCola: e.target.checked } }))} /> Si una tarea termina antes, adelantar las que vienen detrás</label>
           <button className="btn" title="Corre desde ahora lo que quedó atrasado según el avance real. Queda marcado en el cartel para dar el OK." onClick={() => { let n = 0; up(s => { const r = E.reprogramar(s); n = r.n; return r.n ? r.S : s; }); ui.toast(n ? `${n} ${n === 1 ? 'tarea reprogramada' : 'tareas reprogramadas'} desde ahora. Revisalas en el cartel.` : 'No hay tareas atrasadas.'); }}>Reprogramar atrasadas</button>
         </div>
       </div>
@@ -462,7 +471,7 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden }) {
   const mover = (t, dir) => { const sib = orden(S.tareas.filter(x => x.parentId === t.parentId && x.tipo === t.tipo && x.proyId === t.proyId)); const i = sib.findIndex(x => x.id === t.id), j = i + dir;
     if (j < 0 || j >= sib.length) return; const l = sib.slice(); [l[i], l[j]] = [l[j], l[i]]; const pos = {}; l.forEach((x, k) => { pos[x.id] = (k + 1) * 10; });
     up(s => ({ ...s, tareas: s.tareas.map(x => pos[x.id] !== undefined && x.pos !== pos[x.id] ? { ...x, pos: pos[x.id] } : x) })); };
-  const setEstado = (t, e) => up(s => E.setEstado(s, t.id, e));
+  const setEstado = (t, e) => e === 'terminada' && t.estado !== 'terminada' ? cerrarTarea(up, ui, t.id) : up(s => E.setEstado(s, t.id, e));
   const setFin = (t, v) => { if (!t.inicio || !v) return; const h = E.workBetween(S, t.inicio, v, t.turno, t.ops) * Math.max(1, t.ops.length); if (h > 0) set(t, { hh: Math.round(h * 100) / 100 }, true); else ui.toast('El fin tiene que caer en horario de trabajo, después del inicio'); };
   const num = v => Math.max(0, Number(String(v).replace(',', '.')) || 0);
   const nav = e => { const k = e.key, el = e.target, td = el.closest('td'); if (!td || e.altKey || e.ctrlKey || e.metaKey) return;
@@ -499,10 +508,10 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden }) {
       case 'ops': return r.parent ? <span className="ro">{r.ops.map(o => opName(S, o)).join(', ')}</span> : <OpsCell t={t} />;
       case 'turno': return r.parent ? null : <select className="ci" value={t.turno} onChange={e => { const v = e.target.value; if ((E.llevado(S, t) > 0 || Number(t.avance) > 0) && t.estado !== 'terminada') { up(s => E.pasarTurno(s, t.id, v)); ui.toast(`Lo hecho quedó en ${t.turno === 'extra' ? 'horas extra' : 'turno normal'}; lo que falta sigue en ${v === 'extra' ? 'horas extra' : 'turno normal'}`); } else set(t, { turno: v }, true); }} aria-label="Turno"><option value="normal">Normal</option><option value="extra">Extra</option><option value="ambos">Normal + extra</option></select>;
       case 'hh': return r.parent ? <span className="ro num">{fN(r.hh)}</span> : <div className="hhc"><EdIn className="num" type="number" min="0" step="0.5" value={t.hh} onCommit={v => set(t, { hh: num(v) }, true)} /><CalcBtn className="tcalc" cant={Number(t.cant) || 0} titulo={t.nombre + ' · duración'} onUse={v => set(t, { hh: Math.round(v * 100) / 100 }, true)} />{t.ops.length > 1 && <small title="Duración en calendario: horas-hombre dividido la cantidad de operarios">÷{t.ops.length} = {fN(r.durCal)}</small>}</div>;
-      case 'inicio': return r.parent ? <span className="ro">{fDT(r.inicio)}</span> : <EdIn type="datetime-local" value={t.inicio || ''} onCommit={v => set(t, { inicio: v || null }, true)} />;
+      case 'inicio': return r.parent ? <span className="ro">{fDT(r.inicio)}</span> : <EdIn type="datetime-local" value={t.inicio || ''} onCommit={v => { set(t, { inicio: v || null }, true); const p = v ? E.pisadasDe(S, { ...t, inicio: v }) : []; if (p.length) ui.toast(`Ojo: ${opName(S, p[0].op)} está ocupado con "${p[0].tarea.nombre}" hasta ${fDT(p[0].fin)}. Abrí la tarea para que empiece cuando se libere.`); }} />;
       case 'fin': return r.parent ? <span className="ro">{fDT(r.fin)}</span> : <EdIn type="datetime-local" value={r.fin || ''} disabled={!t.inicio} onCommit={v => setFin(t, v)} />;
       case 'real': { if (r.parent) return <span className="ro num">{r.hhReal > 0 ? fN(r.hhReal) : '—'}</span>; const dif = r.hhReal > 0 ? r.hhReal - (r.estado === 'terminada' ? r.hh : r.hh * r.avance / 100) : 0; return <div className="hhc"><EdIn className={'num ' + (dif > 0.05 ? 'c-bad' : dif < -0.05 ? 'c-ok' : '')} type="number" min="0" step="0.5" value={t.hhReal || ''} placeholder="—" onCommit={v => set(t, { hhReal: num(v) })} /><CalcBtn className="tcalc" cant={Number(t.cant) || 0} titulo={t.nombre + ' · horas reales'} onUse={v => set(t, { hhReal: Math.round(v * 100) / 100 })} /></div>; }
-      case 'avance': return r.parent ? <span className="ro num">{Math.round(r.avance)}</span> : <EdIn className="num" type="number" min="0" max="100" step="5" value={Math.round(r.avance)} disabled={t.estado === 'terminada'} onCommit={v => { const a = Math.min(100, num(v)); if (a >= 100) { up(s => E.setEstado(s, t.id, 'terminada')); ui.toast('Finalizada: pasó a la lista de finalizadas'); return; } set(t, { avance: a, estado: a > 0 && t.estado === 'pendiente' ? 'en proceso' : t.estado }); }} />;
+      case 'avance': return r.parent ? <span className="ro num">{Math.round(r.avance)}</span> : <EdIn className="num" type="number" min="0" max="100" step="5" value={Math.round(r.avance)} disabled={t.estado === 'terminada'} onCommit={v => { const a = Math.min(100, num(v)); if (a >= 100) { cerrarTarea(up, ui, t.id, undefined, false, 'Finalizada: pasó a la lista de finalizadas'); return; } set(t, { avance: a, estado: a > 0 && t.estado === 'pendiente' ? 'en proceso' : t.estado }); }} />;
       default: return <div className="acts">
         {orden && <><button title="Subir (orden manual)" aria-label="Subir" onClick={() => mover(t, -1)}>▲</button><button title="Bajar (orden manual)" aria-label="Bajar" onClick={() => mover(t, 1)}>▼</button></>}
         <button title="Editar todos los datos" aria-label="Editar" onClick={() => ui.modal({ k: 'task', id: t.id })}>✎</button>
@@ -614,8 +623,26 @@ function Repuestos() {
 const LETRA = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
 const prefG = (k, d) => { try { const v = localStorage.getItem('produccionapp-gantt-' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
 const guardaG = (k, v) => { try { localStorage.setItem('produccionapp-gantt-' + k, JSON.stringify(v)); } catch (e) { } };
-function Gantt({ rows, entrega, color, collapsed, toggle, alto, todo }) {
+function Gantt({ rows, entrega, color, collapsed, toggle, alto, todo, ts }) {
   const { S, V, ui, up } = useApp(); const [arr, setArr] = useState(null); const t0 = E.today(), W = 28;
+  const [fila, setFila] = useState(null);   // fila que se está arrastrando para cambiar el orden: { id, sobre, abajo }
+  const pad = t => t.parentId || null, mismos = (a, b) => pad(a) === pad(b) && a.tipo === b.tipo && a.proyId === b.proyId;
+  const hermanos = t => ordenProy(S)(S.tareas.filter(x => mismos(x, t)));
+  const moverFila = (e, t) => { if (e.button !== undefined && e.button !== 0) return; e.preventDefault(); e.stopPropagation(); let dest = null; setFila({ id: t.id });
+    const mv = ev => { const el = document.elementFromPoint(ev.clientX, ev.clientY), row = el && el.closest('.g-row[data-id]'); let o = row && V.byId[row.dataset.id], g = 0;
+      while (o && !mismos(o, t) && g++ < 50) o = V.byId[o.parentId];   // sobre un hijo de otra pieza: cuenta la pieza del mismo nivel
+      if (!o || o.id === t.id) { dest = null; setFila({ id: t.id }); return; }
+      const b = row.getBoundingClientRect(); dest = { sobre: o.id, abajo: o.id !== row.dataset.id || ev.clientY > b.top + b.height / 2 }; setFila({ id: t.id, ...dest }); };
+    const fin = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', fin); window.removeEventListener('pointercancel', fin); setFila(null); if (!dest) return;
+      const l = hermanos(t).map(x => x.id).filter(x => x !== t.id); let k = l.indexOf(dest.sobre); if (k < 0) return; if (dest.abajo) k++; l.splice(k, 0, t.id);
+      up(s => E.ordenarHermanos(s, l)); ui.toast('Fila movida. "Ordenar por etapa" (arriba) vuelve al orden automático.'); };
+    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', fin); window.addEventListener('pointercancel', fin); };
+  // Ordena las filas de cada nivel por cuándo empiezan (lo que no tiene fecha queda al final, en el orden que tenía)
+  const porFecha = () => { const lst = ts || rows.map(r => r.t); const g = {}; lst.forEach(t => { const k = (pad(t) || '') + '|' + t.tipo; (g[k] = g[k] || []).push(t); });
+    const ini = t => { const r = V.SUB[t.id] || V.D[t.id]; return (r && r.inicio) || '9999'; }; const ord = ordenProy(S);
+    let ids = []; Object.values(g).forEach(l => { ids = ids.concat(ord(l).map((t, i) => [t, i]).sort((a, b) => ini(a[0]) < ini(b[0]) ? -1 : ini(a[0]) > ini(b[0]) ? 1 : a[1] - b[1]).map(x => x[0].id)); });
+    const grupos = {}; ids.forEach(id => { const t = V.byId[id]; const k = (pad(t) || '') + '|' + t.tipo; (grupos[k] = grupos[k] || []).push(id); });
+    up(s => Object.values(grupos).reduce((a, l) => E.ordenarHermanos(a, l), s)); ui.toast('Filas ordenadas por fecha de inicio'); };
   const [lw, setLw] = useState(() => prefG('lw', 320)); const [mas, setMas] = useState(0);
   const box = useRef(null); const [ancho, setAncho] = useState(1200); const yaCentrado = useRef(false);
   useEffect(() => { const el = box.current; if (!el || !window.ResizeObserver) return; const ro = new ResizeObserver(([e]) => setAncho(e.contentRect.width)); ro.observe(el); return () => ro.disconnect(); }, []);
@@ -641,16 +668,16 @@ function Gantt({ rows, entrega, color, collapsed, toggle, alto, todo }) {
       if (puede && d !== 0) { const ni = E.addDays(t.inicio.slice(0, 10), d) + t.inicio.slice(10); up(s => E.patchTask(s, t.id, { inicio: ni, manual: true }, true)); ui.toast(`Movida ${d > 0 ? '+' : ''}${d} ${Math.abs(d) === 1 ? 'día' : 'días'} y fijada a mano (📌)`); } };
     window.addEventListener('pointermove', mv); window.addEventListener('pointerup', fin); };
   return <>
-    <div className="row gbar"><button className="btn sm" onClick={irHoy}>Ir a hoy</button><button className="btn sm" onClick={() => setMas(mas + 1)}>+2 semanas</button>{todo && <><button className="btn sm" onClick={() => todo(true)} title="Deja a la vista solo los ensamblajes principales">⊟ Contraer todo</button><button className="btn sm" onClick={() => todo(false)}>⊞ Expandir todo</button></>}{mas > 0 && <button className="btn sm" onClick={() => setMas(0)}>Volver al largo normal</button>}
-      <span className="mut">Arrastrá una barra para moverla de día (queda fijada a mano 📌). El borde de la columna Pieza cambia su ancho.</span></div>
+    <div className="row gbar"><button className="btn sm" onClick={irHoy}>Ir a hoy</button><button className="btn sm" onClick={() => setMas(mas + 1)}>+2 semanas</button><button className="btn sm" title="Ordena las filas de cada ensamblaje según cuándo empiezan. Útil cuando agregaste tareas que quedaron al final de la lista." onClick={porFecha}>↕ Ordenar filas por fecha</button>{todo && <><button className="btn sm" onClick={() => todo(true)} title="Deja a la vista solo los ensamblajes principales">⊟ Contraer todo</button><button className="btn sm" onClick={() => todo(false)}>⊞ Expandir todo</button></>}{mas > 0 && <button className="btn sm" onClick={() => setMas(0)}>Volver al largo normal</button>}
+      <span className="mut">Arrastrá una barra para moverla de día (queda fijada a mano 📌). Arrastrá ⠿ para subir o bajar una fila. El borde de la columna Pieza cambia su ancho.</span></div>
     <div ref={box} className={'scroll gantt' + (alto === 'compacto' ? ' compacto' : '')} style={{ '--lw': lw + 'px' }}><div style={{ minWidth: 'max-content' }}>
     <div className="g-row g-head"><div className="g-left"><span>Pieza</span><span className="num">Cant.</span><i className="rz" title="Arrastrá para cambiar el ancho. Doble clic: ancho original." onPointerDown={resize} onDoubleClick={() => setLw(320)} /></div>
       <div className="g-right" style={{ width: N * W, backgroundImage: semanas }}>{days.map((d, i) => { const g = E.dow(d); return <span key={d} className={'g-day' + (d === t0 ? ' hoy' : '') + (E.isWork(S, d) ? '' : ' off')} style={{ left: i * W, width: W }}>
         {(g === 1 || (d.slice(8) === '01' && g >= 2 && g <= 5)) && <em>{E.MESES[Number(d.slice(5, 7)) - 1]}{(i === 0 || d.slice(5) === '01-01' || (g === 1 && d.slice(8) <= '07' && d.slice(5, 7) === '01')) ? ' ' + d.slice(0, 4) : ''}</em>}<small>{LETRA[g]}</small>{Number(d.slice(8))}</span>; })}</div></div>
     {rows.length === 0 && <p className="mut pad">Este proyecto todavía no tiene piezas. Agregá una o importá el árbol desde una planilla.</p>}
-    {rows.map(({ t, depth, hasKids }) => { const r = V.D[t.id]; const ok = r.estado === 'terminada'; return <div key={t.id} className={'g-row' + (hasKids ? ' par' : '') + (ok ? ' done' : '')}>
+    {rows.map(({ t, depth, hasKids }) => { const r = V.D[t.id]; const ok = r.estado === 'terminada'; return <div key={t.id} data-id={t.id} className={'g-row' + (hasKids ? ' par' : '') + (ok ? ' done' : '') + (fila && fila.id === t.id ? ' g-mueve' : '') + (fila && fila.sobre === t.id ? (fila.abajo ? ' g-drop-ab' : ' g-drop-ar') : '')}>
       <div className="g-left"><div className="tname" style={{ paddingLeft: depth * 14 }}>
-        {hasKids ? <button className="tog" onClick={() => toggle(t.id)} aria-label="Desplegar">{collapsed.has(t.id) ? '▸' : '▾'}</button> : <span className="tog" />}
+        <span className="g-grip" title="Arrastrá para subir o bajar la fila" aria-label="Mover fila" onPointerDown={e => moverFila(e, t)}>⠿</span>{hasKids ? <button className="tog" onClick={() => toggle(t.id)} aria-label="Desplegar">{collapsed.has(t.id) ? '▸' : '▾'}</button> : <span className="tog" />}
         {ok && <span className={'g-ok' + (r.sin0 ? ' w0' : '')} title={r.sin0 ? aviso0(r) : 'Finalizada'}>✓</span>}<button className="tlink" title={t.nombre} onClick={() => ui.modal({ k: 'task', id: t.id })}>{t.nombre}</button><button className="g-add" title={'Agregar hijo a ' + t.nombre} aria-label="Agregar hijo" onClick={() => ui.modal({ k: 'task', draft: { ...E.blankTask(t.tipo, t.proyId), parentId: t.id, prioridad: t.prioridad } })}>＋</button></div><span className="num">{t.cant}</span></div>
       <div className="g-right" style={{ width: N * W, backgroundImage: semanas + ',' + bg }}>
         <i className="g-today" style={{ left: xHoy }} />{xEnt !== null && <i className="g-due" style={{ left: xEnt }} />}
@@ -790,7 +817,7 @@ function Proyectos() {
     <section><div className="sec-h"><div className="row"><h2>Árbol de piezas y Gantt</h2><div className="seg">{[['oculto', 'Oculto', 'M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c5 0 9 4.5 10 7a13 13 0 0 1-3 4M6.6 6.6C4.4 8 2.8 10 2 12c1 2.5 5 7 10 7a9.6 9.6 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2'], ['compacto', 'Compacto', 'M4 9h16M4 15h16M12 3v3l-2-2M12 3l2 2M12 21v-3l-2 2M12 21l2-2'], ['completo', 'Completo', 'M4 4h16v16H4zM4 9h16M4 14h16']].map(([k, l, d]) => <button key={k} className={altoG === k ? 'on' : ''} onClick={() => { setAltoG(k); guardaG('alto-' + p.id, k); }}><svg viewBox="0 0 24 24"><path d={d} /></svg>{l}</button>)}</div></div>
         {altoG !== 'oculto' && <span className="mut legend"><i className="lg t" />hoy <i className="lg d" />entrega</span>}</div>
       {altoG === 'oculto' ? <p className="mut">Oculto ({rows.length} {rows.length === 1 ? 'fila' : 'filas'}). Elegí Compacto o Completo para verlo.</p>
-        : <Gantt rows={rows} entrega={p.entrega} color={p.color} collapsed={colV} toggle={tog} alto={altoG} todo={c => setCol(c ? new Set(i.ts.filter(t => (V.kids[t.id] || []).length).map(t => t.id)) : new Set())} />}</section>
+        : <Gantt rows={rows} ts={i.ts} entrega={p.entrega} color={p.color} collapsed={colV} toggle={tog} alto={altoG} todo={c => setCol(c ? new Set(i.ts.filter(t => (V.kids[t.id] || []).length).map(t => t.id)) : new Set())} />}</section>
     <section><div className="sec-h"><h2>Pendientes y en proceso <span className="cnt">{nAct}</span></h2><span className="mut">Mayús + Espacio (Shift + Space) marca la fila · en la casilla alcanza con Espacio</span></div><TaskTable roots={roots} tipo="proy" vis={visAct} collapsed={colV} toggle={tog} orden={ord} /></section>
     <section className="finsec"><div className="sec-h"><button className="dgrp-t fin-t" onClick={() => { setVerFin(!verFin); guardaG('verfin', !verFin); }}><span className="car">{verFin ? '▾' : '▸'}</span><h2>Finalizadas <span className="cnt ok">{nFin}</span></h2></button></div>
       {verFin && (nFin ? <TaskTable roots={roots} tipo="proy" vis={visFin} collapsed={colV} toggle={tog} orden={ord} /> : <Vacio ic="reloj" chico t="Todavía no hay piezas finalizadas en este proyecto" />)}</section>
@@ -821,8 +848,14 @@ function TaskEditor({ id, draft, onClose }) {
     if (x.estado === 'terminada') { x.avance = 100; if (!x.finReal) x.finReal = E.nowDT(); if (x.realFin && !(x.inicio && x.finReal > x.inicio)) x.realFin = false; } else { x.finReal = null; x.realFin = false; }
     if (x.estado !== orig.estado || isNew) x.crono = x.estado === 'en proceso' ? { acum: orig.crono ? Number(orig.crono.acum) || 0 : x.hhReal, desde: E.nowDT() } : x.estado === 'terminada' ? { acum: x.hhReal, desde: null } : null;
     if (!x.ops.length) x.inicio = x.inicio || null; else if (!x.inicio) x.inicio = E.nextFree(S, x.ops[0], x.turno, x.ops);
+    // se finaliza acá: si es antes de lo planificado, el fin real es ahora y la cadena del operario sigue
+    const cierra = !isNew && !parent && x.estado === 'terminada' && orig.estado !== 'terminada' && orig.inicio && orig.ops.length;
+    const finPlan = cierra ? E.finOf(S, orig) : null;
+    if (cierra && !x.realFin && finPlan && x.finReal < finPlan && x.inicio < x.finReal) x.realFin = true;
     const mover = !parent && (isNew || ['inicio', 'hh', 'turno'].some(k => x[k] !== orig[k]) || !!x.realFin !== !!orig.realFin || (x.realFin && x.finReal !== orig.finReal) || x.ops.join() !== orig.ops.join() || (x.preds || []).join() !== (orig.preds || []).join());
-    up(s => E.patchTask(isNew ? { ...s, tareas: [...s.tareas, x] } : s, x.id, x, mover)); onClose();
+    let r = null;
+    up(s => { const s2 = E.patchTask(isNew ? { ...s, tareas: [...s.tareas, x] } : s, x.id, x, mover); if (!cierra) return s2; r = E.trasCerrar(s2, s, x.id, finPlan); return r.S; });
+    const a = avisoCadena(r); if (a) ui.toast(a); onClose();
   };
   const foot = <>
     {!isNew && <button className="btn danger" onClick={() => { up(s => E.delTask(s, id)); onClose(); ui.toast('Borrada. Podés deshacerlo arriba.'); }}>Borrar</button>}
@@ -853,7 +886,14 @@ function TaskEditor({ id, draft, onClose }) {
                 <span className="mut">entra {fDT(r.ini)}{r.fin ? ` · termina ${fDT(r.fin)}` : ''}</span>
                 <button type="button" className="btn sm" onClick={() => setT(p => ({ ...p, ops: [r.op], inicio: r.ini }))}>{t.ops.length === 1 && t.ops[0] === r.op ? 'Elegido' : 'Dársela'}</button></div>)}</div>}</div>}
         <div className="g2 fld"><span>Operarios</span><div className="togs">{S.operarios.filter(o => o.activo || t.ops.includes(o.id)).map(o => <button key={o.id} type="button" className={'togb' + (t.ops.includes(o.id) ? ' on' : '')} onClick={() => togOp(o.id)}>{o.nombre}</button>)}</div></div>
-        <label>{t.estado === 'terminada' ? 'Inicio (real)' : 'Inicio'}<span className="incalc"><input id="te-ini" type="datetime-local" value={t.inicio || ''} onChange={e => set('inicio', e.target.value || null)} /><button type="button" className="btn sm" title="Poner la fecha y hora actual" onClick={() => set('inicio', E.nowDT())}>Ahora</button></span></label>
+        <label>{t.estado === 'terminada' ? 'Inicio (real)' : 'Inicio'}<span className="incalc"><input id="te-ini" type="datetime-local" value={t.inicio || ''} onChange={e => set('inicio', e.target.value || null)} /><button type="button" className="btn sm" title="Poner la fecha y hora actual" onClick={() => set('inicio', E.nowDT())}>Ahora</button></span>
+          {!parent && t.estado !== 'terminada' && t.ops.length > 0 && (() => {
+            if (!t.inicio) return <small className="hint">Sin inicio: va a empezar cuando se libere, en {fDT(E.nextFree(S, t.ops[0], t.turno, t.ops))}.</small>;
+            const tt = { ...t, hh }, p = E.pisadasDe(S, tt);
+            if (!p.length) return <small className="hint ok">✓ {t.ops.length === 1 ? opName(S, t.ops[0]) + ' está libre' : 'Los operarios están libres'} en ese horario.</small>;
+            const hueco = E.primerHueco(S, tt);
+            return <div className="pisa"><span>⚠ {p.slice(0, 2).map(x => <span key={x.tarea.id + x.op}><b>{opName(S, x.op)}</b> está ocupado con <b>{x.tarea.nombre}</b> hasta {fDT(x.fin)}. </span>)}{p.length > 2 && <span className="mut">y {p.length - 2} más. </span>}</span>
+              <button type="button" className="btn sm pri-b" onClick={() => set('inicio', hueco)}>Empezar cuando se libere: {fDT(hueco)}</button></div>; })()}</label>
         <label>Horas-hombre (trabajo total)<span className="incalc"><input id="te-hh" type="number" min="0" step="0.5" value={t.hh} onChange={e => { setHhTocado(true); set('hh', e.target.value); }} /><CalcBtn cant={Number(t.cant) || 0} titulo={(t.nombre || 'Pieza') + ' · duración'} onUse={v => { setHhTocado(true); set('hh', Math.round(v * 100) / 100); }} /></span>
           {hist && <small className="hint">Se hizo {hist.n} {hist.n === 1 ? 'vez' : 'veces'}: {fHM(hist.porUnidad)} reales por unidad{(() => { const sug = Math.max(0.5, Math.round(hist.porUnidad * Math.max(1, Number(t.cant) || 1) * 2) / 2); return Math.abs(sug - hh) > 0.01 ? <> → <button type="button" className="lnk sm" onClick={() => { setHhTocado(true); set('hh', sug); }}>usar {fN(sug)} h</button></> : ' (ya aplicado)'; })()}</small>}</label>
         <label>{t.estado === 'terminada' ? 'Fin planificado' : 'Fin'}<input id="te-fin" type="datetime-local" value={w ? w.end : ''} disabled={!t.inicio} onChange={e => setFin(e.target.value)} /></label>
@@ -885,7 +925,7 @@ function TaskEditor({ id, draft, onClose }) {
 
 /* ================= PANEL DE OPERARIO ================= */
 function OpTask({ t, op }) {
-  const { S, V, up } = useApp(); const r = V.D[t.id]; const run = E.corriendo(t), pausa = !!t.pausada || (t.estado === 'en proceso' && !run), llev = E.llevado(S, t);
+  const { S, V, up, ui } = useApp(); const r = V.D[t.id]; const run = E.corriendo(t), pausa = !!t.pausada || (t.estado === 'en proceso' && !run), llev = E.llevado(S, t);
   const [av, setAv] = useState(r.avance); const [fin, setFin] = useState(false); const [real, setReal] = useState(0);
   useEffect(() => { setAv(r.avance); }, [r.avance]);
   const commit = () => { if (Number(av) !== r.avance) up(s => E.patchTask(s, t.id, { avance: Number(av) })); };
@@ -897,7 +937,7 @@ function OpTask({ t, op }) {
     {fin ? <div className="finbox">
       <div className="row"><span className="mut">Tiempo real (horas-hombre)</span><HM value={real} onChange={setReal} cant={Number(t.cant) || 0} titulo={t.nombre} /></div>
       <div className="row"><span className="mut">Proyectado {fHM(t.hh)} ·</span><Desvio real={real} plan={t.hh} /></div>
-      <div className="row"><button className="btn pri-b" onClick={() => up(s => E.finalizar(s, t.id, real, true))}>Confirmar</button><button className="btn" onClick={() => setFin(false)}>Cancelar</button></div></div>
+      <div className="row"><button className="btn pri-b" onClick={() => cerrarTarea(up, ui, t.id, real, true)}>Confirmar</button><button className="btn" onClick={() => setFin(false)}>Cancelar</button></div></div>
       : <div className="row">
         <input className="rng" type="range" min="0" max="100" step="5" value={av} aria-label="Avance" onChange={e => setAv(e.target.value)} onPointerUp={commit} onKeyUp={commit} onBlur={commit} /><span className="pct">{Math.round(av)}%</span>
         {run && t.ops.length > 1 && <button className="btn" title="La tarea se parte: lo hecho queda cerrado y el resto sigue con los demás" onClick={() => up(s => E.salir(s, t.id, op))}>{opName(S, op)} sale</button>}
@@ -1138,7 +1178,7 @@ function Hoy({ onClose }) {
 
 /* ================= TALLER (pantalla simple para el operario) ================= */
 function TallerTask({ t }) {
-  const { S, V, up } = useApp(); const r = V.D[t.id]; const run = E.corriendo(t), pausa = !!t.pausada || (t.estado === 'en proceso' && !run), llev = E.llevado(S, t), esp = espera(S, V, t);
+  const { S, V, up, ui } = useApp(); const r = V.D[t.id]; const run = E.corriendo(t), pausa = !!t.pausada || (t.estado === 'en proceso' && !run), llev = E.llevado(S, t), esp = espera(S, V, t);
   const [fin, setFin] = useState(false); const [real, setReal] = useState(0);
   return <div className={'ttask' + (run ? ' run' : '')}>
     <div className="row"><Chip t={t} /><Pri p={t.prioridad} /><span className={'est e-' + (pausa ? 'pausa' : run ? 'enproceso' : t.estado.replace(' ', ''))}>{run ? 'en curso' : pausa ? 'en pausa' : t.estado}</span></div>
@@ -1150,7 +1190,7 @@ function TallerTask({ t }) {
     {fin ? <div className="finbox">
       <div className="row"><span className="mut">Tiempo real</span><HM value={real} onChange={setReal} cant={Number(t.cant) || 0} titulo={t.nombre} /></div>
       <div className="row"><span className="mut">Proyectado {fHM(t.hh)} ·</span><Desvio real={real} plan={t.hh} /></div>
-      <div className="tbtns"><button className="btn big t-fin" onClick={() => up(s => E.finalizar(s, t.id, real, true))}>Confirmar</button><button className="btn big" onClick={() => setFin(false)}>Cancelar</button></div></div>
+      <div className="tbtns"><button className="btn big t-fin" onClick={() => cerrarTarea(up, ui, t.id, real, true)}>Confirmar</button><button className="btn big" onClick={() => setFin(false)}>Cancelar</button></div></div>
       : <div className="tbtns">
         {run ? <button className="btn big t-pausa" onClick={() => up(s => E.pausar(s, t.id))}><svg className="bi" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z" /></svg>Pausar</button> : <button className="btn big t-ini" onClick={() => up(s => E.iniciar(s, t.id))}><svg className="bi" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>{pausa ? 'Reanudar' : 'Iniciar'}</button>}
         <button className="btn big t-fin" onClick={() => { setReal(llev > 0 ? llev : t.hh); setFin(true); }}>Finalizar</button>
@@ -1242,7 +1282,7 @@ const CFG_SECS = ['Atajos de teclado', 'Operarios', 'Ausencias', 'Operaciones', 
 function Atajos() {
   const PL = useContext(PlCtx);
   const G = [['En todas las pantallas', [['Esc', 'Cierra la ventana abierta (editar tarea, operario, parte del día…)'], ['Ctrl + Z', 'Deshace el último cambio (si estás escribiendo en una celda, deshace lo escrito)'], ['Ctrl + Y  /  Ctrl + Mayús + Z', 'Rehace lo que deshiciste']]],
-    ['Proyectos', [['Alt + 1 … 9', 'Abre el proyecto 1 al 9, en el orden de la barra de proyectos'], ['Alt + 0', 'Vuelve a "Todos" (la lista de proyectos)'], ['Doble clic en el borde de la columna Pieza del Gantt', 'Vuelve al ancho original'], ['Arrastrar una barra del Gantt', 'Mueve la tarea de día y la deja fijada a mano 📌 (no la corren las etapas)'], ['▲ ▼ en la tabla de tareas', 'Cambia el orden de la pieza dentro de su ensamblaje']]],
+    ['Proyectos', [['Alt + 1 … 9', 'Abre el proyecto 1 al 9, en el orden de la barra de proyectos'], ['Alt + 0', 'Vuelve a "Todos" (la lista de proyectos)'], ['Doble clic en el borde de la columna Pieza del Gantt', 'Vuelve al ancho original'], ['Arrastrar una barra del Gantt', 'Mueve la tarea de día y la deja fijada a mano 📌 (no la corren las etapas)'], ['▲ ▼ en la tabla de tareas', 'Cambia el orden de la pieza dentro de su ensamblaje'], ['Arrastrar ⠿ en el Gantt', 'Sube o baja la fila dentro de su ensamblaje'], ['↕ Ordenar filas por fecha', 'Ordena las filas del Gantt según cuándo empiezan']]],
     ['Tablas de Repuestos y Proyectos: moverse', [['↑ ↓ ← →', 'Pasa de celda en celda, como en Excel'], ['Enter', 'Confirma lo escrito y baja a la celda de abajo'], ['Clic en una celda', 'Selecciona todo el texto: lo que escribas lo reemplaza'], ['Doble clic en el borde de un título de columna', 'Vuelve la columna a su ancho original']]],
     ['Tablas de Repuestos y Proyectos: seleccionar filas', [['Espacio (Space)', 'En la casilla de la primera columna: marca o desmarca la fila'], ['Mayús + Espacio (Shift + Space)', 'Marca o desmarca la fila desde cualquier columna'], ['Mayús + ↑ / ↓ (Shift + flechas)', 'Va sumando filas a la selección mientras subís o bajás'], ['← al principio del nombre', 'Vuelve a la casilla de selección'], ['→, Enter o F2 desde la casilla', 'Entra al nombre de la pieza para editarlo']]]];
   return <section className={'card full' + PL.c('Atajos de teclado')}><div className="sec-h"><h2>{PL.h('Atajos de teclado')}</h2></div>

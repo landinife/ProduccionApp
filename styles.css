@@ -861,3 +861,13 @@ input.vh { color: var(--ink); }
 .tops-l { font-size: 12px; flex: 1 1 160px; min-width: 0; }
 .imph { display: flex; flex-direction: column; gap: 8px; } .imph p { margin: 0; }
 .imph .cotres { margin: 0 0 4px; }
+
+/* ================= Orden de filas en el Gantt y cadena de tareas (19/10) ================= */
+.g-grip { flex: none; width: 16px; text-align: center; color: var(--mut); cursor: grab; touch-action: none; user-select: none; opacity: .55; font-size: 14px; line-height: 1; }
+.g-row:hover .g-grip { opacity: 1; } .g-grip:hover { color: var(--accent); }
+.g-row.g-mueve { opacity: .5; } .g-row.g-mueve .g-grip { cursor: grabbing; }
+.g-row.g-drop-ar { box-shadow: inset 0 3px 0 var(--accent); } .g-row.g-drop-ab { box-shadow: inset 0 -3px 0 var(--accent); }
+@media (pointer: coarse) { .g-grip { width: 26px; font-size: 18px; opacity: .8; } }
+.pisa { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 4px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); color: var(--ink); font-size: 13px; }
+.pisa > span { color: var(--warn); } .pisa b { color: var(--ink); }
+label.chk.cadena { font-size: 13px !important; color: var(--mut) !important; }

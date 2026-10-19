@@ -409,9 +409,71 @@ export function finalizar(S, id, hh, real = false) { const h = r2(Math.max(0, Nu
 export function setEstado(S, id, e) {
   const t = S.tareas.find(x => x.id === id); if (!t || t.estado === e) return S;
   if (e === 'en proceso') return iniciar(S, id);
-  if (e === 'terminada') { const l = llevado(S, t); return finalizar(S, id, l > 0 ? l : t.hhReal); }
+  if (e === 'terminada') { const l = llevado(S, t); return finalizarYEncadenar(S, id, l > 0 ? l : t.hhReal).S; }
   return { ...S, tareas: S.tareas.map(x => x.id === id ? { ...x, estado: 'pendiente', finReal: null, crono: null, pausada: false } : x) };
 }
+// ---- Cadena de un operario: cuando una tarea termina antes, las que venían pegadas detrás se adelantan ----
+// Solo mueve pendientes que estaban una detrás de la otra (si había un hueco a propósito o una tarea fijada a mano 📌, la cadena se corta).
+export function adelantarCola(S, id, finPlan) {
+  const t = S.tareas.find(x => x.id === id); if (!t || !t.finReal || !finPlan || t.finReal >= finPlan) return { S, n: 0 };
+  const cls = x => x.turno === 'extra' ? 'extra' : 'normal'; let S2 = S, n = 0;
+  const viva = x => x.id !== id && x.inicio && x.ops.length && x.estado !== 'terminada' && isLeaf(S2, x.id);
+  for (const op of t.ops) {
+    let cursor = t.finReal, finAnt = finPlan;
+    const cola = S2.tareas.filter(x => viva(x) && x.ops.includes(op) && cls(x) === cls(t) && x.inicio >= (t.inicio || '')).sort((a, b) => a.inicio < b.inicio ? -1 : 1);
+    for (const x0 of cola) {
+      const x = S2.tareas.find(y => y.id === x0.id);
+      if (x.estado !== 'pendiente' || x.manual || x.inicio > normStart(S2, finAnt, x.turno, x.ops)) break;
+      const finViejo = finOf(S2, x); let ni = cursor;
+      predsDe(S2, x).forEach(pid => { const pt = S2.tareas.find(y => y.id === pid); const f = pt && pt.estado !== 'terminada' && pt.inicio ? finOf(S2, pt) : null; if (f && f > ni) ni = f; });
+      x.ops.filter(o => o !== op).forEach(o => S2.tareas.forEach(y => { if (viva(y) && y.id !== x.id && y.ops.includes(o) && choque(y.turno, x.turno) && y.inicio < x.inicio) { const f = finOf(S2, y); if (f > ni) ni = f; } }));   // los otros operarios de la tarea también tienen que estar libres
+      ni = normStart(S2, ni, x.turno, x.ops);
+      if (ni >= x.inicio) break;
+      S2 = { ...S2, tareas: S2.tareas.map(y => y.id === x.id ? { ...y, inicio: ni, empuje: y.empuje === ni ? null : (y.empuje || y.inicio) } : y) }; n++;
+      cursor = finOf(S2, S2.tareas.find(y => y.id === x.id)); finAnt = finViejo;
+    }
+  }
+  return { S: S2, n };
+}
+// Después de cerrar una tarea: si terminó más tarde, corre lo que viene; si terminó antes (y está activado), adelanta la cadena
+export function trasCerrar(S, S0, id, finPlan) {
+  const t = S.tareas.find(x => x.id === id); if (!t || !finPlan || !t.realFin || !t.finReal) return { S, n: 0, dir: 0 };
+  let S2 = S, dir = 0;
+  if (t.finReal > finPlan) { S2 = reflow(S, id); dir = 1; }
+  else if (t.finReal < finPlan && (S.cfg || {}).adelantarCola !== false) { S2 = adelantarCola(S, id, finPlan).S; dir = -1; }
+  const antes = {}; S0.tareas.forEach(x => { antes[x.id] = x.inicio; });
+  const n = S2.tareas.filter(x => x.id !== id && antes[x.id] !== undefined && antes[x.id] !== x.inicio).length;
+  return { S: S2, n, dir: n ? dir : 0 };
+}
+// Finalizar y que la cadena siga. vivo = desde el Taller (se cierra en el momento).
+// Desde la tabla o el editor solo se toma "ahora" como fin real si es antes de lo planificado: si es después,
+// puede ser que la estén marcando tarde, y entonces la barra sigue con lo planificado (el fin real se carga en el editor).
+export function finalizarYEncadenar(S, id, hh, vivo = false) {
+  const t = S.tareas.find(x => x.id === id); if (!t) return { S, n: 0, dir: 0 };
+  const finPlan = t.inicio && isLeaf(S, id) && t.estado !== 'terminada' ? finOf(S, t) : null;
+  const real = vivo || (!!finPlan && nowDT() < finPlan);
+  return trasCerrar(finalizar(S, id, hh, real), S, id, finPlan);
+}
+// ---- Con quién se pisa una tarea: mismo operario y turno, en el horario que ocupa ----
+export function pisadasDe(S, t) {
+  if (!t || !t.inicio || !t.ops.length || t.estado === 'terminada') return [];
+  const fin = addWork(S, t.inicio, calDur(t), t.turno, t.ops).end; if (!fin) return [];
+  const out = [];
+  S.tareas.forEach(x => { if (x.id === t.id || !x.inicio || x.estado === 'terminada' || !isLeaf(S, x.id) || !choque(x.turno, t.turno)) return;
+    const op = t.ops.find(o => x.ops.includes(o)); if (!op) return;
+    const fx = finOf(S, x); if (x.inicio < fin && fx > t.inicio) out.push({ op, tarea: x, fin: fx }); });
+  return out.sort((a, b) => a.fin < b.fin ? 1 : -1);
+}
+// Primer horario desde el inicio pedido en el que la tarea entra entera sin pisar a nadie
+export function primerHueco(S, t) {
+  let cur = t.inicio, g = 0;
+  while (g++ < 60) { const p = pisadasDe(S, { ...t, inicio: cur }); if (!p.length) return cur;
+    const f = p.reduce((a, x) => x.fin > a ? x.fin : a, cur); const ni = normStart(S, f, t.turno, t.ops); if (ni <= cur) return cur; cur = ni; }
+  return cur;
+}
+// ---- Orden manual de las filas (▲▼ en la tabla, arrastrar en el Gantt) ----
+export function ordenarHermanos(S, ids) { const pos = {}; ids.forEach((x, k) => { pos[x] = (k + 1) * 10; });
+  return { ...S, tareas: S.tareas.map(x => pos[x.id] !== undefined && x.pos !== pos[x.id] ? { ...x, pos: pos[x.id] } : x) }; }
 // ---- Juntar tareas: adelanta las pendientes para cerrar huecos, sin pasar por delante de lo que esperan ----
 export function compactar(S, op) {
   const now = nowDT(); const cls = t => t.turno === 'extra' ? 'extra' : 'normal';
