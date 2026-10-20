@@ -266,10 +266,16 @@ export function dupTask(S, id) {
   const copies = S.tareas.filter(t => ids.includes(t.id)).map(t => ({ ...t, id: map[t.id], parentId: t.id === id ? t.parentId : map[t.parentId], nombre: t.id === id ? t.nombre + ' (copia)' : t.nombre, estado: 'pendiente', avance: 0, hhReal: 0, finReal: null, empuje: null, preds: (t.preds || []).map(p => map[p]).filter(Boolean) }));
   return { ...S, tareas: [...S.tareas, ...copies] };
 }
+// Primer momento libre: después de la última tarea sin terminar de CUALQUIERA de los operarios.
+// Si una tarea ya tendría que haber terminado (atrasada) y sigue abierta, se cuenta lo que le falta desde ahora.
 export function nextFree(S, op, turno, ops) {
-  let c = nowDT();
-  S.tareas.forEach(t => { if (t.ops.includes(op) && choque(t.turno, turno) && t.inicio && t.estado !== 'terminada' && isLeaf(S, t.id)) { const f = finOf(S, t); if (f > c) c = f; } });
-  return normStart(S, c, turno, ops || [op]);
+  const los = ops && ops.length ? ops : [op]; let c = nowDT();
+  const cola = S.tareas.filter(t => t.ops.some(o => los.includes(o)) && choque(t.turno, turno) && t.inicio && t.estado !== 'terminada' && isLeaf(S, t.id)).sort((a, b) => a.inicio < b.inicio ? -1 : 1);
+  cola.forEach(t => { const f = finOf(S, t); if (!f) return;
+    if (f > c) { c = f; return; }
+    const falta = Math.max(0, (Number(t.hh) || 0) - llevado(S, t)) / Math.max(1, t.ops.length);   // atrasada: lo que le falta, desde ahora
+    if (falta > 0) { const w = addWork(S, normStart(S, c, t.turno, t.ops), falta, t.turno, t.ops); if (w.end && w.end > c) c = w.end; } });
+  return normStart(S, c, turno, los);
 }
 // Asignar una tarea a un operario; con día = celda del calendario, sin día = primer hueco libre
 export function assignTo(S, id, op, d, turno, fromOp) {
