@@ -126,12 +126,12 @@ function permiso(p, n, pm) {
   if (proyProg && !pm.rep && !pm.proy) return 'Este usuario es solo de consulta.';
   return null;
 }
-const CAMPOS = { nombre: 'pieza', cant: 'cantidad', material: 'material', peso: 'peso', tiempoFuera: 'descartada del promedio', prioridad: 'prioridad', estado: 'estado', operacionId: 'operación', ops: 'operarios', turno: 'turno', inicio: 'inicio', hh: 'duración', hhReal: 'horas reales', avance: 'avance', entrega: 'entrega', orden: 'OV/OC', cliente: 'cliente', creada: 'fecha de carga' };
+const CAMPOS = { nombre: 'pieza', cant: 'cantidad', material: 'material', peso: 'peso', tiempoFuera: 'descartada del promedio', prioridad: 'prioridad', estado: 'estado', operacionId: 'operación', ops: 'operarios', turno: 'turno', inicio: 'inicio', hh: 'duración', hhReal: 'horas reales', avance: 'avance', entrega: 'entrega', orden: 'OV/OC', cliente: 'cliente', creada: 'fecha de carga', frenada: 'freno' };
 const FER2026 = [['01-01', 'Año Nuevo'], ['02-16', 'Carnaval'], ['02-17', 'Carnaval'], ['03-24', 'Día de la Memoria'], ['04-02', 'Veteranos y Caídos en Malvinas'], ['04-03', 'Viernes Santo'], ['05-01', 'Día del Trabajador'], ['05-25', 'Revolución de Mayo'], ['06-15', 'Paso a la Inmortalidad de Güemes'], ['06-20', 'Paso a la Inmortalidad de Belgrano'], ['07-09', 'Día de la Independencia'], ['08-17', 'Paso a la Inmortalidad de San Martín'], ['10-12', 'Respeto a la Diversidad Cultural'], ['11-23', 'Soberanía Nacional'], ['12-08', 'Inmaculada Concepción'], ['12-25', 'Navidad']];
 const NOLAB2026 = [['03-23', 'Día no laborable'], ['07-10', 'Día no laborable'], ['12-07', 'Día no laborable']];
 function describir(p, n) {
   const out = []; let k = '';
-  const val = (S, f, v) => f === 'turno' ? ({ normal: 'normal', extra: 'horas extra', ambos: 'normal + extra' }[v] || v) : f === 'ops' ? ((v || []).map(o => opName(S, o)).join(', ') || 'sin asignar') : f === 'operacionId' ? operName(S, v) : f === 'inicio' ? fDT(v) : f === 'avance' ? `${Math.round(v || 0)}%` : (v === '' || v == null ? '—' : String(v));
+  const val = (S, f, v) => f === 'turno' ? ({ normal: 'normal', extra: 'horas extra', ambos: 'normal + extra' }[v] || v) : f === 'ops' ? ((v || []).map(o => opName(S, o)).join(', ') || 'sin asignar') : f === 'operacionId' ? operName(S, v) : f === 'inicio' ? fDT(v) : f === 'avance' ? `${Math.round(v || 0)}%` : f === 'frenada' ? (v ? `frenada (${v.motivo})` : 'sin frenar') : (v === '' || v == null ? '—' : String(v));
   const dif = (o, t) => Object.keys(CAMPOS).filter(f => JSON.stringify(o[f]) !== JSON.stringify(t[f]));
   if (p.tareas !== n.tareas) { const old = Object.fromEntries(p.tareas.map(t => [t.id, t])), neu = new Set(n.tareas.map(t => t.id));
     const add = n.tareas.filter(t => !old[t.id]), del = p.tareas.filter(t => !neu.has(t.id)), chg = n.tareas.filter(t => old[t.id] && old[t.id] !== t && dif(old[t.id], t).length);
@@ -155,6 +155,47 @@ const avisoCadena = r => r && r.n ? (r.dir < 0
 function cerrarTarea(up, ui, id, hh, vivo, msg) { let r = null;
   up(s => { const t = s.tareas.find(x => x.id === id); if (!t) return s; const l = E.llevado(s, t); r = E.finalizarYEncadenar(s, id, hh !== undefined ? hh : (l > 0 ? l : t.hhReal), vivo); return r.S; });
   const a = avisoCadena(r); if (a || msg) ui.toast(a || msg); }
+// ---- Frenar y retomar (trabajos que se paran por días) ----
+const diasFrenada = t => Math.max(0, E.diffDays((t.frenada.desde || '').slice(0, 10), E.today()));
+const txtFreno = t => { const f = t.frenada, d = diasFrenada(t); return `${f.motivo}${f.hasta ? ` · hasta el ${fD(f.hasta)}` : ' · sin fecha'} · ${d === 0 ? 'desde hoy' : `hace ${d} ${d === 1 ? 'día' : 'días'}`}`; };
+function FrenoTag({ t }) { if (!E.estaFrenada(t)) return null;
+  return <><span className="tag fren">⏸ Frenada · {txtFreno(t)}</span>{t.frenada.nota && <span className="fren-nota">{t.frenada.nota}</span>}</>; }
+// Pausar o frenar: "sigue en la cola" es la pausa de siempre; frenar deja lo que falta afuera del calendario (o desde una fecha)
+function FrenarDlg({ id, pausa, onClose }) {
+  const { S, up, ui } = useApp(); const t = S.tareas.find(x => x.id === id);
+  const [modo, setModo] = useState(pausa ? '' : 'sin'); const [motivo, setMotivo] = useState(''); const [nota, setNota] = useState(''); const [hasta, setHasta] = useState(() => { let d = E.addDays(E.today(), 1), g = 0; while (!E.isWork(S, d) && g++ < 14) d = E.addDays(d, 1); return d; });
+  if (!t) return null;
+  const cola = () => { up(s => E.pausar(s, id)); ui.toast('En pausa: lo que falta sigue en la cola'); onClose(); };
+  const ok = () => { if (!motivo) { ui.toast('Elegí el motivo'); return; } const h = modo === 'fecha' ? hasta : null; let n = 0;
+    up(s => { const r = E.frenar(s, id, { motivo, nota, hasta: h }); n = r.n; return r.S; });
+    ui.toast((h ? `Frenada hasta el ${fD(h)}` : 'Frenada sin fecha: no ocupa el calendario') + (n ? `. ${n === 1 ? 'La tarea que venía detrás se adelantó' : n + ' tareas que venían detrás se adelantaron'}.` : '.')); onClose(); };
+  return createPortal(<Modal title={(pausa ? 'Pausar · ' : 'Frenar · ') + t.nombre} onClose={onClose} foot={modo ? <><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn warn-b" onClick={ok}>Frenar</button></> : null}>
+    <div className="fld"><span>¿Cómo sigue?</span><div className="frmodos">
+      {pausa && <button type="button" className="frmodo" onClick={cola}><b>Sigue en la cola</b><small>Pausa corta: lo que falta queda a continuación, como siempre</small></button>}
+      <button type="button" className={'frmodo' + (modo === 'fecha' ? ' on' : '')} onClick={() => setModo('fecha')}><b>Frenada hasta una fecha</b><small>Lo que falta se programa desde ese día</small></button>
+      <button type="button" className={'frmodo' + (modo === 'sin' ? ' on' : '')} onClick={() => setModo('sin')}><b>Frenada sin fecha</b><small>No ocupa el calendario hasta que la retomes</small></button></div></div>
+    {modo && <>
+      {modo === 'fecha' && <label className="fld">Se retoma desde<input type="date" value={hasta} min={E.today()} onChange={e => setHasta(e.target.value)} /></label>}
+      <div className="fld"><span>Motivo</span><div className="togs">{E.MOTIVOS_FRENO.map(m => <button key={m} type="button" className={'togb' + (motivo === m ? ' on' : '')} onClick={() => setMotivo(m)}>{m}</button>)}</div></div>
+      <label className="fld">Notas<textarea rows="2" value={nota} placeholder="Ej.: falta chapa inox 3 mm, llega el jueves" onChange={e => setNota(e.target.value)} /></label>
+      <p className="mut">Lo hecho hasta ahora queda cerrado con su tiempo. Lo que falta queda como una parte nueva de la misma pieza: la pieza suma las horas de todas sus partes para el promedio y el costo.</p></>}
+  </Modal>, document.body);
+}
+function RetomarDlg({ id, onClose }) {
+  const { S, up, ui } = useApp(); const t = S.tareas.find(x => x.id === id);
+  const [ops, setOps] = useState(t ? t.ops : []); const [desde, setDesde] = useState(() => t && t.frenada && t.frenada.hasta > E.today() ? t.frenada.hasta : E.today()); const [ya, setYa] = useState(false);
+  if (!t) return null;
+  const tog = o => setOps(p => p.includes(o) ? p.filter(x => x !== o) : [...p, o]);
+  const ok = () => { let ini = null; up(s => { const s2 = E.retomar(s, id, { ops, desde, ya }); ini = (s2.tareas.find(x => x.id === id) || {}).inicio; return s2; });
+    ui.toast(ini ? `Retomada: empieza ${fDT(ini)}` : 'Retomada sin operario: queda en "Tareas para darle"'); onClose(); };
+  return createPortal(<Modal title={'Retomar · ' + t.nombre} onClose={onClose} foot={<><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" onClick={ok}>Retomar</button></>}>
+    {t.frenada && <p className="note">⏸ {txtFreno(t)}{t.frenada.nota ? ` · ${t.frenada.nota}` : ''}</p>}
+    <p className="mut">Faltan {fHM(t.hh)} (horas-hombre).</p>
+    <div className="fld"><span>¿Quiénes la retoman?</span><div className="togs">{S.operarios.filter(o => o.activo || ops.includes(o.id)).map(o => <button key={o.id} type="button" className={'togb' + (ops.includes(o.id) ? ' on' : '')} onClick={() => tog(o.id)}>{o.nombre}</button>)}</div></div>
+    <label className="fld">Desde<input type="date" value={desde} min={E.today()} onChange={e => setDesde(e.target.value)} /></label>
+    <div className="seg"><button type="button" className={!ya ? 'on' : ''} onClick={() => setYa(false)}>En el primer hueco libre</button><button type="button" className={ya ? 'on' : ''} onClick={() => setYa(true)}>Arranca ese día (corre lo que tengan)</button></div>
+  </Modal>, document.body);
+}
 function Kpi({ l, v, s, tone, onClick, on }) { const c = 'kpi' + (tone ? ' ' + tone : '') + (onClick ? ' click' : '') + (on ? ' on' : ''); const inner = <><span>{l}{onClick && <i className="kar">{on ? '▴' : '▾'}</i>}</span><b>{v}</b>{s && <em>{s}</em>}</>;
   return onClick ? <button type="button" className={c} aria-expanded={!!on} onClick={onClick}>{inner}</button> : <div className={c}>{inner}</div>; }
 
@@ -179,7 +220,7 @@ function OpStrip() {
   if (!S.operarios.some(o => o.activo)) return <Vacio ic="gente" t="Todavía no hay operarios cargados">Agregalos en Configuración para empezar a programar.</Vacio>;
   return <div className="opstrip">
     {S.operarios.filter(o => o.activo).map((o, oi) => {
-      const mine = S.tareas.filter(t => t.ops.includes(o.id) && !V.D[t.id].parent && t.estado !== 'terminada');
+      const mine = S.tareas.filter(t => t.ops.includes(o.id) && !V.D[t.id].parent && t.estado !== 'terminada' && !E.estaFrenada(t));
       const curDe = l => l.find(t => E.corriendo(t)) || l.find(t => t.estado === 'en proceso' || t.pausada) || l.find(t => t.inicio && t.inicio <= now && V.D[t.id].fin > now); const nom = t => t.nombre + (t.pausada || (t.estado === 'en proceso' && !E.corriendo(t)) ? ' (en pausa)' : '');
       const ex = mine.filter(t => t.turno === 'extra'), cn = curDe(mine.filter(t => t.turno !== 'extra')), ce = curDe(ex);
       const aus = E.ausenciaDe(S, o.id, hoy);
@@ -309,6 +350,12 @@ function Alertas({ tipo, days, ops, wk, cerrar }) {
     cont = l.length ? <><div className="row al-top"><button className="btn sm pri-b" onClick={() => { let n = 0; up(s => { const r = E.reprogramar(s); n = r.n; return r.n ? r.S : s; }); ui.toast(n ? `${n} ${n === 1 ? 'tarea reprogramada' : 'tareas reprogramadas'} desde ahora` : 'Nada para reprogramar'); }}>Reprogramar todas desde ahora</button></div>
       {l.slice(0, 60).map(t => fila(t.id, <><button className="al-t" onClick={() => abrir(t.id)}><Chip t={t} small /> <b>{etiqueta(V, t)}</b></button><span className="mut">{t.estado === 'pendiente' ? `debía empezar ${fDT(t.inicio)}` : `debía terminar ${fDT(V.D[t.id].fin)} · ${Math.round(V.D[t.id].avance)}%`} · {t.ops.map(o => opName(S, o)).join(', ')}</span></>,
         <><button className="btn sm" onClick={() => ui.modal({ k: 'op', id: t.ops[0] })}>Operario</button><button className="btn sm" onClick={() => abrir(t.id)}>Editar</button></>, 'warn'))}{l.length > 60 && <p className="mut">y {l.length - 60} más.</p>}</> : <p className="mut">No hay tareas atrasadas.</p>;
+  } else if (tipo === 'frenadas') {
+    tit = 'Tareas frenadas';
+    const l = S.tareas.filter(t => E.estaFrenada(t) && !V.D[t.id].parent).sort((a, b) => (a.frenada.desde || '') < (b.frenada.desde || '') ? -1 : 1);
+    cont = l.length ? l.map(t => fila(t.id, <><button className="al-t" onClick={() => abrir(t.id)}><Chip t={t} small /> <b>{etiqueta(V, t)}</b></button>
+      <span className="mut">⏸ {txtFreno(t)} · faltan {fHM(t.hh)} · {t.ops.map(o => opName(S, o)).join(', ') || 'sin operario'}{t.inicio ? ` · programada ${fDT(t.inicio)}` : ''}</span>{t.frenada.nota && <span className="fren-nota">{t.frenada.nota}</span>}</>,
+      <><button className="btn sm pri-b" onClick={() => ui.modal({ k: 'retomar', id: t.id })}>Retomar</button><button className="btn sm" onClick={() => abrir(t.id)}>Editar</button></>, 'warn')) : <p className="mut">No hay tareas frenadas.</p>;
   }
   return <section className="alertas"><div className="sec-h"><h3>{tit}</h3><button className="btn sm" onClick={cerrar}>Cerrar</button></div><div className="al-l">{cont}</div></section>;
 }
@@ -363,7 +410,7 @@ function Resumen() {
       </div> : !aus && <button className="addx" {...dnd(o.id, d, 'extra')} onClick={() => nuevaExtra(o.id, d)}>+ extra</button>}
     </td>;
   };
-  const pend = tipo => S.tareas.filter(t => t.tipo === tipo && !V.D[t.id].parent && t.estado === 'pendiente' && (!fp || t.prioridad === fp) && (!fo || (fo === '_' ? !t.ops.length : t.ops.includes(fo))))
+  const pend = tipo => S.tareas.filter(t => t.tipo === tipo && !V.D[t.id].parent && t.estado === 'pendiente' && !E.estaFrenada(t) && (!fp || t.prioridad === fp) && (!fo || (fo === '_' ? !t.ops.length : t.ops.includes(fo))))
     .sort((a, b) => PRI[a.prioridad] - PRI[b.prioridad] || ((a.inicio || '9') < (b.inicio || '9') ? -1 : 1));
   const lista = (tit, tipo) => { const l = pend(tipo); return <div className="pcol">
     <h3>{tit} <span className="cnt">{l.length}</span></h3>
@@ -399,6 +446,7 @@ function Resumen() {
         <Kpi l="Celdas sobrecargadas" v={rojas} tone={rojas ? 'bad' : ''} onClick={() => setAl(al === 'rojas' ? null : 'rojas')} on={al === 'rojas'} />
         <Kpi l="Empujes sin OK" v={S.tareas.filter(t => t.empuje).length} tone={S.tareas.some(t => t.empuje) ? 'warn' : ''} onClick={() => setAl(al === 'empujes' ? null : 'empujes')} on={al === 'empujes'} />
         <Kpi l="Entregas en riesgo" v={rs.length} tone={rs.length ? 'bad' : ''} s={rs[0] ? `${rs[0].txt}: +${rs[0].dias} d` : ''} onClick={() => setAl(al === 'riesgo' ? null : 'riesgo')} on={al === 'riesgo'} />
+        {(() => { const fr = S.tareas.filter(t => E.estaFrenada(t) && !V.D[t.id].parent); return <Kpi l="Tareas frenadas" v={fr.length} tone={fr.length ? 'warn' : ''} s={fr.length ? `${fN(fr.reduce((a, t) => a + (Number(t.hh) || 0), 0))} HH paradas` : ''} onClick={() => setAl(al === 'frenadas' ? null : 'frenadas')} on={al === 'frenadas'} />; })()}
         <Kpi l="Tareas atrasadas" v={atr} tone={atr ? 'warn' : ''} s={atr ? 'debían haber empezado o terminado' : ''} onClick={() => setAl(al === 'atraso' ? null : 'atraso')} on={al === 'atraso'} />
       </div>
       {al && <Alertas tipo={al} days={days} ops={ops} wk={wk} cerrar={() => setAl(null)} />}
@@ -493,6 +541,7 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden }) {
     {r.estado === 'terminada' && <span className={'mk ok' + (r.sin0 ? ' w0' : '')} title={r.sin0 ? aviso0(r) : t.finReal ? 'Finalizada el ' + fDT(t.finReal) : 'Finalizada'}>✓</span>}
     {late && <span className="mk bad" title={`Se pasa ${E.diffDays(t.entrega, r.fin.slice(0, 10))} días de la entrega del ${fD(t.entrega)}`}>+{E.diffDays(t.entrega, r.fin.slice(0, 10))}d</span>}
     {!late && !t.parentId && t.entrega && r.estado !== 'terminada' && <span className="mk" title={`Entrega comprometida: ${fD(t.entrega)}`}>{fD(t.entrega)}</span>}
+    {E.estaFrenada(t) && <button className="mk warn" title={`Frenada · ${txtFreno(t)}${t.frenada.nota ? ' · ' + t.frenada.nota : ''}. Tocá para retomarla.`} onClick={() => ui.modal({ k: 'retomar', id: t.id })}>⏸</button>}
     {t.empuje && <span className="mk warn" title={`Empujada: estaba para ${fDT(t.empuje)}. Dale el OK en Producción.`}>↦</span>}
     {!r.ok && !r.parent && <button className="mk bad" title={`Faltan ${fN(r.falta)} h extra por habilitar en el calendario. Tocá para habilitarlas.`} onClick={() => ui.modal({ k: 'extras', ids: [t.id] })}>!h</button>}
     {esp && <span className="mk" title={`Espera a "${esp.nombre}"${esp.fin ? ', que termina ' + fDT(esp.fin) : ', que todavía no está programada'}. Por eso no se adelanta.`}>⧖</span>}</>; };
@@ -678,11 +727,12 @@ function Gantt({ rows, entrega, color, collapsed, toggle, alto, todo, ts }) {
     {rows.map(({ t, depth, hasKids }) => { const r = V.D[t.id]; const ok = r.estado === 'terminada'; return <div key={t.id} data-id={t.id} className={'g-row' + (hasKids ? ' par' : '') + (ok ? ' done' : '') + (fila && fila.id === t.id ? ' g-mueve' : '') + (fila && fila.sobre === t.id ? (fila.abajo ? ' g-drop-ab' : ' g-drop-ar') : '')}>
       <div className="g-left"><div className="tname" style={{ paddingLeft: depth * 14 }}>
         <span className="g-grip" title="Arrastrá para subir o bajar la fila" aria-label="Mover fila" onPointerDown={e => moverFila(e, t)}>⠿</span>{hasKids ? <button className="tog" onClick={() => toggle(t.id)} aria-label="Desplegar">{collapsed.has(t.id) ? '▸' : '▾'}</button> : <span className="tog" />}
-        {ok && <span className={'g-ok' + (r.sin0 ? ' w0' : '')} title={r.sin0 ? aviso0(r) : 'Finalizada'}>✓</span>}<button className="tlink" title={t.nombre} onClick={() => ui.modal({ k: 'task', id: t.id })}>{t.nombre}</button><button className="g-add" title={'Agregar hijo a ' + t.nombre} aria-label="Agregar hijo" onClick={() => ui.modal({ k: 'task', draft: { ...E.blankTask(t.tipo, t.proyId), parentId: t.id, prioridad: t.prioridad } })}>＋</button></div><span className="num">{t.cant}</span></div>
+        {ok && <span className={'g-ok' + (r.sin0 ? ' w0' : '')} title={r.sin0 ? aviso0(r) : 'Finalizada'}>✓</span>}{E.estaFrenada(t) && <span className="g-fren" title={`Frenada · ${txtFreno(t)}`}>⏸</span>}<button className="tlink" title={t.nombre} onClick={() => ui.modal({ k: 'task', id: t.id })}>{t.nombre}</button><button className="g-add" title={'Agregar hijo a ' + t.nombre} aria-label="Agregar hijo" onClick={() => ui.modal({ k: 'task', draft: { ...E.blankTask(t.tipo, t.proyId), parentId: t.id, prioridad: t.prioridad } })}>＋</button></div><span className="num">{t.cant}</span></div>
       <div className="g-right" style={{ width: N * W, backgroundImage: semanas + ',' + bg }}>
         <i className="g-today" style={{ left: xHoy }} />{xEnt !== null && <i className="g-due" style={{ left: xEnt }} />}
         {r.inicio && r.fin && <div className={'g-bar' + (r.parent ? ' par' : '') + (t.empuje && !ok ? ' pushed' : '') + (ok ? ' ok' : '') + (t.manual ? ' manual' : '') + (arr && arr.id === t.id ? ' drag' : '')} style={{ left: x(r.inicio) + (arr && arr.id === t.id ? arr.d * W : 0), width: Math.max(6, x(r.fin) - x(r.inicio)), '--c': color }}
           title={`${t.nombre}: ${fDT(r.inicio)} → ${fDT(r.fin)}${r.parent || ok ? '' : ' · arrastrala para moverla de día'}`} onPointerDown={e => arrastrar(e, t, r)}><span style={{ width: r.avance + '%' }} /></div>}
+        {E.estaFrenada(t) && !r.inicio && <span className="g-lab fren" style={{ left: xHoy + 6 }}>⏸ frenada sin fecha · {t.frenada.motivo}</span>}
         {arr && arr.id === t.id && arr.d !== 0 && <span className="g-mov" style={{ left: x(r.inicio) + arr.d * W }}>{arr.d > 0 ? '+' : ''}{arr.d} d · {fD(E.addDays(t.inicio.slice(0, 10), arr.d))}</span>}
         {r.inicio && r.fin && <span className={'g-lab' + (ok ? ' ok' : '') + (ok && r.sin0 ? ' w0' : '')} style={{ left: Math.max(x(r.fin), x(r.inicio) + 6) + 6 }}>{ok ? '✓ finalizada' : Math.round(r.avance) + '%'}{t.empuje && !ok ? ' · ↦' : ''}</span>}
       </div></div>; })}
@@ -847,7 +897,7 @@ function TaskEditor({ id, draft, onClose }) {
     const x = { ...t, hh, cant: Number(t.cant) || 0, avance: Math.min(100, Math.max(0, Number(t.avance) || 0)), hhReal: Number(t.hhReal) || 0 };
     if (x.estado === 'terminada') { x.avance = 100; if (!x.finReal) x.finReal = E.nowDT(); if (x.realFin && !(x.inicio && x.finReal > x.inicio)) x.realFin = false; } else { x.finReal = null; x.realFin = false; }
     if (x.estado !== orig.estado || isNew) x.crono = x.estado === 'en proceso' ? { acum: orig.crono ? Number(orig.crono.acum) || 0 : x.hhReal, desde: E.nowDT() } : x.estado === 'terminada' ? { acum: x.hhReal, desde: null } : null;
-    if (!x.ops.length) x.inicio = x.inicio || null; else if (!x.inicio) x.inicio = E.nextFree(S, x.ops[0], x.turno, x.ops);
+    if (!x.ops.length || (x.frenada && x.estado !== 'terminada')) x.inicio = x.inicio || null; else if (!x.inicio) x.inicio = E.nextFree(S, x.ops[0], x.turno, x.ops);   // frenada sin fecha: sigue sin ocupar el calendario
     // se finaliza acá: si es antes de lo planificado, el fin real es ahora y la cadena del operario sigue
     const cierra = !isNew && !parent && x.estado === 'terminada' && orig.estado !== 'terminada' && orig.inicio && orig.ops.length;
     const finPlan = cierra ? E.finOf(S, orig) : null;
@@ -860,8 +910,11 @@ function TaskEditor({ id, draft, onClose }) {
   const foot = <>
     {!isNew && <button className="btn danger" onClick={() => { up(s => E.delTask(s, id)); onClose(); ui.toast('Borrada. Podés deshacerlo arriba.'); }}>Borrar</button>}
     {!isNew && <button className="btn" onClick={() => { up(s => E.dupTask(s, id)); onClose(); ui.toast('Duplicada'); }}>Duplicar</button>}
+    {!isNew && !parent && orig.estado !== 'terminada' && (orig.frenada ? <button className="btn pri-b" onClick={() => ui.modal({ k: 'retomar', id })}>Retomar</button> : <button className="btn warn-b" title="Para el trabajo por días: lo hecho queda cerrado y lo que falta queda frenado" onClick={() => ui.modal({ k: 'frenar', id })}>Frenar</button>)}
     <span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" onClick={save}>Guardar</button></>;
   return <Modal title={isNew ? (t.parentId ? 'Nueva tarea hija' : t.tipo === 'rep' ? 'Nuevo repuesto' : 'Nueva pieza') : 'Editar tarea'} onClose={onClose} foot={foot}>
+    {E.estaFrenada(orig) && <p className="note fren">⏸ Frenada · {txtFreno(orig)}{orig.frenada.nota ? ` · ${orig.frenada.nota}` : ''}. {orig.inicio ? `Programada para ${fDT(orig.inicio)}.` : 'No ocupa el calendario hasta que la retomes.'}</p>}
+    {!isNew && (orig.frenoHist || []).length > 0 && <p className="mut">Estuvo frenada {orig.frenoHist.length === 1 ? 'una vez' : orig.frenoHist.length + ' veces'}: {orig.frenoHist.map(h => `${h.motivo} (${fD((h.desde || '').slice(0, 10))} → ${fD((h.retomada || '').slice(0, 10))}${h.nota ? ', ' + h.nota : ''})`).join(' · ')}</p>}
     <div className="form">
       <label className="g2">Pieza<input id="te-nom" value={t.nombre} onChange={e => set('nombre', e.target.value)} onBlur={alSalirNombre} autoFocus /></label>
       <label>Cantidad<input id="te-cant" type="number" min="0" value={t.cant} onChange={e => set('cant', e.target.value)} onBlur={alSalirNombre} /></label>
@@ -926,13 +979,17 @@ function TaskEditor({ id, draft, onClose }) {
 /* ================= PANEL DE OPERARIO ================= */
 function OpTask({ t, op }) {
   const { S, V, up, ui } = useApp(); const r = V.D[t.id]; const run = E.corriendo(t), pausa = !!t.pausada || (t.estado === 'en proceso' && !run), llev = E.llevado(S, t);
-  const [av, setAv] = useState(r.avance); const [fin, setFin] = useState(false); const [real, setReal] = useState(0);
+  const [av, setAv] = useState(r.avance); const [fin, setFin] = useState(false); const [real, setReal] = useState(0); const [dlg, setDlg] = useState(null);
   useEffect(() => { setAv(r.avance); }, [r.avance]);
+  const fre = E.estaFrenada(t);
   const commit = () => { if (Number(av) !== r.avance) up(s => E.patchTask(s, t.id, { avance: Number(av) })); };
   return <div className={'optask' + (run ? ' run' : '')}>
     <div className="row"><Chip t={t} small /><b>{etiqueta(V, t)}</b><span className={'est e-' + (pausa ? 'pausa' : t.estado.replace(' ', ''))}>{run ? 'en curso' : pausa ? 'en pausa' : t.estado}</span></div>
     <span className="mut">{operName(S, t.operacionId)} · {fH(t.hh)} HH{t.ops.length > 1 ? ` entre ${t.ops.length} (${fH(r.durCal)} en calendario)` : ''} · {t.turno === 'extra' ? 'extra · ' : t.turno === 'ambos' ? 'normal + extra · ' : ''}{fDT(t.inicio)} → {fDT(r.fin)}</span>
     {(() => { const esp = espera(S, V, t); return esp && <span className="tag">⧖ Espera a {esp.nombre}{esp.fin ? ` (termina ${fDT(esp.fin)})` : ''}</span>; })()}
+    <FrenoTag t={t} />
+    {dlg === 'frenar' && <FrenarDlg id={t.id} pausa={run} onClose={() => setDlg(null)} />}{dlg === 'retomar' && <RetomarDlg id={t.id} onClose={() => setDlg(null)} />}
+    {fre ? <div className="row"><button className="btn pri-b" onClick={() => setDlg('retomar')}>Retomar</button><button className="btn" title="Arranca ahora con los mismos operarios" onClick={() => up(s => E.iniciar(s, t.id))}>Retomar ya</button><button className="btn" onClick={() => up(s => E.unassign(s, t.id, op))}>Quitar</button></div> : <>
     {t.estado === 'en proceso' && <div className="row crono"><Bar v={t.hh ? llev / t.hh * 100 : 0} color={llev > t.hh + 0.01 ? 'var(--bad)' : undefined} /><span>Llevado <b>{fHM(llev)}</b> de {fHM(t.hh)} proyectadas{t.ops.length > 1 ? ' (suma de los operarios)' : ''}</span></div>}
     {fin ? <div className="finbox">
       <div className="row"><span className="mut">Tiempo real (horas-hombre)</span><HM value={real} onChange={setReal} cant={Number(t.cant) || 0} titulo={t.nombre} /></div>
@@ -941,11 +998,11 @@ function OpTask({ t, op }) {
       : <div className="row">
         <input className="rng" type="range" min="0" max="100" step="5" value={av} aria-label="Avance" onChange={e => setAv(e.target.value)} onPointerUp={commit} onKeyUp={commit} onBlur={commit} /><span className="pct">{Math.round(av)}%</span>
         {run && t.ops.length > 1 && <button className="btn" title="La tarea se parte: lo hecho queda cerrado y el resto sigue con los demás" onClick={() => up(s => E.salir(s, t.id, op))}>{opName(S, op)} sale</button>}
-        {run ? <button className="btn" title="Parte la tarea: cierra lo hecho hasta ahora y deja el resto en pausa" onClick={() => up(s => E.pausar(s, t.id))}>Pausar</button> : <button className="btn" onClick={() => up(s => E.iniciar(s, t.id))}>{pausa ? 'Reanudar' : 'Iniciar'}</button>}
+        {run ? <button className="btn" title="Parte la tarea: cierra lo hecho hasta ahora. Elegís si lo que falta sigue en la cola o queda frenado" onClick={() => setDlg('frenar')}>Pausar</button> : <><button className="btn" onClick={() => up(s => E.iniciar(s, t.id))}>{pausa ? 'Reanudar' : 'Iniciar'}</button><button className="btn" title="Para el trabajo por días: lo que falta queda frenado" onClick={() => setDlg('frenar')}>Frenar</button></>}
         <button className="btn pri-b" onClick={() => { setReal(llev > 0 ? llev : t.hh); setFin(true); }}>Finalizar</button>
         {run && t.turno !== 'ambos' && (() => { const ta = E.turnoAhora(S, t.ops); return ta && ta !== t.turno; })() && <button className="btn warn-b" title="La tarea sigue corriendo: lo hecho queda en su turno y desde ahora cuenta en el otro" onClick={() => up(s => E.pasarTurno(s, t.id, t.turno === 'extra' ? 'normal' : 'extra'))}>Ahora es turno {t.turno === 'extra' ? 'normal' : 'extra'}: seguir ahí</button>}
         {(llev > 0 || t.avance > 0 || t.pausada || t.parte) && !run && t.turno !== 'ambos' && <button className="btn" title={t.turno === 'extra' ? 'Lo hecho queda en horas extra; lo que falta pasa al turno normal' : 'Lo hecho queda en el turno normal; lo que falta pasa a horas extra'} onClick={() => up(s => E.pasarTurno(s, t.id, t.turno === 'extra' ? 'normal' : 'extra'))}>{t.turno === 'extra' ? 'Seguir en turno normal' : 'Seguir en horas extra'}</button>}
-        <button className="btn" onClick={() => up(s => E.unassign(s, t.id, op))}>Quitar</button></div>}
+        <button className="btn" onClick={() => up(s => E.unassign(s, t.id, op))}>Quitar</button></div>}</>}
   </div>;
 }
 function DoneRow({ t }) {
@@ -1114,7 +1171,8 @@ function OperarioPanel({ id, onClose }) {
   useEffect(() => { const i = setInterval(() => setTick(x => x + 1), 30000); return () => clearInterval(i); }, []);
   const o = S.operarios.find(x => x.id === id); if (!o) return null;
   const hoy = E.today();
-  const mine = S.tareas.filter(t => t.ops.includes(id) && !V.D[t.id].parent && t.estado !== 'terminada').sort((a, b) => (a.inicio || '9') < (b.inicio || '9') ? -1 : 1);
+  const todas = S.tareas.filter(t => t.ops.includes(id) && !V.D[t.id].parent && t.estado !== 'terminada').sort((a, b) => (a.inicio || '9') < (b.inicio || '9') ? -1 : 1);
+  const mine = todas.filter(t => !E.estaFrenada(t)), frenadas = todas.filter(E.estaFrenada);
   const hechas = S.tareas.filter(t => t.ops.includes(id) && t.estado === 'terminada' && (t.finReal || '').startsWith(hoy) && !V.D[t.id].parent);
   const aus = E.ausenciaDe(S, id, hoy);
   const prox = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].map(i => E.addDays(hoy, i)).filter(d => E.extraDe(S, id, d) > 0);
@@ -1137,8 +1195,9 @@ function OperarioPanel({ id, onClose }) {
   };
   return <Modal title={o.nombre} onClose={onClose} wide>
     {aus && <p className="note bad">Hoy ausente: {aus.motivo}.</p>}
-    <div className="row"><button className="btn" onClick={() => juntar(up, ui, id, o.nombre)}>Juntar sus tareas</button><span className="mut">Adelanta lo pendiente para cerrar huecos libres. Al pausar, la tarea se parte: lo hecho queda cerrado con su tiempo y el resto vuelve a la cola.</span></div>
+    <div className="row"><button className="btn" onClick={() => juntar(up, ui, id, o.nombre)}>Juntar sus tareas</button><span className="mut">Adelanta lo pendiente para cerrar huecos libres. Al pausar, la tarea se parte: lo hecho queda cerrado con su tiempo y lo que falta sigue en la cola o queda frenado.</span></div>
     <div className="opcols">{camino('normal', 'Turno normal')}{camino('extra', 'Horas extra')}</div>
+    {frenadas.length > 0 && <><h3>Frenadas <span className="cnt">{frenadas.length}</span></h3>{frenadas.map(t => <OpTask key={t.id} t={t} op={id} />)}</>}
     <ExtrasDias op={id} />
     {hechas.length > 0 && <><h3>Finalizadas hoy <span className="cnt">{hechas.length}</span></h3>{hechas.map(t => <DoneRow key={t.id} t={t} />)}</>}
     <DarTareas op={id} />
@@ -1179,23 +1238,27 @@ function Hoy({ onClose }) {
 /* ================= TALLER (pantalla simple para el operario) ================= */
 function TallerTask({ t }) {
   const { S, V, up, ui } = useApp(); const r = V.D[t.id]; const run = E.corriendo(t), pausa = !!t.pausada || (t.estado === 'en proceso' && !run), llev = E.llevado(S, t), esp = espera(S, V, t);
-  const [fin, setFin] = useState(false); const [real, setReal] = useState(0);
-  return <div className={'ttask' + (run ? ' run' : '')}>
-    <div className="row"><Chip t={t} /><Pri p={t.prioridad} /><span className={'est e-' + (pausa ? 'pausa' : run ? 'enproceso' : t.estado.replace(' ', ''))}>{run ? 'en curso' : pausa ? 'en pausa' : t.estado}</span></div>
+  const [fin, setFin] = useState(false); const [real, setReal] = useState(0); const [dlg, setDlg] = useState(null); const fre = E.estaFrenada(t);
+  return <div className={'ttask' + (run ? ' run' : '') + (fre ? ' fren' : '')}>
+    {dlg === 'frenar' && <FrenarDlg id={t.id} pausa={run} onClose={() => setDlg(null)} />}{dlg === 'retomar' && <RetomarDlg id={t.id} onClose={() => setDlg(null)} />}
+    <div className="row"><Chip t={t} /><Pri p={t.prioridad} /><span className={'est e-' + (fre ? 'fren' : pausa ? 'pausa' : run ? 'enproceso' : t.estado.replace(' ', ''))}>{fre ? 'frenada' : run ? 'en curso' : pausa ? 'en pausa' : t.estado}</span></div>
     <b className="tnom">{etiqueta(V, t)}</b>
     <span className="mut">{operName(S, t.operacionId)} · cantidad {t.cant} · {fHM(t.hh)} proyectadas{t.ops.length > 1 ? ` · con ${t.ops.length - 1} más` : ''}{t.turno === 'extra' ? ' · en horas extra' : t.turno === 'ambos' ? ' · en turno normal + extras' : ''}</span>
     <span className="mut">{fDT(t.inicio)} → {fDT(r.fin)}</span>
     {esp && <span className="tag">⧖ Espera a {esp.nombre}{esp.fin ? ` (termina ${fDT(esp.fin)})` : ''}</span>}
+    <FrenoTag t={t} />
+    {fre ? <div className="tbtns"><button className="btn big t-ini" title="Arranca ahora con los mismos operarios" onClick={() => up(s => E.iniciar(s, t.id))}><svg className="bi" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>Retomar ya</button><button className="btn big" onClick={() => setDlg('retomar')}>Retomar con cambios</button></div> : <>
     {(run || llev > 0) && <div className="tcrono"><b>{fHM(llev)}</b><span className="mut">de {fHM(t.hh)}</span><Bar v={t.hh ? llev / t.hh * 100 : 0} color={llev > t.hh + 0.01 ? 'var(--bad)' : undefined} /></div>}
     {fin ? <div className="finbox">
       <div className="row"><span className="mut">Tiempo real</span><HM value={real} onChange={setReal} cant={Number(t.cant) || 0} titulo={t.nombre} /></div>
       <div className="row"><span className="mut">Proyectado {fHM(t.hh)} ·</span><Desvio real={real} plan={t.hh} /></div>
       <div className="tbtns"><button className="btn big t-fin" onClick={() => cerrarTarea(up, ui, t.id, real, true)}>Confirmar</button><button className="btn big" onClick={() => setFin(false)}>Cancelar</button></div></div>
       : <div className="tbtns">
-        {run ? <button className="btn big t-pausa" onClick={() => up(s => E.pausar(s, t.id))}><svg className="bi" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z" /></svg>Pausar</button> : <button className="btn big t-ini" onClick={() => up(s => E.iniciar(s, t.id))}><svg className="bi" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>{pausa ? 'Reanudar' : 'Iniciar'}</button>}
+        {run ? <button className="btn big t-pausa" onClick={() => setDlg('frenar')}><svg className="bi" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z" /></svg>Pausar</button> : <button className="btn big t-ini" onClick={() => up(s => E.iniciar(s, t.id))}><svg className="bi" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>{pausa ? 'Reanudar' : 'Iniciar'}</button>}
         <button className="btn big t-fin" onClick={() => { setReal(llev > 0 ? llev : t.hh); setFin(true); }}>Finalizar</button>
         {run && t.turno !== 'ambos' && (() => { const ta = E.turnoAhora(S, t.ops); return ta && ta !== t.turno; })() && <button className="btn big warn-b" onClick={() => up(s => E.pasarTurno(s, t.id, t.turno === 'extra' ? 'normal' : 'extra'))}>Ahora es turno {t.turno === 'extra' ? 'normal' : 'extra'}: seguir ahí</button>}
-        {(llev > 0 || t.avance > 0 || t.pausada || t.parte) && !run && t.turno !== 'ambos' && <button className="btn" onClick={() => up(s => E.pasarTurno(s, t.id, t.turno === 'extra' ? 'normal' : 'extra'))}>{t.turno === 'extra' ? 'Seguir en turno normal' : 'Seguir en horas extra'}</button>}</div>}
+        {(llev > 0 || t.avance > 0 || t.pausada || t.parte) && !run && t.turno !== 'ambos' && <button className="btn" onClick={() => up(s => E.pasarTurno(s, t.id, t.turno === 'extra' ? 'normal' : 'extra'))}>{t.turno === 'extra' ? 'Seguir en turno normal' : 'Seguir en horas extra'}</button>}
+        {!run && <button className="btn" title="Para el trabajo por días: lo que falta queda frenado" onClick={() => setDlg('frenar')}>Frenar</button>}</div>}</>}
   </div>;
 }
 function Taller() {
@@ -1212,7 +1275,8 @@ function Taller() {
   if (!o) return <div className="view taller"><section><div className="sec-h"><h2>¿Quién sos?</h2><span className="mut">Tocá tu nombre</span></div>
     {ops.length === 0 && <Vacio ic="gente" t="Todavía no hay operarios cargados">Se agregan en Configuración.</Vacio>}
     {tira}</section></div>;
-  const mine = S.tareas.filter(t => t.ops.includes(o.id) && !V.D[t.id].parent && t.estado !== 'terminada').sort((a, b) => (a.inicio || '9') < (b.inicio || '9') ? -1 : 1);
+  const todas = S.tareas.filter(t => t.ops.includes(o.id) && !V.D[t.id].parent && t.estado !== 'terminada').sort((a, b) => (a.inicio || '9') < (b.inicio || '9') ? -1 : 1);
+  const mine = todas.filter(t => !E.estaFrenada(t)), fren = todas.filter(E.estaFrenada);
   const en = mine.filter(t => E.corriendo(t)), pau = mine.filter(t => t.pausada || (t.estado === 'en proceso' && !E.corriendo(t))), sig = mine.filter(t => t.estado === 'pendiente' && !t.pausada);
   const hechas = S.tareas.filter(t => t.ops.includes(o.id) && t.estado === 'terminada' && (t.finReal || '').startsWith(hoy) && !V.D[t.id].parent);
   const aus = E.ausenciaDe(S, o.id, hoy);
@@ -1227,6 +1291,7 @@ function Taller() {
     <h3>Lo que sigue <span className="cnt">{sig.length}</span></h3>
     {sig.length === 0 && <Vacio ic="ok" chico t="No hay más tareas asignadas" />}
     {sig.slice(0, 6).map(t => <TallerTask key={t.id} t={t} />)}
+    {fren.length > 0 && <><h3>Frenadas <span className="cnt">{fren.length}</span></h3>{fren.map(t => <TallerTask key={t.id} t={t} />)}</>}
     {hechas.length > 0 && <><h3>Finalizadas hoy <span className="cnt">{hechas.length}</span></h3>{hechas.map(t => <DoneRow key={t.id} t={t} />)}</>}
   </section><section><DarTareas op={o.id} grande /></section></div>;
 }
@@ -1677,6 +1742,8 @@ export function App({ db, ses, S0 }) {
       {modal && modal.k === 'op' && <OperarioPanel id={modal.id} onClose={close} />}
       {modal && modal.k === 'pick' && <Picker {...modal} onClose={close} />}
       {modal && modal.k === 'hoy' && <Hoy onClose={close} />}
+      {modal && modal.k === 'frenar' && <FrenarDlg id={modal.id} pausa={false} onClose={close} />}
+      {modal && modal.k === 'retomar' && <RetomarDlg id={modal.id} onClose={close} />}
       {modal && modal.k === 'extras' && <ExtrasAviso ids={modal.ids} onClose={close} />}
       {aviso && <ExtrasAviso ids={aviso} onClose={() => setAviso(null)} />}
       {modal && modal.k === 'lote' && <LoteEditor ids={modal.ids} titulo={modal.titulo} onClose={close} />}

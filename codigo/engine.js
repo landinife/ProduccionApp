@@ -350,7 +350,7 @@ export function partir(S, id, { ops, correr, turno, desde } = {}) {
   const base = cont ? par.nombre : t.nombre, k = cont ? S.tareas.filter(x => x.parentId === par.id).length : 1;
   const nOps = ops || t.ops, rid = uid();
   const hechaP = { hh: hecho, estado: 'terminada', avance: 100, hhReal: L, finReal: now, crono: { acum: L, desde: null }, pausada: false, empuje: null, parte: true };
-  const restoT = { ...t, id: rid, parentId: cont ? par.id : t.id, nombre: `${base} (parte ${k + 1})`, hh: resto, estado: correr ? 'en proceso' : 'pendiente', pausada: !correr, crono: correr ? { acum: 0, desde: now } : null, avance: 0, hhReal: 0, finReal: null, ops: nOps, turno: tu, inicio: nOps.length ? normStart(S, ini0, tu, nOps) : null, preds: [], empuje: null, parte: true, partes: false };
+  const restoT = { ...t, id: rid, parentId: cont ? par.id : t.id, nombre: `${base} (parte ${k + 1})`, hh: resto, estado: correr ? 'en proceso' : 'pendiente', pausada: !correr, crono: correr ? { acum: 0, desde: now } : null, avance: 0, hhReal: 0, finReal: null, ops: nOps, turno: tu, inicio: nOps.length ? normStart(S, ini0, tu, nOps) : null, preds: [], empuje: null, parte: true, partes: false, frenada: null, frenoHist: null };
   let tareas;
   if (cont) tareas = S.tareas.map(x => x.id === id ? { ...x, ...hechaP } : x).concat(restoT);
   else tareas = S.tareas.map(x => x.id === id ? { ...x, partes: true, crono: null, pausada: false } : x).concat({ ...t, id: uid(), parentId: t.id, nombre: `${t.nombre} (parte 1)`, preds: [], partes: false, ...hechaP }, restoT);
@@ -362,6 +362,45 @@ export const pausar = (S, id) => partir(S, id);
 export function salir(S, id, op) {
   const t = S.tareas.find(x => x.id === id); if (!t || t.ops.length < 2 || !t.ops.includes(op)) return S;
   return partir(S, id, { ops: t.ops.filter(o => o !== op), correr: corriendo(t) });
+}
+// ---- Frenar una tarea por días (otra prioridad, falta de material…) y retomarla después ----
+export const MOTIVOS_FRENO = ['Cambio de prioridad', 'Falta de material', 'Máquina', 'Operario'];
+export const estaFrenada = t => !!(t && t.frenada && t.estado !== 'terminada');
+const soltarFreno = (x, now) => x.frenada ? { ...x, frenada: null, frenoHist: [...(x.frenoHist || []), { ...x.frenada, retomada: now }] } : x;
+// Lo hecho queda cerrado como una parte (si había algo hecho) y lo que falta queda como una tarea nueva, frenada.
+// Sin fecha no ocupa el calendario; con fecha queda en el primer hueco desde ese día.
+// Lo que venía pegado detrás en el operario se adelanta (si está activado "adelantar las que vienen detrás").
+export function frenar(S, id, { motivo, nota, hasta } = {}) {
+  const t0 = S.tareas.find(x => x.id === id); if (!t0 || t0.estado === 'terminada' || !isLeaf(S, id)) return { S, id, n: 0 };
+  const now = nowDT(); let S1 = partir(S, id);
+  const nueva = S1.tareas.find(x => !S.tareas.some(y => y.id === x.id) && x.estado !== 'terminada'), rid = nueva ? nueva.id : id;
+  const r = S1.tareas.find(x => x.id === rid), ini0 = r.inicio, finPlan = ini0 && r.ops.length ? finOf(S1, r) : null;
+  const fr = { motivo: motivo || 'Otro', nota: (nota || '').trim(), desde: now, hasta: hasta || null };
+  S1 = { ...S1, tareas: S1.tareas.map(x => x.id === rid ? { ...x, pausada: true, crono: x.crono ? { acum: Number(x.crono.acum) || 0, desde: null } : null, empuje: null, inicio: null, frenada: fr } : x) };
+  let n = 0;
+  if (finPlan && (S.cfg || {}).adelantarCola !== false) {   // el lugar que deja libre lo aprovecha lo que venía detrás
+    const libre = ini0 > now ? ini0 : now;
+    const tmp = { ...S1, tareas: S1.tareas.map(x => x.id === rid ? { ...x, inicio: ini0, finReal: libre } : x) };
+    const a = adelantarCola(tmp, rid, finPlan); n = a.n;
+    if (n) S1 = { ...a.S, tareas: a.S.tareas.map(x => x.id === rid ? { ...x, inicio: null, finReal: r.finReal ?? null } : x) };
+  }
+  if (hasta && r.ops.length) {
+    const t1 = S1.tareas.find(x => x.id === rid);
+    const ini = primerHueco(S1, { ...t1, inicio: normStart(S1, hasta + 'T00:00', t1.turno, t1.ops) });
+    S1 = patchTask(S1, rid, { inicio: ini }, true);
+  }
+  return { S: S1, id: rid, n };
+}
+// Retomar: elige quiénes la siguen y desde cuándo. ya = arranca en esa fecha y corre lo que tengan; si no, va al primer hueco libre.
+export function retomar(S, id, { ops, desde, ya, turno } = {}) {
+  const t = S.tareas.find(x => x.id === id); if (!t || !t.frenada) return S;
+  const now = nowDT(), nOps = ops && ops.length ? ops : t.ops, tu = turno || t.turno || 'normal';
+  const S2 = { ...S, tareas: S.tareas.map(x => x.id === id ? { ...soltarFreno(x, now), ops: nOps, turno: tu, inicio: null, empuje: null } : x) };
+  if (!nOps.length) return S2;
+  const base = desde && desde > now.slice(0, 10) ? desde + 'T00:00' : now;
+  let ini = normStart(S2, base, tu, nOps);
+  if (!ya) ini = primerHueco(S2, { ...S2.tareas.find(x => x.id === id), inicio: ini });
+  return patchTask(S2, id, { inicio: ini }, true);
 }
 // Desde un día dado, lo que falta de una tarea sigue en el otro turno: lo programado antes de ese día queda como parte 1
 export function partirEnDia(S, id, d, turno) {
@@ -376,7 +415,7 @@ export function partirEnDia(S, id, d, turno) {
   if (antes >= H - 0.05) return S;
   const par = t.parentId && S.tareas.find(x => x.id === t.parentId), cont = par && par.partes;
   const base = cont ? par.nombre : t.nombre, k = cont ? S.tareas.filter(x => x.parentId === par.id).length : 1;
-  const resto = { ...t, id: uid(), parentId: cont ? par.id : t.id, nombre: `${base} (parte ${k + 1})`, hh: r2(H - antes), turno, inicio: ini, estado: 'pendiente', pausada: false, crono: null, avance: 0, hhReal: 0, finReal: null, preds: [], empuje: null, parte: true, partes: false };
+  const resto = { ...t, id: uid(), parentId: cont ? par.id : t.id, nombre: `${base} (parte ${k + 1})`, hh: r2(H - antes), turno, inicio: ini, estado: 'pendiente', pausada: false, crono: null, avance: 0, hhReal: 0, finReal: null, preds: [], empuje: null, parte: true, partes: false, frenada: null, frenoHist: null };
   const primera = { hh: antes, parte: true, avance: Math.min(100, Math.round((Number(t.avance) || 0) * H / antes)) };
   const tareas = cont ? S.tareas.map(x => x.id === id ? { ...x, ...primera } : x).concat(resto)
     : S.tareas.map(x => x.id === id ? { ...x, partes: true, crono: null, pausada: false } : x).concat({ ...t, id: uid(), parentId: t.id, nombre: `${t.nombre} (parte 1)`, preds: [], partes: false, ...primera }, resto);
@@ -396,6 +435,7 @@ export function pasarTurno(S, id, turno, { correr } = {}) {
   return reflow(S2, nueva ? nueva.id : id);
 }
 export function iniciar(S, id) {
+  if (S.tareas.some(x => x.id === id && x.frenada)) { const now = nowDT(); S = { ...S, tareas: S.tareas.map(x => x.id === id ? soltarFreno(x, now) : x) }; }   // arrancarla la saca de frenadas
   { const t = S.tareas.find(x => x.id === id), ta = t && t.ops.length ? turnoAhora(S, t.ops) : null;   // si arranca en el otro turno, el resto pasa a ese turno
     if (t && ta && t.turno !== 'ambos' && ta !== t.turno && !corriendo(t) && t.estado !== 'terminada') { const S2 = pasarTurno(S, id, ta); const nueva = S2.tareas.find(x => !S.tareas.some(y => y.id === x.id)); return iniciar(S2, nueva ? nueva.id : id); } }
   const t0 = S.tareas.find(x => x.id === id); if (!t0) return S; const now = nowDT(); let S1 = S;

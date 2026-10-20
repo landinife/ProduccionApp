@@ -871,3 +871,20 @@ input.vh { color: var(--ink); }
 .pisa { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 4px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); color: var(--ink); font-size: 13px; }
 .pisa > span { color: var(--warn); } .pisa b { color: var(--ink); }
 label.chk.cadena { font-size: 13px !important; color: var(--mut) !important; }
+
+/* ================= Tareas frenadas (19/10) ================= */
+.tag.fren { color: var(--warn); border-color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); white-space: normal; }
+.fren-nota { display: block; font-size: 13px; color: var(--ink); border-left: 3px solid var(--warn); padding-left: 8px; overflow-wrap: anywhere; }
+.e-fren { color: var(--warn); border-color: var(--warn); background: color-mix(in srgb, var(--warn) 13%, transparent); }
+.ttask.fren { border-style: dashed; border-color: color-mix(in srgb, var(--warn) 60%, var(--line)); }
+.note.fren { color: var(--ink); border-color: var(--warn); }
+.frmodos { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: 8px; }
+.frmodo { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; text-align: left; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; }
+.frmodo b { font: 600 16px var(--f-d); letter-spacing: .02em; } .frmodo small { color: var(--mut); font-size: 12px; }
+.frmodo:hover { border-color: var(--accent); } .frmodo.on { border-color: var(--warn); box-shadow: 0 0 0 1px var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--bg)); }
+.modal-b .fld textarea, .modal-b .fld input[type=date] { color: var(--ink); font-size: 14px; }
+.modal-b .fld textarea { resize: vertical; min-height: 54px; }
+.g-fren { flex: none; color: var(--warn); font-weight: 700; margin-right: 2px; }
+.g-lab.fren { color: var(--warn); font-weight: 600; }
+@media (pointer: coarse) { .frmodo { padding: 12px 14px; } }
+.tbtns .btn.big { white-space: normal; }
