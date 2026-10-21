@@ -277,6 +277,18 @@ export function nextFree(S, op, turno, ops) {
     if (falta > 0) { const w = addWork(S, normStart(S, c, t.turno, t.ops), falta, t.turno, t.ops); if (w.end && w.end > c) c = w.end; } });
   return normStart(S, c, turno, los);
 }
+// Hueco siguiente para una tarea nueva: detrás de lo que el operario tiene abierto (pendiente o en proceso);
+// si no tiene nada abierto, pegada al fin de la última que finalizó (aunque ya haya pasado: se carga después).
+export function pegadoA(S, ops, turno, sinId) {
+  const los = (ops || []).filter(Boolean); if (!los.length) return null;
+  const S2 = sinId ? { ...S, tareas: S.tareas.filter(x => x.id !== sinId) } : S;
+  const mias = S2.tareas.filter(t => t.ops.some(o => los.includes(o)) && choque(t.turno, turno) && t.inicio && isLeaf(S2, t.id));
+  const abiertas = mias.filter(t => t.estado !== 'terminada');
+  if (abiertas.length) { const tras = abiertas.reduce((a, t) => (finOf(S2, t) || '') > (finOf(S2, a) || '') ? t : a); return { ini: nextFree(S2, los[0], turno, los), tras }; }
+  const hechas = mias.filter(t => finOf(S2, t)); if (!hechas.length) return { ini: nextFree(S2, los[0], turno, los), tras: null };
+  const tras = hechas.reduce((a, t) => finOf(S2, t) > finOf(S2, a) ? t : a);
+  return { ini: normStart(S2, finOf(S2, tras), turno, los), tras };
+}
 // Asignar una tarea a un operario; con día = celda del calendario, sin día = primer hueco libre
 export function assignTo(S, id, op, d, turno, fromOp) {
   const t = S.tareas.find(x => x.id === id); if (!t) return S;

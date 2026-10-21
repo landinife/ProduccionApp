@@ -897,7 +897,7 @@ function TaskEditor({ id, draft, onClose }) {
     const x = { ...t, hh, cant: Number(t.cant) || 0, avance: Math.min(100, Math.max(0, Number(t.avance) || 0)), hhReal: Number(t.hhReal) || 0 };
     if (x.estado === 'terminada') { x.avance = 100; if (!x.finReal) x.finReal = E.nowDT(); if (x.realFin && !(x.inicio && x.finReal > x.inicio)) x.realFin = false; } else { x.finReal = null; x.realFin = false; }
     if (x.estado !== orig.estado || isNew) x.crono = x.estado === 'en proceso' ? { acum: orig.crono ? Number(orig.crono.acum) || 0 : x.hhReal, desde: E.nowDT() } : x.estado === 'terminada' ? { acum: x.hhReal, desde: null } : null;
-    if (!x.ops.length || (x.frenada && x.estado !== 'terminada')) x.inicio = x.inicio || null; else if (!x.inicio) x.inicio = E.nextFree(S, x.ops[0], x.turno, x.ops);   // frenada sin fecha: sigue sin ocupar el calendario
+    if (!x.ops.length || (x.frenada && x.estado !== 'terminada')) x.inicio = x.inicio || null; else if (!x.inicio) { const pg = E.pegadoA(S, x.ops, x.turno, x.id); x.inicio = pg ? pg.ini : E.nextFree(S, x.ops[0], x.turno, x.ops); }   // frenada sin fecha: sigue sin ocupar el calendario
     // se finaliza acá: si es antes de lo planificado, el fin real es ahora y la cadena del operario sigue
     const cierra = !isNew && !parent && x.estado === 'terminada' && orig.estado !== 'terminada' && orig.inicio && orig.ops.length;
     const finPlan = cierra ? E.finOf(S, orig) : null;
@@ -939,9 +939,9 @@ function TaskEditor({ id, draft, onClose }) {
                 <span className="mut">entra {fDT(r.ini)}{r.fin ? ` · termina ${fDT(r.fin)}` : ''}</span>
                 <button type="button" className="btn sm" onClick={() => setT(p => ({ ...p, ops: [r.op], inicio: r.ini }))}>{t.ops.length === 1 && t.ops[0] === r.op ? 'Elegido' : 'Dársela'}</button></div>)}</div>}</div>}
         <div className="g2 fld"><span>Operarios</span><div className="togs">{S.operarios.filter(o => o.activo || t.ops.includes(o.id)).map(o => <button key={o.id} type="button" className={'togb' + (t.ops.includes(o.id) ? ' on' : '')} onClick={() => togOp(o.id)}>{o.nombre}</button>)}</div></div>
-        <label>{t.estado === 'terminada' ? 'Inicio (real)' : 'Inicio'}<span className="incalc"><input id="te-ini" type="datetime-local" value={t.inicio || ''} onChange={e => set('inicio', e.target.value || null)} /><button type="button" className="btn sm" title="Poner la fecha y hora actual" onClick={() => set('inicio', E.nowDT())}>Ahora</button></span>
+        <label>{t.estado === 'terminada' ? 'Inicio (real)' : 'Inicio'}<span className="incalc"><input id="te-ini" type="datetime-local" value={t.inicio || ''} onChange={e => set('inicio', e.target.value || null)} /><button type="button" className="btn sm" title="Poner la fecha y hora actual" onClick={() => set('inicio', E.nowDT())}>Ahora</button>{!parent && t.ops.length > 0 && <button type="button" className="btn sm" title="Pegarla detrás de la última tarea del operario: la que está en proceso o pendiente, o si no tiene ninguna, el fin de la última finalizada" onClick={() => { const pg = E.pegadoA(S, t.ops, t.turno, t.id); if (pg) set('inicio', pg.ini); }}>Pegar a la anterior</button>}</span>
           {!parent && t.estado !== 'terminada' && t.ops.length > 0 && (() => {
-            if (!t.inicio) return <small className="hint">Sin inicio: va a empezar cuando se libere, en {fDT(E.nextFree(S, t.ops[0], t.turno, t.ops))}.</small>;
+            if (!t.inicio) { const pg = E.pegadoA(S, t.ops, t.turno, t.id); return <small className="hint">Sin inicio: va a empezar {pg.tras ? <>pegada a «{pg.tras.nombre}», </> : 'cuando se libere, '}en {fDT(pg.ini)}.</small>; }
             const tt = { ...t, hh }, p = E.pisadasDe(S, tt);
             if (!p.length) return <small className="hint ok">✓ {t.ops.length === 1 ? opName(S, t.ops[0]) + ' está libre' : 'Los operarios están libres'} en ese horario.</small>;
             const hueco = E.primerHueco(S, tt);
