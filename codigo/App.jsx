@@ -1311,16 +1311,36 @@ function Importer({ mode, proyId, onClose }) {
   const cols = rows ? Array.from({ length: Math.max(...rows.map(r => r.length)) }, (_, i) => i) : [];
   const data = rows ? rows.slice(head ? 1 : 0) : [];
   const val = (r, k) => map[k] === '' || map[k] == null ? '' : String(r[map[k]] == null ? '' : r[map[k]]).trim();
+  /* Filas ya cargadas: repuestos = misma OV/OC + misma pieza; árbol = misma pieza bajo el mismo padre en este proyecto.
+     No distingue mayúsculas, espacios, el prefijo "------ " ni el "(parte N)" de las tareas frenadas. */
+  const [saltar, setSaltar] = useState(true);
+  const limpia = s => String(s || '').replace(/^-+\s*/, '').replace(/\s*\(parte \d+\)\s*$/i, '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const clave = (ctx, nombre) => limpia(ctx) + '|' + limpia(nombre);
+  const nomFila = r => [val(r, 'codigo'), val(r, 'nombre')].filter(Boolean).join(' ');
+  const yaEstan = useMemo(() => { const porId = new Map(S.tareas.map(t => [t.id, t])); const m = new Map();
+    S.tareas.forEach(t => { if (mode === 'rep' ? t.tipo !== 'rep' || !limpia(t.orden) : t.tipo !== 'proy' || t.proyId !== proyId) return;
+      const ctx = mode === 'rep' ? t.orden : ((porId.get(t.parentId) || {}).nombre || ''); const k = clave(ctx, t.nombre); if (!m.has(k)) m.set(k, t.id); });
+    return m; }, [S.tareas, mode, proyId]);
+  const ctxFila = (r, nomPorN) => { if (mode === 'rep') return val(r, 'orden'); const n = val(r, 'n'), i = n.lastIndexOf('.'); return i > 0 ? (nomPorN[n.slice(0, i)] || '') : ''; };
+  const repe = (() => { const nomPorN = {}; if (mode !== 'rep') data.forEach(r => { const n = val(r, 'n'); if (n) nomPorN[n] = nomFila(r); });
+    const vis = new Set(); return data.map(r => { if (!limpia(nomFila(r)) || (mode === 'rep' && !val(r, 'orden'))) return '';
+      const k = clave(ctxFila(r, nomPorN), nomFila(r)); const e = yaEstan.has(k) ? 'cargada' : vis.has(k) ? 'doble' : ''; vis.add(k); return e; }); })();
+  const cuenta = { nueva: data.filter((r, i) => nomFila(r) && !repe[i]).length, cargada: repe.filter(e => e === 'cargada').length, doble: repe.filter(e => e === 'doble').length };
+  const aImportar = data.filter((r, i) => nomFila(r) && !(saltar && repe[i])).length;
   const importar = () => {
     let nuevos;
-    if (mode === 'rep') nuevos = data.map(r => ({ ...E.blankTask('rep'), orden: val(r, 'orden'), nombre: [val(r, 'codigo'), val(r, 'nombre')].filter(Boolean).join(' '), cant: Number(val(r, 'cant')) || 1, cliente: val(r, 'cliente'), creada: fecha || E.today() })).filter(t => t.nombre);
-    else { const ids = {}; nuevos = data.map(r => { const n = val(r, 'n'); const t = { ...E.blankTask('proy', proyId), nombre: [val(r, 'codigo'), val(r, 'nombre')].filter(Boolean).join(' '), cant: Number(val(r, 'cant')) || 1, _n: n }; if (n) ids[n] = t.id; return t; }).filter(t => t.nombre);
+    if (mode === 'rep') nuevos = data.filter((r, i) => !(saltar && repe[i])).map(r => ({ ...E.blankTask('rep'), orden: val(r, 'orden'), nombre: nomFila(r), cant: Number(val(r, 'cant')) || 1, cliente: val(r, 'cliente'), creada: fecha || E.today() })).filter(t => t.nombre);
+    else { const ids = {}, nomPorN = {}; data.forEach(r => { const n = val(r, 'n'); if (n) nomPorN[n] = nomFila(r); });
+      const porClave = new Map(yaEstan);
+      nuevos = data.map((r, i) => { const n = val(r, 'n'), k = clave(ctxFila(r, nomPorN), nomFila(r));
+        if (saltar && repe[i]) { const ya = porClave.get(k); if (n && ya) ids[n] = ya; return null; } /* las hijas nuevas se cuelgan de la pieza que ya estaba */
+        const t = { ...E.blankTask('proy', proyId), nombre: nomFila(r), cant: Number(val(r, 'cant')) || 1, _n: n }; if (n) ids[n] = t.id; if (!porClave.has(k)) porClave.set(k, t.id); return t; }).filter(t => t && t.nombre);
       nuevos = nuevos.map(({ _n, ...t }) => { const i = _n.lastIndexOf('.'); return { ...t, parentId: i > 0 && ids[_n.slice(0, i)] ? ids[_n.slice(0, i)] : null }; }); }
     nuevos = nuevos.map(t => ({ ...t, ...E.autoCompletar(S, t, true) }));
-    if (!nuevos.length) { ui.toast('No encontré filas para importar. Revisá las columnas elegidas.'); return; }
+    if (!nuevos.length) { ui.toast(saltar && cuenta.cargada ? 'Todas las filas ya estaban cargadas. No hay nada nuevo.' : 'No encontré filas para importar. Revisá las columnas elegidas.'); return; }
     up(s => ({ ...s, tareas: [...s.tareas, ...nuevos] })); ui.toast(nuevos.length === 1 ? "1 fila importada" : `${nuevos.length} filas importadas`); onClose();
   };
-  return <Modal title={mode === 'rep' ? 'Importar repuestos' : 'Importar árbol de piezas'} onClose={onClose} wide foot={rows && <><button className="btn" onClick={() => setRows(null)}>Elegir otra planilla</button><span className="sp" /><button className="btn pri-b" onClick={importar}>Importar {data.length} filas</button></>}>
+  return <Modal title={mode === 'rep' ? 'Importar repuestos' : 'Importar árbol de piezas'} onClose={onClose} wide foot={rows && <><button className="btn" onClick={() => setRows(null)}>Elegir otra planilla</button><span className="sp" /><button className="btn pri-b" disabled={!aImportar} onClick={importar}>{aImportar === 1 ? 'Importar 1 fila nueva' : `Importar ${aImportar} filas${saltar ? ' nuevas' : ''}`}</button></>}>
     {!rows ? <div className="form">
       <label className="g2">Archivo de Excel (.xlsx)<input id="imp-file" type="file" accept=".xlsx,.xls,.csv" onChange={file} /></label>
       <label className="g2">O pegá acá las celdas copiadas desde Excel<textarea id="imp-txt" rows="6" value={txt} onChange={e => setTxt(e.target.value)} placeholder={campos.map(c => c[1]).join('\t')} /></label>
@@ -1329,9 +1349,11 @@ function Importer({ mode, proyId, onClose }) {
       <p className="mut">Elegí qué columna de tu planilla corresponde a cada campo.</p>
       <div className="form">{campos.map(([k, l]) => <label key={k}>{l}<select id={'imp-' + k} value={map[k]} onChange={e => setMap({ ...map, [k]: e.target.value === '' ? '' : Number(e.target.value) })}><option value="">No usar</option>{cols.map(i => <option key={i} value={i}>{head && rows[0][i] !== '' && rows[0][i] != null ? String(rows[0][i]) : 'Columna ' + (i + 1)}</option>)}</select></label>)}
         {mode === 'rep' && <label>Fecha de carga de estas órdenes<input id="imp-fecha" type="date" value={fecha} max={E.today()} onChange={e => setFecha(e.target.value)} /></label>}
-        <label className="chk g2"><input id="imp-head" type="checkbox" checked={head} onChange={e => setHead(e.target.checked)} /> La primera fila tiene los títulos</label></div>
-      <div className="scroll"><table className="tt"><thead><tr>{campos.map(c => <th key={c[0]}>{c[1]}</th>)}</tr></thead><tbody>{data.slice(0, 6).map((r, i) => <tr key={i}>{campos.map(c => <td key={c[0]}>{val(r, c[0])}</td>)}</tr>)}</tbody></table></div>
-      {data.length > 6 && <p className="mut">…y {data.length - 6} filas más.</p>}</>}
+        <label className="chk g2"><input id="imp-head" type="checkbox" checked={head} onChange={e => setHead(e.target.checked)} /> La primera fila tiene los títulos</label>
+        <label className="chk g2"><input id="imp-saltar" type="checkbox" checked={saltar} onChange={e => setSaltar(e.target.checked)} /> Saltear las filas que ya están cargadas{mode === 'rep' ? ' (misma OV/OC y misma pieza)' : ' (misma pieza bajo el mismo padre)'}</label></div>
+      <p className="note"><b className="c-ok">{cuenta.nueva} nuevas</b> · {cuenta.cargada} ya cargadas{cuenta.doble ? ` · ${cuenta.doble} repetidas dentro de la planilla` : ''}{mode === 'rep' && data.some(r => !val(r, 'orden')) ? ' · las filas sin OV/OC se toman siempre como nuevas' : ''}</p>
+      <div className="scroll"><table className="tt"><thead><tr><th>Estado</th>{campos.map(c => <th key={c[0]}>{c[1]}</th>)}</tr></thead><tbody>{data.map((r, i) => ({ r, i })).sort((a, b) => !!repe[a.i] - !!repe[b.i]).slice(0, 8).map(({ r, i }) => <tr key={i} className={repe[i] && saltar ? 'done' : ''}><td>{repe[i] === 'cargada' ? <span className="tag">Ya cargada</span> : repe[i] === 'doble' ? <span className="tag warn">Repetida</span> : <span className="tag ok">Nueva</span>}</td>{campos.map(c => <td key={c[0]}>{val(r, c[0])}</td>)}</tr>)}</tbody></table></div>
+      {data.length > 8 && <p className="mut">…y {data.length - 8} filas más (primero se muestran las nuevas).</p>}</>}
   </Modal>;
 }
 
