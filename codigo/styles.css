@@ -888,3 +888,10 @@ label.chk.cadena { font-size: 13px !important; color: var(--mut) !important; }
 .g-lab.fren { color: var(--warn); font-weight: 600; }
 @media (pointer: coarse) { .frmodo { padding: 12px 14px; } }
 .tbtns .btn.big { white-space: normal; }
+
+/* ================= Editor: Inicio ancho y horas-hombre angosto (21/10) ================= */
+.form .fila-ini { display: grid; grid-template-columns: minmax(0, 1fr) 170px; gap: 10px 14px; align-items: start; }
+.ini-bts input { flex: 1 1 200px; min-width: 200px; }
+.ini-bts .btn { flex: none; }
+.hh-ch .incalc input { width: 100%; text-align: right; }
+@media (max-width: 560px) { .form .fila-ini { grid-template-columns: 1fr; } .ini-bts { flex-wrap: wrap; } .ini-bts input { flex-basis: 100%; min-width: 0; } }
