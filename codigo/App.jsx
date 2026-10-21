@@ -164,10 +164,17 @@ function FrenoTag({ t }) { if (!E.estaFrenada(t)) return null;
 function FrenarDlg({ id, pausa, onClose }) {
   const { S, up, ui } = useApp(); const t = S.tareas.find(x => x.id === id);
   const [modo, setModo] = useState(pausa ? '' : 'sin'); const [motivo, setMotivo] = useState(''); const [nota, setNota] = useState(''); const [hasta, setHasta] = useState(() => { let d = E.addDays(E.today(), 1), g = 0; while (!E.isWork(S, d) && g++ < 14) d = E.addDays(d, 1); return d; });
+  const [ultDia, setUltDia] = useState(() => E.today());   // último día trabajado: hoy = se frena ahora; antes = al terminar la jornada de ese día
   if (!t) return null;
+  const ahoraDT = E.nowDT(), hoyD = E.today(), ini0 = (t.crono && t.crono.desde) || t.inicio || '', minDia = ini0 && ini0 < ahoraDT ? ini0.slice(0, 10) : '';
+  const cuando = !ultDia || ultDia >= hoyD ? ahoraDT : E.finJornada(S, t, ultDia);   // fecha y hora en que se cierra lo hecho
+  const diaAnt = () => { let d = E.addDays(hoyD, -1), g = 0; while (!E.isWork(S, d) && g++ < 14) d = E.addDays(d, -1); return d; };
   const cola = () => { up(s => E.pausar(s, id)); ui.toast('En pausa: lo que falta sigue en la cola'); onClose(); };
   const ok = () => { if (!motivo) { ui.toast('Elegí el motivo'); return; } const h = modo === 'fecha' ? hasta : null; let n = 0;
-    up(s => { const r = E.frenar(s, id, { motivo, nota, hasta: h }); n = r.n; return r.S; });
+    if (ultDia > hoyD) { ui.toast('El último día trabajado no puede ser posterior a hoy'); return; }
+    if (!cuando) { ui.toast(`El ${fDia(ultDia)} no es día de trabajo: elegí el último día que se trabajó`); return; }
+    if (minDia && ultDia < minDia) { ui.toast(`La tarea empezó el ${fDia(minDia)}: el último día trabajado no puede ser anterior`); return; }
+    up(s => { const r = E.frenar(s, id, { motivo, nota, hasta: h, desde: cuando }); n = r.n; return r.S; });
     ui.toast((h ? `Frenada hasta el ${fD(h)}` : 'Frenada sin fecha: no ocupa el calendario') + (n ? `. ${n === 1 ? 'La tarea que venía detrás se adelantó' : n + ' tareas que venían detrás se adelantaron'}.` : '.')); onClose(); };
   return createPortal(<Modal title={(pausa ? 'Pausar · ' : 'Frenar · ') + t.nombre} onClose={onClose} foot={modo ? <><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn warn-b" onClick={ok}>Frenar</button></> : null}>
     <div className="fld"><span>¿Cómo sigue?</span><div className="frmodos">
@@ -175,6 +182,11 @@ function FrenarDlg({ id, pausa, onClose }) {
       <button type="button" className={'frmodo' + (modo === 'fecha' ? ' on' : '')} onClick={() => setModo('fecha')}><b>Frenada hasta una fecha</b><small>Lo que falta se programa desde ese día</small></button>
       <button type="button" className={'frmodo' + (modo === 'sin' ? ' on' : '')} onClick={() => setModo('sin')}><b>Frenada sin fecha</b><small>No ocupa el calendario hasta que la retomes</small></button></div></div>
     {modo && <>
+      <div className="fld"><span>Último día trabajado</span><div className="row">
+        <input type="date" value={ultDia} min={minDia || undefined} max={hoyD} onChange={e => setUltDia(e.target.value)} />
+        <button type="button" className={'btn sm' + (ultDia === hoyD ? ' pri-b' : '')} onClick={() => setUltDia(hoyD)}>Hoy (frenar ahora)</button>
+        {(!minDia || diaAnt() >= minDia) && <button type="button" className={'btn sm' + (ultDia === diaAnt() ? ' pri-b' : '')} onClick={() => setUltDia(diaAnt())}>{fDia(diaAnt())}</button>}</div>
+        {ultDia < hoyD && <small className={'hint' + (cuando ? '' : ' bad')}>{cuando ? `Lo hecho se cierra al terminar la jornada del ${fDT(cuando)}. Los días siguientes no cuentan como trabajados.` : 'Ese día no se trabaja: elegí otro.'}</small>}</div>
       {modo === 'fecha' && <label className="fld">Se retoma desde<input type="date" value={hasta} min={E.today()} onChange={e => setHasta(e.target.value)} /></label>}
       <div className="fld"><span>Motivo</span><div className="togs">{E.MOTIVOS_FRENO.map(m => <button key={m} type="button" className={'togb' + (motivo === m ? ' on' : '')} onClick={() => setMotivo(m)}>{m}</button>)}</div></div>
       <label className="fld">Notas<textarea rows="2" value={nota} placeholder="Ej.: falta chapa inox 3 mm, llega el jueves" onChange={e => setNota(e.target.value)} /></label>
@@ -432,9 +444,12 @@ function Resumen() {
         <div className="row"><h2>{vista === 'sem' ? `Del ${fDia(w0)} al ${fDia(days[6])}` : vista === 'cap' ? 'Carga de las próximas semanas' : 'Calendario de cargas'}</h2>
           <div className="seg"><button className={vista === 'sem' ? 'on' : ''} onClick={() => setVista('sem')}>Semana</button><button className={vista === 'cap' ? 'on' : ''} onClick={() => setVista('cap')}>6 semanas</button><button className={vista === 'cal' ? 'on' : ''} onClick={() => setVista('cal')}>Calendario</button></div></div>
         <div className="row">
-          {vista !== 'cal' && <><button className="btn" onClick={() => setW0(E.addDays(w0, -7))} aria-label="Semana anterior">←</button>
-          <button className="btn" onClick={() => setW0(hoy)}>Hoy</button>
-          <button className="btn" onClick={() => setW0(E.addDays(w0, 7))} aria-label="Semana siguiente">→</button></>}
+          {vista !== 'cal' && <><button className="btn" onClick={() => setW0(E.addDays(w0, -7))} aria-label="Semana anterior" title="Semana anterior">«</button>
+          {vista === 'sem' && <button className="btn" onClick={() => setW0(E.addDays(w0, -1))} aria-label="Día anterior" title="Día anterior">‹</button>}
+          <button className={'btn' + (w0 === hoy ? ' pri-b' : '')} onClick={() => setW0(hoy)}>Hoy</button>
+          {vista === 'sem' && <input type="date" value={w0} title="Ir a una fecha" aria-label="Ir a una fecha" onChange={e => e.target.value && setW0(e.target.value)} />}
+          {vista === 'sem' && <button className="btn" onClick={() => setW0(E.addDays(w0, 1))} aria-label="Día siguiente" title="Día siguiente">›</button>}
+          <button className="btn" onClick={() => setW0(E.addDays(w0, 7))} aria-label="Semana siguiente" title="Semana siguiente">»</button></>}
           <button className="btn" onClick={() => ui.modal({ k: 'hoy' })}>Parte del día</button>
           <button className="btn" title="Adelanta las tareas pendientes de todos para cerrar los huecos libres" onClick={() => juntar(up, ui, null)}>Juntar tareas</button>
           <label className="chk cadena" title="Cuando una tarea se finaliza antes de lo planificado (desde el Taller, la tabla o el editor), las pendientes que venían pegadas detrás en el mismo operario se adelantan solas. Si había un hueco a propósito o una tarea fijada a mano 📌, ahí se corta."><input type="checkbox" checked={S.cfg.adelantarCola !== false} onChange={e => up(s => ({ ...s, cfg: { ...s.cfg, adelantarCola: e.target.checked } }))} /> Si una tarea termina antes, adelantar las que vienen detrás</label>
