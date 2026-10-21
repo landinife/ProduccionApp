@@ -1,0 +1,5 @@
+# Resultados de la compilación (se regeneran con build.sh y build-web.js)
+codigo/bundle.js
+codigo/ProduccionApp.html
+codigo/test.html
+codigo/dist/
