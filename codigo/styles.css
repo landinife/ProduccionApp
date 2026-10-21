@@ -946,3 +946,16 @@ label.chk.cadena { font-size: 13px !important; color: var(--mut) !important; }
 .tmf-g { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; }
 .tmf-g > div { display: flex; flex-direction: column; gap: 1px; min-width: 0; } .tmf-g span { font-size: 12px; color: var(--mut); } .tmf-g b { font-weight: 500; font-size: 14px; overflow-wrap: anywhere; text-transform: none; }
 @media (max-width: 760px) { .gantt { --ind: 6px; --lw: 170px !important; } .gantt .g-grip, .gantt .g-add, .gantt .g-left > .num, .gantt .g-head .g-left .rz { display: none; } .gantt .g-left { padding: 0 6px 0 2px; gap: 2px; } .gantt .g-left .tog { width: 22px; } .gantt .g-left .tlink { font-size: 12.5px; } }
+
+/* ================= Total de los padres y Próximo a realizar (21/10) ================= */
+.ro.tot { color: var(--mut); white-space: nowrap; } .ro.tot b { color: var(--ink); font-weight: 600; }
+.mk.prox { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.tt.xl .acts button.on { color: var(--accent); }
+.proxl { display: flex; flex-direction: column; gap: 6px; }
+.proxi { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); border-left: 3px solid var(--accent); background: linear-gradient(180deg, var(--panel2), var(--panel)); }
+.proxn { font: 700 18px/1 var(--f-d); color: var(--accent); min-width: 22px; text-align: center; }
+.proxd { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.proxd .drow { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; min-width: 0; padding: 0; border: 0; background: none; }
+.proxd .tlink { font-weight: 600; overflow-wrap: anywhere; text-align: left; }
+.proxd .mut { font-size: 12.5px; }
+@media (max-width: 560px) { .proxi { grid-template-columns: auto minmax(0, 1fr); } .proxi > .btn { grid-column: 2; justify-self: end; } }

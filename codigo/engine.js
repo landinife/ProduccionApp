@@ -402,6 +402,11 @@ export function salir(S, id, op) {
 // ---- Frenar una tarea por días (otra prioridad, falta de material…) y retomarla después ----
 export const MOTIVOS_FRENO = ['Cambio de prioridad', 'Falta de material', 'Máquina', 'Operario'];
 export const estaFrenada = t => !!(t && t.frenada && t.estado !== 'terminada');
+// ---- Próximo a realizar: piezas que se marcan para hacer primero (la marca guarda cuándo se puso, para ordenarlas) ----
+// Solo cuenta mientras la pieza está pendiente: al iniciarla o finalizarla la marca se quita sola.
+export const esProximo = t => !!(t && t.proximo && t.estado === 'pendiente');
+export function setProximo(S, id, on) { return { ...S, tareas: S.tareas.map(x => x.id === id ? { ...x, proximo: on ? nowDT() : null } : x) }; }
+export const proximas = (S, filtro) => S.tareas.filter(t => esProximo(t) && (!filtro || filtro(t))).sort((a, b) => a.proximo < b.proximo ? -1 : a.proximo > b.proximo ? 1 : 0);
 const soltarFreno = (x, now) => x.frenada ? { ...x, frenada: null, frenoHist: [...(x.frenoHist || []), { ...x.frenada, retomada: now }] } : x;
 // Lo hecho queda cerrado como una parte (si había algo hecho) y lo que falta queda como una tarea nueva, frenada.
 // Sin fecha no ocupa el calendario; con fecha queda en el primer hueco desde ese día.
@@ -483,11 +488,11 @@ export function iniciar(S, id) {
   const t0 = S.tareas.find(x => x.id === id); if (!t0) return S; const now = nowDT(); let S1 = S;
   S.tareas.filter(x => x.id !== id && corriendo(x) && x.ops.some(o => t0.ops.includes(o))).forEach(x => { S1 = partir(S1, x.id); });   // una persona, una tarea a la vez
   const t = S1.tareas.find(x => x.id === id); const ini = t.ops.length ? normStart(S1, now, t.turno, t.ops) : t.inicio;
-  S1 = { ...S1, tareas: S1.tareas.map(x => x.id === id ? { ...x, estado: 'en proceso', pausada: false, finReal: null, inicio: !x.inicio || x.inicio > now || x.estado === 'pendiente' ? ini : x.inicio, crono: { acum: x.crono ? Number(x.crono.acum) || 0 : Number(x.hhReal) || 0, desde: now } } : x) };
+  S1 = { ...S1, tareas: S1.tareas.map(x => x.id === id ? { ...x, estado: 'en proceso', pausada: false, proximo: null, finReal: null, inicio: !x.inicio || x.inicio > now || x.estado === 'pendiente' ? ini : x.inicio, crono: { acum: x.crono ? Number(x.crono.acum) || 0 : Number(x.hhReal) || 0, desde: now } } : x) };
   return t.ops.length ? reflow(S1, id) : S1;
 }
 // real = se finaliza en el momento (desde el taller): el fin real es ahora y la barra pasa a mostrar lo que duró
-export function finalizar(S, id, hh, real = false) { const h = r2(Math.max(0, Number(hh) || 0)); const now = nowDT(); return { ...S, tareas: S.tareas.map(x => x.id === id ? { ...x, estado: 'terminada', avance: 100, hhReal: h, finReal: now, realFin: !!(real && x.inicio && x.inicio < now), crono: { acum: h, desde: null } } : x) }; }
+export function finalizar(S, id, hh, real = false) { const h = r2(Math.max(0, Number(hh) || 0)); const now = nowDT(); return { ...S, tareas: S.tareas.map(x => x.id === id ? { ...x, estado: 'terminada', avance: 100, proximo: null, hhReal: h, finReal: now, realFin: !!(real && x.inicio && x.inicio < now), crono: { acum: h, desde: null } } : x) }; }
 export function setEstado(S, id, e) {
   const t = S.tareas.find(x => x.id === id); if (!t || t.estado === e) return S;
   if (e === 'en proceso') return iniciar(S, id);
