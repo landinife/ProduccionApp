@@ -1373,9 +1373,10 @@ function Importer({ mode, proyId, onClose }) {
 }
 
 /* ================= CONFIGURACIÓN ================= */
-function ListEdit({ title, items, onAdd, onDel, render, addLabel, extra }) {
+function ListEdit({ title, items, onAdd, onDel, render, addLabel, extra, nota }) {
   const PL = useContext(PlCtx);
   return <section className={'card' + PL.c(title)}><div className="sec-h"><h2>{PL.h(title)}</h2><div className="row">{extra}<button className="btn" onClick={onAdd}>{addLabel || '+ Agregar'}</button></div></div>
+    {nota && <p className="mut">{nota}</p>}
     {items.length === 0 && <p className="mut">Nada cargado todavía.</p>}
     {items.map((it, i) => <div key={it.id || i} className="lrow">{render(it, i)}<button className="btn sm danger" onClick={() => onDel(it, i)}>Borrar</button></div>)}</section>;
 }
@@ -1399,6 +1400,7 @@ function Config() {
   const cargarFer = l => { let n = 0; up(s => { const ya = new Set(s.feriados.map(f => f.fecha)); const nu = l.map(([d, nombre]) => ({ fecha: '2026-' + d, nombre })).filter(f => !ya.has(f.fecha)); n = nu.length; return n ? { ...s, feriados: [...s.feriados, ...nu] } : s; }); ui.toast(n ? `${n} ${n === 1 ? 'fecha agregada' : 'fechas agregadas'}` : 'Esas fechas ya estaban cargadas'); };
   const log = (S.log || []).filter(e => !lq || e.uid === lq);
   const setL = (k, id, patch) => up(s => ({ ...s, [k]: s[k].map(x => x.id === id ? { ...x, ...patch } : x) }));
+  const setAus = (id, patch) => up(s => E.setAusencias(s, s.ausencias.map(x => x.id === id ? { ...x, ...patch } : x)));   // corre las tareas de los operarios afectados
   const act = E.seasonNow(S); const otra = act === 'invierno' ? 'verano' : 'invierno';
   const setH = (t, k, v) => up(s => ({ ...s, cfg: { ...s.cfg, horarios: { ...s.cfg.horarios, [t]: { ...s.cfg.horarios[t], [k]: v } } } }));
   const cambiar = () => { up(s => ({ ...s, cfg: { ...s.cfg, temporadas: [...s.cfg.temporadas.filter(x => x.desde !== E.today()), { desde: E.today(), t: otra }] } })); ui.toast(`Horario de ${otra} activo desde hoy`); };
@@ -1417,11 +1419,13 @@ function Config() {
     <ListEdit title="Operarios" items={S.operarios} addLabel="+ Operario" onAdd={() => up(s => ({ ...s, operarios: [...s.operarios, { id: E.uid(), nombre: 'Nuevo operario', activo: true }] }))}
       onDel={o => up(s => ({ ...s, operarios: s.operarios.filter(x => x.id !== o.id), ausencias: s.ausencias.filter(a => a.opId !== o.id), tareas: s.tareas.map(t => t.ops.includes(o.id) ? { ...t, ops: t.ops.filter(x => x !== o.id) } : t) }))}
       render={o => <><input aria-label="Nombre" value={o.nombre} onChange={e => setL('operarios', o.id, { nombre: e.target.value })} /><label className="inl">Principal<select value={o.op1 || ''} onChange={e => setL('operarios', o.id, { op1: e.target.value })}><option value="">—</option>{S.operaciones.map(x => <option key={x.id} value={x.id}>{x.nombre}</option>)}</select></label><label className="inl">Secundaria<select value={o.op2 || ''} onChange={e => setL('operarios', o.id, { op2: e.target.value })}><option value="">—</option>{S.operaciones.map(x => <option key={x.id} value={x.id}>{x.nombre}</option>)}</select></label><label className="chk"><input type="checkbox" checked={o.activo} onChange={e => setL('operarios', o.id, { activo: e.target.checked })} /> Activo</label></>} />
-    <ListEdit title="Ausencias" items={S.ausencias} addLabel="+ Ausencia" onAdd={() => up(s => ({ ...s, ausencias: [...s.ausencias, { id: E.uid(), opId: s.operarios[0] ? s.operarios[0].id : '', desde: E.today(), hasta: E.today(), motivo: 'Vacaciones' }] }))}
-      onDel={a => up(s => ({ ...s, ausencias: s.ausencias.filter(x => x.id !== a.id) }))}
-      render={a => <><select aria-label="Operario" value={a.opId} onChange={e => setL('ausencias', a.id, { opId: e.target.value })}>{S.operarios.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select>
-        <input aria-label="Desde" type="date" value={a.desde} onChange={e => setL('ausencias', a.id, { desde: e.target.value, hasta: e.target.value > a.hasta ? e.target.value : a.hasta })} /><input aria-label="Hasta" type="date" value={a.hasta} min={a.desde} onChange={e => setL('ausencias', a.id, { hasta: e.target.value })} />
-        <input aria-label="Motivo" value={a.motivo} onChange={e => setL('ausencias', a.id, { motivo: e.target.value })} /></>} />
+    {/* Ausencias: los días en que falta un operario sus tareas no avanzan (se corren y ese día no suma horas). La fila nueva no tiene operario hasta que se elige. */}
+    <ListEdit title="Ausencias" items={S.ausencias} addLabel="+ Ausencia" onAdd={() => up(s => ({ ...s, ausencias: [...s.ausencias, { id: E.uid(), opId: '', desde: E.today(), hasta: E.today(), motivo: 'Falta' }] }))}
+      onDel={a => up(s => E.setAusencias(s, s.ausencias.filter(x => x.id !== a.id)))}
+      render={a => <><select aria-label="Operario" value={a.opId} onChange={e => setAus(a.id, { opId: e.target.value })}><option value="">Elegí el operario</option>{S.operarios.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select>
+        <input aria-label="Desde" type="date" value={a.desde} onChange={e => e.target.value && setAus(a.id, { desde: e.target.value, hasta: e.target.value > a.hasta ? e.target.value : a.hasta })} /><input aria-label="Hasta" type="date" value={a.hasta} min={a.desde} onChange={e => e.target.value && setAus(a.id, { hasta: e.target.value })} />
+        <input aria-label="Motivo" value={a.motivo} onChange={e => setL('ausencias', a.id, { motivo: e.target.value })} /></>}
+      nota="Los días de ausencia, las tareas de ese operario no avanzan: terminan más tarde y ese día no suma horas (tampoco en el cronómetro ni en Tiempos)." />
     <ListEdit title="Operaciones" items={S.operaciones} addLabel="+ Operación" onAdd={() => up(s => ({ ...s, operaciones: [...s.operaciones, { id: E.uid(), nombre: 'Nueva operación' }] }))}
       onDel={o => up(s => ({ ...s, operaciones: s.operaciones.filter(x => x.id !== o.id) }))}
       render={(o, i) => <><label className="inl" title="Orden de fabricación: las de etapa menor se hacen primero. 0 = en paralelo: no espera a otras etapas ni las frena (las piezas que la necesitan igual esperan a sus hijas).">Etapa<input className="w4" type="number" min="0" aria-label="Etapa" value={E.etapaOp(o)} onChange={e => setL('operaciones', o.id, { etapa: e.target.value === '' ? null : Number(e.target.value) })} /></label><input aria-label="Nombre" value={o.nombre} onChange={e => setL('operaciones', o.id, { nombre: e.target.value })} />
