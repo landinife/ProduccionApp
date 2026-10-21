@@ -740,7 +740,7 @@ function Gantt({ rows, entrega, color, collapsed, toggle, alto, todo, ts }) {
         {(g === 1 || (d.slice(8) === '01' && g >= 2 && g <= 5)) && <em>{E.MESES[Number(d.slice(5, 7)) - 1]}{(i === 0 || d.slice(5) === '01-01' || (g === 1 && d.slice(8) <= '07' && d.slice(5, 7) === '01')) ? ' ' + d.slice(0, 4) : ''}</em>}<small>{LETRA[g]}</small>{Number(d.slice(8))}</span>; })}</div></div>
     {rows.length === 0 && <p className="mut pad">Este proyecto todavía no tiene piezas. Agregá una o importá el árbol desde una planilla.</p>}
     {rows.map(({ t, depth, hasKids }) => { const r = V.D[t.id]; const ok = r.estado === 'terminada'; return <div key={t.id} data-id={t.id} className={'g-row' + (hasKids ? ' par' : '') + (ok ? ' done' : '') + (fila && fila.id === t.id ? ' g-mueve' : '') + (fila && fila.sobre === t.id ? (fila.abajo ? ' g-drop-ab' : ' g-drop-ar') : '')}>
-      <div className="g-left"><div className="tname" style={{ paddingLeft: depth * 14 }}>
+      <div className="g-left"><div className="tname" style={{ paddingLeft: `calc(var(--ind, 14px) * ${depth})` }}>
         <span className="g-grip" title="Arrastrá para subir o bajar la fila" aria-label="Mover fila" onPointerDown={e => moverFila(e, t)}>⠿</span>{hasKids ? <button className="tog" onClick={() => toggle(t.id)} aria-label="Desplegar">{collapsed.has(t.id) ? '▸' : '▾'}</button> : <span className="tog" />}
         {ok && <span className={'g-ok' + (r.sin0 ? ' w0' : '')} title={r.sin0 ? aviso0(r) : 'Finalizada'}>✓</span>}{E.estaFrenada(t) && <span className="g-fren" title={`Frenada · ${txtFreno(t)}`}>⏸</span>}<button className="tlink" title={t.nombre} onClick={() => ui.modal({ k: 'task', id: t.id })}>{t.nombre}</button><button className="g-add" title={'Agregar hijo a ' + t.nombre} aria-label="Agregar hijo" onClick={() => ui.modal({ k: 'task', draft: { ...E.blankTask(t.tipo, t.proyId), parentId: t.id, prioridad: t.prioridad } })}>＋</button></div><span className="num">{t.cant}</span></div>
       <div className="g-right" style={{ width: N * W, backgroundImage: semanas + ',' + bg }}>
@@ -822,8 +822,95 @@ function ProyTabs({ pid, setPid, info }) {
       </button>; })}
   </div>;
 }
+/* ================= PROYECTOS EN EL TELÉFONO (21/10) ================= */
+// true cuando la pantalla es angosta (teléfono): el mismo corte de 760 px que usa el diseño
+const MQ_MOVIL = '(max-width: 760px)';
+function useMovil() {
+  const q = () => typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(MQ_MOVIL).matches : false;
+  const [m, setM] = useState(q);
+  useEffect(() => { if (!window.matchMedia) return; const mq = window.matchMedia(MQ_MOVIL), f = () => setM(mq.matches); f(); mq.addEventListener ? mq.addEventListener('change', f) : mq.addListener(f); return () => { mq.removeEventListener ? mq.removeEventListener('change', f) : mq.removeListener(f); }; }, []);
+  return m;
+}
+// una tarea (sin hijas) está atrasada si debía haber empezado o terminado y no lo hizo (mismo criterio que en Producción)
+const atrasadaT = (V, t, now) => t.ops.length && t.inicio && t.estado !== 'terminada' && !V.D[t.id].parent && ((t.estado === 'en proceso' && (V.D[t.id].fin || '') < now && !E.corriendo(t)) || (t.estado === 'pendiente' && t.inicio < now));
+// barrita de tiempo: dónde cae la tarea entre el inicio del proyecto y la entrega, con la línea de hoy y la de entrega
+function MiniBarra({ r, rango, color, ok }) {
+  const { a, dias, hoy, ent } = rango; if (!r.inicio || dias <= 0) return <span className="mlin vacia" />;
+  const x = d => Math.min(100, Math.max(0, E.diffDays(a, d) / dias * 100));
+  const i0 = x(r.inicio.slice(0, 10)), i1 = Math.max(i0 + 1.5, x((r.fin || r.inicio).slice(0, 10)) + 100 / dias);
+  return <span className="mlin" aria-hidden="true">
+    <i className={'mlin-b' + (ok ? ' ok' : '')} style={{ left: i0 + '%', width: Math.min(100, i1) - i0 + '%', '--c': color }}><b style={{ width: Math.round(r.avance || 0) + '%' }} /></i>
+    <em className="mlin-hoy" style={{ left: x(hoy) + '%' }} />{ent && <em className="mlin-ent" style={{ left: x(ent) + '%' }} />}</span>;
+}
+// estado de una fila: atrasada / frenada / finalizada / en proceso, mirando también lo que tiene adentro
+function marcasDe(S, V, t, now) {
+  const ids = [t.id, ...E.descendants(S, t.id)], ts = ids.map(id => V.byId[id]).filter(Boolean);
+  return { atr: ts.filter(x => atrasadaT(V, x, now)).length, fren: ts.filter(x => !V.D[x.id].parent && E.estaFrenada(x)).length };
+}
+function FilaLista({ t, depth, abierto, tog, rango, color, now, verFin }) {
+  const { S, V, ui } = useApp(); const r = V.D[t.id], ok = r.estado === 'terminada';
+  const kids = (V.kids[t.id] || []).filter(c => verFin || V.D[c.id].estado !== 'terminada' || (V.kids[c.id] || []).length);
+  const m = marcasDe(S, V, t, now), hijas = (V.kids[t.id] || []).length > 0;
+  const quien = !hijas && t.ops.length ? t.ops.map(o => opName(S, o)).join(', ') : '';
+  return <div className={'lfila' + (ok ? ' done' : '') + (hijas ? ' par' : '')} style={{ '--d': depth }}>
+    <div className="lfila-h">
+      {hijas ? <button className="tog" onClick={() => tog(t.id)} aria-label={abierto ? 'Plegar' : 'Desplegar'}>{abierto ? '▾' : '▸'}</button> : <span className="tog" />}
+      <button className="lfila-t" onClick={() => ui.modal({ k: 'task', id: t.id })}>
+        <span className="lfila-n">{ok && <span className="g-ok">✓ </span>}{t.codigo && <span className="code">{t.codigo} </span>}{t.nombre}{t.cant > 1 && <span className="mut"> ×{t.cant}</span>}</span>
+        <span className="lfila-s mut">{fD(r.inicio && r.inicio.slice(0, 10))} → {fD(r.fin && r.fin.slice(0, 10))}{quien && ` · ${quien}`}{hijas && ` · ${kids.length} ${kids.length === 1 ? 'pieza' : 'piezas'}`}</span>
+      </button>
+      <span className="lfila-m">{m.atr > 0 && <span className="mk bad" title="Atrasada">⚠{hijas ? ' ' + m.atr : ''}</span>}{m.fren > 0 && <span className="mk warn" title="Frenada">⏸{hijas ? ' ' + m.fren : ''}</span>}<b>{Math.round(r.avance || 0)}%</b></span>
+    </div>
+    <MiniBarra r={r} rango={rango} color={color} ok={ok} />
+  </div>;
+}
+function ProyLista({ roots, ts, p, rango, visQ, q }) {
+  const { S, V } = useApp(); const now = E.nowDT();
+  const [ab, togAb, setAb] = useSet(); const [verFin, setVerFin] = useState(() => prefG('movil-verfin', false));
+  useEffect(() => { if (visQ) setAb(new Set(ts.filter(t => (V.kids[t.id] || []).length && visQ(t)).map(t => t.id))); }, [q]);   // al buscar, abre lo que coincide
+  const ord = ordenProy(S);
+  const vis = t => (!visQ || visQ(t)) && (verFin || V.D[t.id].estado !== 'terminada' || (V.kids[t.id] || []).length);
+  const filasDe = r0 => { const out = []; const go = (t, d) => { if (!vis(t)) return; out.push({ t, d }); if (ab.has(t.id)) ord(V.kids[t.id] || []).forEach(c => go(c, d + 1)); }; go(r0, 0); return out; };
+  const rs = ord(roots).filter(vis);
+  return <section className="plista">
+    <div className="row"><button className="btn sm" onClick={() => setAb(new Set(ts.filter(t => (V.kids[t.id] || []).length).map(t => t.id)))}>⊞ Abrir todo</button><button className="btn sm" onClick={() => setAb(new Set())}>⊟ Cerrar todo</button>
+      <label className="chk lchk"><input type="checkbox" checked={verFin} onChange={e => { setVerFin(e.target.checked); guardaG('movil-verfin', e.target.checked); }} /> Ver finalizadas</label></div>
+    {rs.length === 0 && <Vacio ic="caja" chico t={roots.length ? 'No hay piezas para mostrar' : 'Este proyecto todavía no tiene piezas'}>{roots.length ? 'Probá con "Ver finalizadas" o limpiá la búsqueda.' : 'Agregá una con + Pieza.'}</Vacio>}
+    {rs.map(r0 => <div key={r0.id} className="lcard" style={{ '--c': p.color }}>
+      {filasDe(r0).map(({ t, d }) => <FilaLista key={t.id} t={t} depth={d} abierto={ab.has(t.id)} tog={togAb} rango={rango} color={p.color} now={now} verFin={verFin} />)}</div>)}
+    <p className="mut legend"><i className="lg t" />hoy <i className="lg d" />entrega · Tocá una pieza para editarla</p>
+  </section>;
+}
+
+// tabla del teléfono: cada pieza es un renglón con los datos rápidos; al tocarlo se despliega el resto
+function TablaMovil({ roots, vis, orden }) {
+  const { S, V, ui } = useApp(); const [col, tog] = useSet(); const [ab, togAb] = useSet(); const now = E.nowDT();
+  const rows = flatten(roots, V, col, vis, orden);
+  if (!rows.length) return <Vacio ic="caja" chico t="No hay piezas para mostrar" />;
+  const turnoTxt = t => t.turno === 'extra' ? 'Horas extra' : t.turno === 'ambos' ? 'Normal + extra' : 'Normal';
+  return <div className="tmov">{rows.map(({ t, depth, hasKids }) => { const r = V.D[t.id], ok = r.estado === 'terminada', on = ab.has(t.id);
+    const ops = (r.parent ? r.ops : t.ops).map(o => opName(S, o)).join(', '), atr = !!atrasadaT(V, t, now), fren = !r.parent && E.estaFrenada(t);
+    const dato = (l, v) => <div><span>{l}</span><b>{v || '—'}</b></div>;
+    return <div key={t.id} className={'tmf' + (hasKids ? ' par' : '') + (ok ? ' done' : '') + (on ? ' on' : '')} style={{ '--d': depth }}>
+      <div className="tmf-h">
+        {hasKids ? <button className="tog" onClick={() => tog(t.id)} aria-label={col.has(t.id) ? 'Desplegar' : 'Plegar'}>{col.has(t.id) ? '▸' : '▾'}</button> : <span className="tog" />}
+        <button className="tmf-t" aria-expanded={on} onClick={() => togAb(t.id)}>
+          <span className="tmf-n">{ok && <span className="g-ok">✓ </span>}{t.codigo && <span className="code">{t.codigo} </span>}{t.nombre}{t.cant > 1 && <span className="mut"> ×{t.cant}</span>}</span>
+          <span className="tmf-s"><span className={'est e-' + r.estado.replace(' ', '')}>{estTxt(r.estado)}</span>{atr && <span className="mk bad">⚠ atrasada</span>}{fren && <span className="mk warn">⏸ frenada</span>}<span className="mut">{ops || 'sin operario'}</span></span>
+        </button>
+        <b className="tmf-p">{Math.round(r.avance || 0)}%</b>
+      </div>
+      {on && <div className="tmf-d">
+        <div className="tmf-g">{dato('Cantidad', t.cant)}{dato('Prioridad', t.prioridad)}{!r.parent && dato('Operación', t.operacionId ? operName(S, t.operacionId) : '')}{dato('Operarios', ops)}{!r.parent && dato('Turno', turnoTxt(t))}
+          {dato('Duración', fN(r.hh) + ' HH')}{dato('Inicio', fDT(r.inicio))}{dato('Fin', fDT(r.fin))}{dato('HH real', r.hhReal > 0 ? fN(r.hhReal) : '')}{dato('Avance', Math.round(r.avance || 0) + '%')}</div>
+        {fren && <FrenoTag t={t} />}
+        <div className="row"><button className="btn sm pri-b" onClick={() => ui.modal({ k: 'task', id: t.id })}>✎ Editar</button></div>
+      </div>}
+    </div>; })}</div>;
+}
+
 function Proyectos() {
-  const { S, V, up, ui } = useApp(); const [pid, setPid0] = useState(() => { try { return localStorage.getItem('produccionapp-proy-actual') || null; } catch (e) { return null; } });
+  const { S, V, up, ui } = useApp(); const movil = useMovil(); const [vistaM, setVistaM] = useState(() => prefG('movil-vista', 'lista')); const [masM, setMasM] = useState(false); const [pid, setPid0] = useState(() => { try { return localStorage.getItem('produccionapp-proy-actual') || null; } catch (e) { return null; } });
   const setPid = id => { setPid0(id); try { id ? localStorage.setItem('produccionapp-proy-actual', id) : localStorage.removeItem('produccionapp-proy-actual'); } catch (e) { } if (typeof window.scrollTo === 'function') window.scrollTo({ top: 0 }); };
   useEffect(() => { const k = e => { if (!e.altKey || e.ctrlKey || e.metaKey) return; const n = Number(e.key); if (n >= 1 && n <= 9 && S.proyectos[n - 1]) { e.preventDefault(); setPid(S.proyectos[n - 1].id); } else if (e.key === '0') { e.preventDefault(); setPid(null); } }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [S.proyectos]); const [col, tog, setCol] = useSet(); const [det, setDet] = useState(null); const [hhv, setHhv] = useState('padre'); const [altoG, setAltoG] = useState('completo'); const [q, setQ] = useState(''); const [verFin, setVerFin] = useState(() => prefG('verfin', false));
   useEffect(() => { if (pid) setAltoG(prefG('alto-' + pid, 'completo')); }, [pid]);
@@ -855,6 +942,59 @@ function Proyectos() {
   const meses = {}; i.ts.forEach(t => { const r = V.D[t.id]; if (r.parent) return; const n = Math.max(1, t.ops.length); r.segs.forEach(s => { const m = s.d.slice(0, 7); meses[m] = (meses[m] || 0) + (s.h + (s.xe || 0)) * n; }); });
   const mk = Object.keys(meses).sort(), mmax = Math.max(1, ...Object.values(meses));
   const late = p.entrega && i.fin && i.fin.slice(0, 10) > p.entrega;
+  // teléfono: resumen corto, selector de vista y datos del proyecto plegados
+  const hoyD = E.today(), nowM = E.nowDT();
+  const hojas = i.ts.filter(t => !V.D[t.id].parent), nAtr = hojas.filter(t => atrasadaT(V, t, nowM)).length, nFren = hojas.filter(t => E.estaFrenada(t)).length;
+  const rA = [i.ini && i.ini.slice(0, 10), hoyD].filter(Boolean).sort()[0], rB = [i.fin && i.fin.slice(0, 10), p.entrega, hoyD].filter(Boolean).sort().pop();
+  const rango = { a: rA, dias: E.diffDays(rA, rB) + 1, hoy: hoyD, ent: p.entrega || null };
+  const diasEnt = p.entrega ? E.diffDays(hoyD, p.entrega) : null;
+  const vistaMov = v => { setVistaM(v); guardaG('movil-vista', v); };
+  const buscador = <div className="pbusca"><input type="search" placeholder="Buscar pieza por código o descripción" value={q} onChange={e => setQ(e.target.value)} aria-label="Buscar pieza" />{qn && <span className="mut">{nQ ? `${nQ} ${nQ === 1 ? 'pieza encontrada' : 'piezas encontradas'}` : 'Ninguna pieza coincide'}</span>}{qn && <button className="btn sm" onClick={() => setQ('')}>Limpiar</button>}
+      {lotes.map(g => <button key={g.k} className="btn sm pri-b" title="Editar a la vez todas las veces que aparece esta pieza en el proyecto" onClick={() => ui.modal({ k: 'lote', ids: g.ids, titulo: g.nom })}>✎ Editar en lote: {g.nom} (×{g.ids.length})</button>)}</div>;
+  const ganttSec = <section><div className="sec-h"><div className="row"><h2>Árbol de piezas y Gantt</h2><div className="seg">{[['oculto', 'Oculto', 'M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c5 0 9 4.5 10 7a13 13 0 0 1-3 4M6.6 6.6C4.4 8 2.8 10 2 12c1 2.5 5 7 10 7a9.6 9.6 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2'], ['compacto', 'Compacto', 'M4 9h16M4 15h16M12 3v3l-2-2M12 3l2 2M12 21v-3l-2 2M12 21l2-2'], ['completo', 'Completo', 'M4 4h16v16H4zM4 9h16M4 14h16']].map(([k, l, d]) => <button key={k} className={altoG === k ? 'on' : ''} onClick={() => { setAltoG(k); guardaG('alto-' + p.id, k); }}><svg viewBox="0 0 24 24"><path d={d} /></svg>{l}</button>)}</div></div>
+        {altoG !== 'oculto' && <span className="mut legend"><i className="lg t" />hoy <i className="lg d" />entrega</span>}</div>
+      {altoG === 'oculto' ? <p className="mut">Oculto ({rows.length} {rows.length === 1 ? 'fila' : 'filas'}). Elegí Compacto o Completo para verlo.</p>
+        : <Gantt rows={rows} ts={i.ts} entrega={p.entrega} color={p.color} collapsed={colV} toggle={tog} alto={altoG} todo={c => setCol(c ? new Set(i.ts.filter(t => (V.kids[t.id] || []).length).map(t => t.id)) : new Set())} />}</section>;
+  const tablas = <><section><div className="sec-h"><h2>Pendientes y en proceso <span className="cnt">{nAct}</span></h2><span className="mut">Mayús + Espacio (Shift + Space) marca la fila · en la casilla alcanza con Espacio</span></div><TaskTable roots={roots} tipo="proy" vis={visAct} collapsed={colV} toggle={tog} orden={ord} /></section>
+    <section className="finsec"><div className="sec-h"><button className="dgrp-t fin-t" onClick={() => { setVerFin(!verFin); guardaG('verfin', !verFin); }}><span className="car">{verFin ? '▾' : '▸'}</span><h2>Finalizadas <span className="cnt ok">{nFin}</span></h2></button></div>
+      {verFin && (nFin ? <TaskTable roots={roots} tipo="proy" vis={visFin} collapsed={colV} toggle={tog} orden={ord} /> : <Vacio ic="reloj" chico t="Todavía no hay piezas finalizadas en este proyecto" />)}</section></>;
+  const kpis = <div className="kpis">
+        <Kpi l="Avance" v={Math.round(i.av) + '%'} s={`${fN(i.hh * i.av / 100)} de ${fN(i.hh)} HH`} onClick={() => setDet(det === 'av' ? null : 'av')} on={det === 'av'} />
+        <Kpi l="Inicio proyectado" v={fD(i.ini && i.ini.slice(0, 10))} /><Kpi l="Fin proyectado" v={fD(i.fin && i.fin.slice(0, 10))} tone={late ? 'bad' : ''} s={late ? `${E.diffDays(p.entrega, i.fin.slice(0, 10))} d después de la entrega` : p.entrega ? `entrega ${fD(p.entrega)}` : ''} />
+        <Kpi l="HH reales cargadas" v={fH(i.real)} s={`plan a la fecha ${fN(i.hh * i.av / 100)} h`} onClick={() => setDet(det === 'hh' ? null : 'hh')} on={det === 'hh'} />
+        <div className="kpi grow"><span>Horas-hombre por mes</span><div className="mbars">{mk.length === 0 && <em>Sin tareas programadas</em>}{mk.map(m => <div key={m} title={`${fN(meses[m])} HH`}><i style={{ height: Math.max(4, meses[m] / mmax * 44), background: p.color }} /><small>{E.MESES[Number(m.slice(5)) - 1]}</small><small className="v">{Math.round(meses[m])}</small></div>)}</div></div>
+      </div>;
+  const datosForm = <div className="form inline">
+        <label>Nombre<input id="p-nom" value={p.nombre} onChange={e => setP('nombre', e.target.value)} /></label>
+        <label>Iniciales<input id="p-ini" className="w4" maxLength="4" value={p.ini} onChange={e => setP('ini', e.target.value.toUpperCase())} /></label>
+        <label>Color<input id="p-col" type="color" value={p.color} onChange={e => setP('color', e.target.value)} /></label>
+        <label>Entrega comprometida<input id="p-ent" type="date" value={p.entrega || ''} onChange={e => setP('entrega', e.target.value)} /></label>
+        <label className="chk etp" title="Dentro de cada ensamblaje, cada etapa (corte, lijado, plegado, mecanizado, soldadura…) espera a que terminen las anteriores. El orden de las etapas se define en Configuración → Operaciones."><input type="checkbox" checked={!!p.etapas} onChange={e => setP('etapas', e.target.checked)} /> Desplazar por etapas de fabricación</label>
+        {p.etapas && <button className="btn" onClick={() => { let n = 0; up(s => { const r = E.acomodarEtapas(s, p.id); n = r.n; return r.S; }); ui.toast(n ? `${n} ${n === 1 ? 'tarea corrida' : 'tareas corridas'} para respetar el orden de las etapas` : 'Ya estaba todo en orden de etapas'); }}>Acomodar por etapas</button>}
+        {i.ts.some(t => t.pos !== undefined && t.pos !== null) && <button className="btn" title="Borra el orden manual (▲▼) y vuelve a ordenar por etapa" onClick={() => up(s => ({ ...s, tareas: s.tareas.map(t => t.proyId === p.id && t.pos !== undefined && t.pos !== null ? { ...t, pos: null } : t) }))}>Ordenar por etapa</button>}
+        <button className="btn danger" onClick={() => { up(s => ({ ...s, proyectos: s.proyectos.filter(x => x.id !== p.id), tareas: s.tareas.filter(t => t.proyId !== p.id) })); setPid(null); ui.toast('Proyecto borrado. Podés deshacerlo arriba.'); }}>Borrar proyecto</button>
+      </div>;
+  const tablasMovil = <><section><div className="sec-h"><h2>Pendientes y en proceso <span className="cnt">{nAct}</span></h2></div><TablaMovil roots={roots} vis={visAct} orden={ord} /></section>
+    <section className="finsec"><div className="sec-h"><button className="dgrp-t fin-t" onClick={() => { setVerFin(!verFin); guardaG('verfin', !verFin); }}><span className="car">{verFin ? '▾' : '▸'}</span><h2>Finalizadas <span className="cnt ok">{nFin}</span></h2></button></div>
+      {verFin && (nFin ? <TablaMovil roots={roots} vis={visFin} orden={ord} /> : <Vacio ic="reloj" chico t="Todavía no hay piezas finalizadas en este proyecto" />)}</section></>;
+  if (movil) return <div className="view pmovil">{tabs}
+    <section>
+      <div className="sec-h"><div className="row"><span className="chip" style={{ '--c': p.color }}>{p.ini}</span><h2>{p.nombre}</h2></div>
+        <button className="btn pri-b" onClick={() => ui.modal({ k: 'task', draft: E.blankTask('proy', p.id) })}>+ Pieza</button></div>
+      <button type="button" className={'presum' + (masM ? ' on' : '')} style={{ '--c': p.color }} aria-expanded={masM} onClick={() => setMasM(!masM)}>
+        <span className="presum-av"><b>{Math.round(i.av)}%</b><Bar v={i.av} color={p.color} /></span>
+        <span className={'presum-d' + (late ? ' c-bad' : '')}><b>{diasEnt === null ? fD(i.fin && i.fin.slice(0, 10)) : late ? `+${E.diffDays(p.entrega, i.fin.slice(0, 10))} d` : diasEnt < 0 ? 'vencida' : `${diasEnt} d`}</b><small>{diasEnt === null ? 'fin proyectado' : late ? 'pasada de la entrega' : diasEnt < 0 ? `entrega ${fD(p.entrega)}` : `a la entrega (${fD(p.entrega)})`}</small></span>
+        <span className={'presum-n' + (nAtr ? ' c-bad' : '')}><b>⚠ {nAtr}</b><small>{nAtr === 1 ? 'atrasada' : 'atrasadas'}</small></span>
+        <span className={'presum-n' + (nFren ? ' warn' : '')}><b>⏸ {nFren}</b><small>{nFren === 1 ? 'frenada' : 'frenadas'}</small></span>
+        <i className="kar">{masM ? '▴' : '▾'}</i>
+      </button>
+      {masM && <div className="presum-mas">{kpis}<h3>Datos del proyecto</h3>{datosForm}<div className="row"><button className="btn" onClick={() => ui.modal({ k: 'imp', mode: 'proy', proyId: p.id })}>Importar árbol .xlsx</button></div></div>}
+    </section>
+    {det && <Desglose roots={roots} ts={i.ts} vista={det} hhv={hhv} setHhv={setHhv} color={p.color} cerrar={() => setDet(null)} />}
+    {buscador}
+    <div className="seg vistam">{[['lista', 'Lista', 'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01'], ['gantt', 'Gantt', 'M4 6h9M8 12h10M6 18h7'], ['tabla', 'Tabla', 'M4 4h16v16H4zM4 10h16M10 4v16']].map(([k, l, d]) => <button key={k} className={vistaM === k ? 'on' : ''} onClick={() => vistaMov(k)}><svg viewBox="0 0 24 24"><path d={d} /></svg>{l}</button>)}</div>
+    {vistaM === 'lista' ? <ProyLista roots={roots} ts={i.ts} p={p} rango={rango} visQ={visQ} q={qn} /> : vistaM === 'gantt' ? ganttSec : tablasMovil}
+  </div>;
   return <div className="view">{tabs}
     <section>
       <div className="sec-h"><div className="row"><span className="chip" style={{ '--c': p.color }}>{p.ini}</span><h2>{p.nombre}</h2></div>

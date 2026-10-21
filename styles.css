@@ -895,3 +895,54 @@ label.chk.cadena { font-size: 13px !important; color: var(--mut) !important; }
 .ini-bts .btn { flex: none; }
 .hh-ch .incalc input { width: 100%; text-align: right; }
 @media (max-width: 560px) { .form .fila-ini { grid-template-columns: 1fr; } .ini-bts { flex-wrap: wrap; } .ini-bts input { flex-basis: 100%; min-width: 0; } }
+
+/* ================= Proyectos en el teléfono: resumen, selector y vista Lista (21/10) ================= */
+.pmovil .sec-h h2 { font-size: 19px; }
+.presum { display: grid; grid-template-columns: 1.3fr 1fr .8fr .8fr auto; align-items: center; gap: 8px; width: 100%; padding: 10px 12px; border-radius: var(--r); border: 1px solid var(--line); border-top: 3px solid var(--c, var(--accent)); background: linear-gradient(180deg, var(--panel2), var(--panel)); color: var(--ink); text-align: left; cursor: pointer; box-shadow: var(--sh); }
+.presum.on { box-shadow: 0 0 0 2px var(--c, var(--accent)), var(--sh); }
+.presum > span { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.presum b { font: 700 20px/1 var(--f-d); white-space: nowrap; } .presum small { font-size: 12px; color: var(--mut); line-height: 1.15; }
+.presum-av .pbar { width: 100%; }
+.presum .c-bad b, .presum .c-bad small { color: var(--bad); } .presum .warn b { color: var(--warn); }
+.presum .kar { align-self: center; }
+.presum-mas { display: flex; flex-direction: column; gap: 10px; } .presum-mas h3 { margin: 4px 0 0; }
+.presum-mas .form.inline label:first-child { flex-basis: 100%; }
+.seg.vistam { align-self: stretch; display: flex; } .seg.vistam button { flex: 1; justify-content: center; }
+.plista { gap: 8px; }
+.plista > .row { gap: 6px; } .lchk { margin-left: auto; font-size: 13px; }
+.lcard { border: 1px solid var(--line); border-left: 4px solid var(--c, var(--accent)); border-radius: var(--r); background: linear-gradient(180deg, var(--panel2), var(--panel)); overflow: hidden; }
+.lfila { padding: 8px 10px 8px calc(6px + var(--d, 0) * 14px); border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+.lfila:first-child { border-top: 0; padding-block: 11px 10px; }
+.lfila:first-child .lfila-n { font: 600 17px/1.2 var(--f-d); letter-spacing: .02em; }
+.lfila:not(:first-child) { background: color-mix(in srgb, var(--bg) 35%, transparent); }
+.lfila.done .lfila-n { color: var(--ok); }
+.lfila-h { display: flex; align-items: flex-start; gap: 6px; }
+.lfila-h .tog { flex: none; width: 30px; height: 30px; font-size: 15px; }
+.lfila-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; background: none; border: 0; padding: 4px 0 0; color: var(--ink); text-align: left; cursor: pointer; font: inherit; }
+.lfila-n { font-weight: 500; overflow-wrap: anywhere; line-height: 1.25; }
+.lfila-s { font-size: 12px; }
+.lfila-m { flex: none; display: flex; align-items: center; gap: 5px; padding-top: 4px; } .lfila-m b { font: 700 16px var(--f-d); min-width: 38px; text-align: right; }
+.mlin { position: relative; display: block; height: 10px; margin-left: 36px; border-radius: 5px; background: color-mix(in srgb, var(--ink) 7%, transparent); }
+.mlin.vacia { opacity: .4; }
+.mlin-b { position: absolute; top: 1px; bottom: 1px; min-width: 4px; border-radius: 4px; background: color-mix(in srgb, var(--c) 40%, var(--panel)); overflow: hidden; }
+.mlin-b b { display: block; height: 100%; background: var(--c); }
+.mlin-b.ok { background: color-mix(in srgb, var(--ok) 55%, var(--panel)); } .mlin-b.ok b { background: var(--ok); }
+.mlin-hoy, .mlin-ent { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--accent); border-radius: 1px; } .mlin-ent { background: var(--bad); }
+@media (max-width: 380px) { .presum { grid-template-columns: 1fr 1fr; } .presum .kar { display: none; } }
+
+/* ================= Teléfono: tabla desplegable y Gantt con sangría corta (21/10) ================= */
+.tmov { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); overflow: hidden; }
+.tmf { border-top: 1px solid var(--line); padding-left: calc(var(--d, 0) * 8px); } .tmf:first-child { border-top: 0; }
+.tmf:nth-child(even) { background: color-mix(in srgb, var(--ink) 4%, var(--panel)); }
+.tmf.par { background: color-mix(in srgb, var(--accent) 8%, var(--panel2)); } .tmf.par .tmf-n { font-weight: 600; }
+.tmf.on { box-shadow: inset 3px 0 var(--accent); }
+.tmf-h { display: flex; align-items: flex-start; gap: 4px; padding: 7px 10px 7px 4px; }
+.tmf-h .tog { flex: none; width: 30px; height: 30px; font-size: 15px; }
+.tmf-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; background: none; border: 0; padding: 5px 0 0; color: var(--ink); text-align: left; cursor: pointer; font: inherit; }
+.tmf-n { overflow-wrap: anywhere; line-height: 1.25; } .tmf.done .tmf-n { color: var(--ok); }
+.tmf-s { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 12px; } .tmf-s .est { font-size: 12px; padding: 1px 8px; }
+.tmf-p { flex: none; font: 700 16px var(--f-d); padding-top: 6px; min-width: 38px; text-align: right; }
+.tmf-d { display: flex; flex-direction: column; gap: 8px; padding: 2px 12px 12px 38px; }
+.tmf-g { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; }
+.tmf-g > div { display: flex; flex-direction: column; gap: 1px; min-width: 0; } .tmf-g span { font-size: 12px; color: var(--mut); } .tmf-g b { font-weight: 500; font-size: 14px; overflow-wrap: anywhere; text-transform: none; }
+@media (max-width: 760px) { .gantt { --ind: 6px; --lw: 170px !important; } .gantt .g-grip, .gantt .g-add, .gantt .g-left > .num, .gantt .g-head .g-left .rz { display: none; } .gantt .g-left { padding: 0 6px 0 2px; gap: 2px; } .gantt .g-left .tog { width: 22px; } .gantt .g-left .tlink { font-size: 12.5px; } }
