@@ -9,6 +9,7 @@
   --ink: #e4eaf0;
   --mut: #90a0b0;
   --accent: #4fb0ff;
+  --ext: #b48cff;   /* tercerizada (hecha por un proveedor) */
   --on-accent: #0b141d;
   --ok: #3fca8b;
   --warn: #efc145;
@@ -802,6 +803,7 @@ select.ci.est.e-pendiente { background: transparent; }
 /* 7. Tema claro (botón ☀ en la barra superior) */
 :root[data-theme="light"] {
   color-scheme: light;
+  --ext: #7c3aed;
   --bg: #eef2f6; --panel: #ffffff; --panel2: #f4f7fa; --line: #cfd8e2; --stripe: rgba(20,40,60,.045);
   --ink: #16202a; --mut: #586a7d; --on-accent: #08131d;
   --ok: #17935b; --warn: #b88207; --bad: #d4382a;
@@ -985,3 +987,14 @@ label.chk.cadena { font-size: 13px !important; color: var(--mut) !important; }
 .ausr th.nm { position: sticky; left: 0; background: var(--panel); text-align: left; padding: 0 8px; min-width: 150px; white-space: nowrap; z-index: 1; }
 .ausr th.mh { text-transform: capitalize; font-size: 12px; } .ausr .off { background: var(--stripe); color: var(--mut); } .ausr .hoy { box-shadow: inset 0 0 0 2px var(--ink); }
 .ausr td.aus { background: color-mix(in srgb, var(--warn) 45%, transparent); font-weight: 700; } .ausr tr.cnt td { color: var(--mut); } .ausr tr.cnt td.multi { background: color-mix(in srgb, var(--bad) 35%, transparent); color: var(--ink); font-weight: 700; }
+
+/* 8. Tercerizada: pieza hecha por un proveedor (violeta, siempre con el texto "↗ Tercerizada") */
+.est.e-terc { color: var(--ext); border-color: var(--ext); background: color-mix(in srgb, var(--ext) 14%, transparent); text-transform: none; font-weight: 600; }
+.mk.terc { color: var(--ext); border-color: var(--ext); background: color-mix(in srgb, var(--ext) 14%, transparent); font-weight: 700; }
+.tag.terc { color: var(--ext); border-color: var(--ext); }
+.g-ok.terc { color: var(--ext); }
+.g-bar.terc { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--ext) 55%, var(--panel)) 0 6px, color-mix(in srgb, var(--ext) 30%, var(--panel)) 6px 12px); }
+.g-bar.terc span { background: var(--ext); }
+.g-lab.terc { color: var(--ext); font-weight: 600; }
+.btn.terc-b { border-color: var(--ext); color: var(--ext); background: color-mix(in srgb, var(--ext) 12%, var(--panel2)); }
+.note.terc { color: var(--ink); border-color: var(--ext); }

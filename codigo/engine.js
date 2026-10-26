@@ -243,7 +243,7 @@ export function patchTask(S, id, patch, mover = false) {
   const t = S2.tareas.find(x => x.id === id);
   if (t && t.inicio && isLeaf(S2, id)) {
     let ini = t.inicio;
-    predsDe(S2, t).forEach(p => { const pt = S2.tareas.find(x => x.id === p); const f = pt && pt.estado !== 'terminada' ? finOf(S2, pt) : null; if (f && f > ini) ini = f; });
+    predsDe(S2, t).forEach(p => { const pt = S2.tareas.find(x => x.id === p); const f = pt && pt.estado !== 'terminada' ? finOf(S2, pt) : finTerc(pt); if (f && f > ini) ini = f; });
     ini = normStart(S2, ini, t.turno, t.ops);
     if (ini !== t.inicio) S2 = { ...S2, tareas: S2.tareas.map(x => x.id === id ? { ...x, inicio: ini } : x) };
     S2 = reflow(S2, id);
@@ -351,7 +351,7 @@ function arrastrarCola(S, S2) {
     const mov = prevs[t.id].filter(p => cambio.has(p.id));
     if (mov.length) {
       let ni = ''; prevs[t.id].forEach(p => { const f = finOf(S2, get(p.id)); const c = p.gap > 0.001 ? addWork(S2, f, p.gap, t.turno, t.ops).end : f; if (c > ni) ni = c; });
-      predsDe(S2, t).forEach(pid => { const pt = get(pid); const f = pt && pt.estado !== 'terminada' ? finOf(S2, pt) : null; if (f && f > ni) ni = f; });
+      predsDe(S2, t).forEach(pid => { const pt = get(pid); const f = pt && pt.estado !== 'terminada' ? finOf(S2, pt) : finTerc(pt); if (f && f > ni) ni = f; });
       ni = normStart(S2, ni, t.turno, t.ops);
       if (ni !== t.inicio) { S2 = { ...S2, tareas: S2.tareas.map(x => x.id === t.id ? { ...x, inicio: ni, empuje: null } : x) }; t = get(t.id); }
     }
@@ -402,6 +402,28 @@ export function salir(S, id, op) {
 // ---- Frenar una tarea por días (otra prioridad, falta de material…) y retomarla después ----
 export const MOTIVOS_FRENO = ['Cambio de prioridad', 'Falta de material', 'Máquina', 'Operario'];
 export const estaFrenada = t => !!(t && t.frenada && t.estado !== 'terminada');
+// ---- Tercerizar: la pieza se hace afuera (por capacidad de planta) ----
+// Queda "terminada" para el calendario, el Taller y los padres, pero con la marca tercerizada: no suma horas reales ni entra al promedio de Tiempos.
+// fecha (opcional) = cuándo vuelve del proveedor: lo que depende de ella (Predecesoras) no empieza antes.
+export const finTerc = t => (t && t.tercerizada && t.tercFecha) ? t.tercFecha + 'T00:00' : null;
+export function tercerizar(S, id, { proveedor, fecha, nota } = {}) {
+  const t = S.tareas.find(x => x.id === id); if (!t || t.estado === 'terminada' || !isLeaf(S, id)) return { S, n: 0 };
+  const finPlan = t.inicio && t.ops.length ? finOf(S, t) : null, now = nowDT();
+  let S1 = { ...S, tareas: S.tareas.map(x => x.id === id ? { ...x, estado: 'terminada', avance: 100, proximo: null, hhReal: 0, finReal: now, realFin: false, crono: { acum: 0, desde: null }, pausada: false, empuje: null, tercerizada: true, proveedor: (proveedor || '').trim(), tercFecha: fecha || null, tercNota: (nota || '').trim() } : x) };
+  let n = 0;
+  if (finPlan && (S.cfg || {}).adelantarCola !== false) { const a = adelantarCola(S1, id, finPlan); S1 = a.S; n = a.n; }   // el lugar que deja libre lo aprovecha lo que venía detrás
+  S1.tareas.filter(x => (x.preds || []).includes(id) && x.inicio && x.estado !== 'terminada').forEach(x => { S1 = patchTask(S1, x.id, {}, true); });   // lo que depende de ella espera a la fecha de retorno
+  return { S: S1, n };
+}
+// Se arrepintieron: la pieza vuelve a planta como pendiente
+export function volverAPlanta(S, id) {
+  const t = S.tareas.find(x => x.id === id); if (!t || !t.tercerizada) return S;
+  const S1 = { ...S, tareas: S.tareas.map(x => x.id === id ? { ...x, estado: 'pendiente', avance: 0, hhReal: 0, finReal: null, realFin: false, crono: null, pausada: false, tercerizada: false, proveedor: '', tercFecha: null, tercNota: '' } : x) };
+  const r = S1.tareas.find(x => x.id === id);
+  if (!r.ops.length) return S1;
+  const ini = r.inicio && r.inicio > nowDT() ? r.inicio : nextFree(S1, r.ops[0], r.turno, r.ops);
+  return patchTask({ ...S1, tareas: S1.tareas.map(x => x.id === id ? { ...x, inicio: ini } : x) }, id, {}, true);
+}
 // ---- Próximo a realizar: piezas que se marcan para hacer primero (la marca guarda cuándo se puso, para ordenarlas) ----
 // Solo cuenta mientras la pieza está pendiente: al iniciarla o finalizarla la marca se quita sola.
 export const esProximo = t => !!(t && t.proximo && t.estado === 'pendiente');
@@ -497,7 +519,7 @@ export function setEstado(S, id, e) {
   const t = S.tareas.find(x => x.id === id); if (!t || t.estado === e) return S;
   if (e === 'en proceso') return iniciar(S, id);
   if (e === 'terminada') { const l = llevado(S, t); return finalizarYEncadenar(S, id, l > 0 ? l : t.hhReal).S; }
-  return { ...S, tareas: S.tareas.map(x => x.id === id ? { ...x, estado: 'pendiente', finReal: null, crono: null, pausada: false } : x) };
+  return { ...S, tareas: S.tareas.map(x => x.id === id ? { ...x, estado: 'pendiente', finReal: null, crono: null, pausada: false, tercerizada: false } : x) };
 }
 // ---- Cadena de un operario: cuando una tarea termina antes, las que venían pegadas detrás se adelantan ----
 // Solo mueve pendientes que estaban una detrás de la otra (si había un hueco a propósito o una tarea fijada a mano 📌, la cadena se corta).
@@ -512,7 +534,7 @@ export function adelantarCola(S, id, finPlan) {
       const x = S2.tareas.find(y => y.id === x0.id);
       if (x.estado !== 'pendiente' || x.manual || x.inicio > normStart(S2, finAnt, x.turno, x.ops)) break;
       const finViejo = finOf(S2, x); let ni = cursor;
-      predsDe(S2, x).forEach(pid => { const pt = S2.tareas.find(y => y.id === pid); const f = pt && pt.estado !== 'terminada' && pt.inicio ? finOf(S2, pt) : null; if (f && f > ni) ni = f; });
+      predsDe(S2, x).forEach(pid => { const pt = S2.tareas.find(y => y.id === pid); const f = pt && pt.estado !== 'terminada' && pt.inicio ? finOf(S2, pt) : finTerc(pt); if (f && f > ni) ni = f; });
       x.ops.filter(o => o !== op).forEach(o => S2.tareas.forEach(y => { if (viva(y) && y.id !== x.id && y.ops.includes(o) && choque(y.turno, x.turno) && y.inicio < x.inicio) { const f = finOf(S2, y); if (f > ni) ni = f; } }));   // los otros operarios de la tarea también tienen que estar libres
       ni = normStart(S2, ni, x.turno, x.ops);
       if (ni >= x.inicio) break;
@@ -572,7 +594,7 @@ export function compactar(S, op) {
     const t = S2.tareas.find(x => x.id === t0.id); if (t.inicio <= now) return;
     let ni = now;
     S2.tareas.forEach(x => { if (x.id === t.id || pos[x.id] == null || pos[x.id] > pos[t.id] || cls(x) !== cls(t) || !x.ops.some(o => t.ops.includes(o))) return; const f = finOf(S2, x); if (f > ni) ni = f; });
-    predsDe(S2, t).forEach(pid => { const pt = S2.tareas.find(x => x.id === pid); const f = pt && pt.estado !== 'terminada' && pt.inicio ? finOf(S2, pt) : null; if (f && f > ni) ni = f; });
+    predsDe(S2, t).forEach(pid => { const pt = S2.tareas.find(x => x.id === pid); const f = pt && pt.estado !== 'terminada' && pt.inicio ? finOf(S2, pt) : finTerc(pt); if (f && f > ni) ni = f; });
     ni = normStart(S2, ni, t.turno, t.ops);
     if (ni >= t.inicio || !addWork(S2, ni, Math.min(0.1, calDur(t) || 0.1), t.turno, t.ops).ok) return;
     const marca = t.empuje === ni ? null : (t.empuje || t.inicio);
@@ -621,7 +643,7 @@ export function fabricaciones(S) {
       c.push(regFab(t, hh, fin, [...new Set(ps.flatMap(x => x.ops || []))]));
       return;
     }
-    if (t.estado !== 'terminada' || !(Number(t.hhReal) > 0) || hijos[t.id]) return;
+    if (t.estado !== 'terminada' || t.tercerizada || !(Number(t.hhReal) > 0) || hijos[t.id]) return;   // las tercerizadas no se fabricaron en planta: no entran al promedio ni al costo
     c.push(regFab(t, Number(t.hhReal), t.finReal || t.inicio || t.creada, t.ops || []));
   });
   // historial importado de la planilla de tiempos: cuenta en el promedio igual que una tarea finalizada
@@ -717,7 +739,7 @@ export function reprogramar(S) {
   venc.forEach(t0 => {
     const t = S2.tareas.find(x => x.id === t0.id); let c = now;
     t.ops.forEach(o => { const k = o + '|' + cls(t); if (cur[k] && cur[k] > c) c = cur[k]; });
-    predsDe(S2, t).forEach(pid => { const pt = S2.tareas.find(x => x.id === pid); const f = pt && pt.estado !== 'terminada' && pt.inicio ? finOf(S2, pt) : null; if (f && f > c) c = f; });
+    predsDe(S2, t).forEach(pid => { const pt = S2.tareas.find(x => x.id === pid); const f = pt && pt.estado !== 'terminada' && pt.inicio ? finOf(S2, pt) : finTerc(pt); if (f && f > c) c = f; });
     const ni = normStart(S2, c, t.turno, t.ops);
     S2 = { ...S2, tareas: S2.tareas.map(x => x.id === t.id ? { ...x, inicio: ni, empuje: x.empuje || x.inicio } : x) }; n++;
     const f = finOf(S2, S2.tareas.find(x => x.id === t.id)); t.ops.forEach(o => { cur[o + '|' + cls(t)] = f; });
