@@ -164,19 +164,22 @@ const txtFreno = t => { const f = t.frenada, d = diasFrenada(t); return `${f.mot
 function FrenoTag({ t }) { if (!E.estaFrenada(t)) return null;
   return <><span className="tag fren">⏸ Frenada · {txtFreno(t)}</span>{t.frenada.nota && <span className="fren-nota">{t.frenada.nota}</span>}</>; }
 // Pausar o frenar: "sigue en la cola" es la pausa de siempre; frenar deja lo que falta afuera del calendario (o desde una fecha)
-function TercerizarDlg({ id, onClose }) {
-  const { S, up, ui } = useApp(); const t = S.tareas.find(x => x.id === id);
+function TercerizarDlg({ id, ids, onClose }) {
+  const { S, up, ui } = useApp();
+  const lista = (ids || [id]).filter(i => { const x = S.tareas.find(y => y.id === i); return x && x.estado !== 'terminada' && !S.tareas.some(c => c.parentId === i); });   // solo piezas sin hijos y sin finalizar
+  const multi = lista.length > 1, t = S.tareas.find(x => x.id === lista[0]);
   const [prov, setProv] = useState(''); const [fecha, setFecha] = useState(''); const [nota, setNota] = useState(''); const [q, setQ] = useState(() => String(Math.max(1, Number(t && t.cant) || 1)));
   if (!t) return null;
-  const total = Math.max(1, Number(t.cant) || 1), elige = total > 1 && !(Number(t.cantEnv) > 0), c = elige ? Math.min(total, Math.max(1, Math.floor(Number(q)) || total)) : total;
-  const ok = () => { let n = 0; up(s => { const r = E.tercerizar(s, id, { proveedor: prov, fecha, nota, cant: c }); n = r.n; return r.S; });
-    ui.toast((c < total ? `${c} de ${total} unidades tercerizadas` : 'Tercerizada') + (prov.trim() ? ' en ' + prov.trim() : '') + (fecha ? ` · vuelve el ${fD(fecha)}` : '') + (n ? `. ${n === 1 ? 'La tarea que venía detrás se adelantó' : n + ' tareas que venían detrás se adelantaron'}.` : '.')); onClose(); };
-  return createPortal(<Modal title={'Tercerizar · ' + t.nombre} onClose={onClose} foot={<><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn terc-b" onClick={ok}>↗ Tercerizar</button></>}>
+  const total = Math.max(1, Number(t.cant) || 1), elige = !multi && total > 1 && !(Number(t.cantEnv) > 0), c = elige ? Math.min(total, Math.max(1, Math.floor(Number(q)) || total)) : total;
+  const ok = () => { let n = 0; up(s => { let S2 = s; lista.forEach(i => { const r = E.tercerizar(S2, i, { proveedor: prov, fecha, nota, cant: multi ? undefined : c }); S2 = r.S; n += r.n; }); return S2; });
+    ui.toast((multi ? `${lista.length} piezas tercerizadas` : c < total ? `${c} de ${total} unidades tercerizadas` : 'Tercerizada') + (prov.trim() ? ' en ' + prov.trim() : '') + (fecha ? ` · vuelve el ${fD(fecha)}` : '') + (n ? `. ${n === 1 ? 'La tarea que venía detrás se adelantó' : n + ' tareas que venían detrás se adelantaron'}.` : '.')); onClose(); };
+  return createPortal(<Modal title={multi ? `Tercerizar · ${lista.length} piezas` : 'Tercerizar · ' + t.nombre} onClose={onClose} foot={<><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn terc-b" onClick={ok}>↗ Tercerizar{multi ? ` (${lista.length})` : ''}</button></>}>
+    {multi && <p className="mut">{lista.map(i => S.tareas.find(x => x.id === i).nombre).join(' · ')}</p>}
     {elige && <label className="fld">Cantidad a tercerizar (de {total})<input type="number" min="1" max={total} step="1" value={q} onChange={e => setQ(e.target.value)} />{c < total && <small className="hint">Se divide la pieza: {c} {c === 1 ? 'unidad queda' : 'unidades quedan'} tercerizadas y {total - c} siguen en planta (con las horas repartidas en proporción).</small>}</label>}
     <label className="fld">Proveedor (opcional)<input type="text" value={prov} placeholder="Ej.: Plegados Rossi" onChange={e => setProv(e.target.value)} /></label>
     <label className="fld">Vuelve el (opcional)<input type="date" value={fecha} onChange={e => setFecha(e.target.value)} /></label>
     <label className="fld">Notas (opcional)<textarea rows="2" value={nota} placeholder="Ej.: se retira el lunes con el plano rev. B" onChange={e => setNota(e.target.value)} /></label>
-    <p className="mut">La pieza queda como finalizada y tercerizada: no ocupa operarios ni horas de planta. Si cargás la fecha de regreso, las tareas que dependen de ella (Predecesoras) esperan hasta ese día. Después podés usar "Volver a planta".</p>
+    <p className="mut">{multi ? 'Las piezas quedan' : 'La pieza queda'} como finalizada{multi ? 's' : ''} y tercerizada{multi ? 's' : ''}: no ocupan operarios ni horas de planta. Si cargás la fecha de regreso, las tareas que dependen de {multi ? 'ellas' : 'ella'} (Predecesoras) esperan hasta ese día. Después podés usar "Volver a planta" en cada una.</p>
   </Modal>, document.body);
 }
 function FrenarDlg({ id, pausa, onClose }) {
@@ -631,6 +634,7 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden }) {
       <select value="" onChange={e => enBloque('prioridad', e.target.value)} aria-label="Prioridad"><option value="">Prioridad…</option><option>alta</option><option>media</option><option>baja</option></select>
       <select value="" onChange={e => enBloque('turno', e.target.value)} aria-label="Turno"><option value="">Turno…</option><option value="normal">Normal</option><option value="extra">Extra</option><option value="ambos">Normal + extra</option></select>
       <button className="btn sm pri-b" onClick={() => { const ids = vivos.filter(id => !V.D[id].parent); if (!ids.length) { ui.toast('Elegí piezas con trabajo propio (no ensamblajes generales)'); return; } ui.modal({ k: 'lote', ids }); }}>✎ Editar en lote</button>
+      <button className="btn sm terc-b" title="Las piezas elegidas las hace un proveedor: quedan finalizadas y tercerizadas" onClick={() => { const ids = vivos.filter(i => !V.D[i].parent && V.D[i].estado !== 'terminada'); if (!ids.length) { ui.toast('Elegí piezas sin finalizar y sin piezas hijas'); return; } ui.modal({ k: 'tercerizar', ids }); }}>↗ Tercerizar</button>
       <span className="sp" /><button className="btn sm danger" onClick={borrarSel}>Borrar</button><button className="btn sm" onClick={() => setSel(new Set())}>Quitar selección</button></div>}
     <div className="scroll xlw"><table className="tt xl" onKeyDown={nav} style={{ width: cols.reduce((a, c) => a + W[c[0]], 0) }}>
     <colgroup>{cols.map(c => <col key={c[0]} style={{ width: W[c[0]] }} />)}</colgroup>
@@ -2096,7 +2100,7 @@ export function App({ db, ses, S0 }) {
       {modal && modal.k === 'pick' && <Picker {...modal} onClose={close} />}
       {modal && modal.k === 'hoy' && <Hoy onClose={close} />}
       {modal && modal.k === 'frenar' && <FrenarDlg id={modal.id} pausa={false} onClose={close} />}
-      {modal && modal.k === 'tercerizar' && <TercerizarDlg id={modal.id} onClose={close} />}
+      {modal && modal.k === 'tercerizar' && <TercerizarDlg id={modal.id} ids={modal.ids} onClose={close} />}
       {modal && modal.k === 'retomar' && <RetomarDlg id={modal.id} onClose={close} />}
       {modal && modal.k === 'extras' && <ExtrasAviso ids={modal.ids} onClose={close} />}
       {aviso && <ExtrasAviso ids={aviso} onClose={() => setAviso(null)} />}
