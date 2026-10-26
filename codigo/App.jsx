@@ -759,7 +759,7 @@ function Gantt({ rows, entrega, color, collapsed, toggle, alto, todo, ts }) {
   useEffect(() => { guardaG('lw', lw); }, [lw]);
   const inis = rows.map(r => V.D[r.t.id].inicio).filter(Boolean).sort(), fins = rows.map(r => V.D[r.t.id].fin).filter(Boolean).sort();
   const a = E.monday([inis[0] && inis[0].slice(0, 10), t0].filter(Boolean).sort()[0]);
-  const ult = [fins.length && fins[fins.length - 1].slice(0, 10), E.addDays(t0, 13), entrega].filter(Boolean).sort().pop();
+  const ult = [fins.length && fins[fins.length - 1].slice(0, 10), E.addDays(t0, 13), entrega, ...rows.filter(r => esTerc(r.t)).map(r => r.t.tercFecha)].filter(Boolean).sort().pop();   // incluye la fecha en que vuelven las tercerizadas
   let N = E.diffDays(a, ult) + 1; N = Math.ceil(N / 14) * 14;                                  // de a 2 semanas
   N = Math.max(N, Math.ceil(Math.max(0, ancho - lw) / W / 14) * 14) + mas * 14; N = Math.min(N, 1092);  // llena el ancho de la pantalla
   const days = Array.from({ length: N }, (_, i) => E.addDays(a, i));
@@ -785,7 +785,7 @@ function Gantt({ rows, entrega, color, collapsed, toggle, alto, todo, ts }) {
       <div className="g-right" style={{ width: N * W, backgroundImage: semanas }}>{days.map((d, i) => { const g = E.dow(d); return <span key={d} className={'g-day' + (d === t0 ? ' hoy' : '') + (E.isWork(S, d) ? '' : ' off')} style={{ left: i * W, width: W }}>
         {(g === 1 || (d.slice(8) === '01' && g >= 2 && g <= 5)) && <em>{E.MESES[Number(d.slice(5, 7)) - 1]}{(i === 0 || d.slice(5) === '01-01' || (g === 1 && d.slice(8) <= '07' && d.slice(5, 7) === '01')) ? ' ' + d.slice(0, 4) : ''}</em>}<small>{LETRA[g]}</small>{Number(d.slice(8))}</span>; })}</div></div>
     {rows.length === 0 && <p className="mut pad">Este proyecto todavía no tiene piezas. Agregá una o importá el árbol desde una planilla.</p>}
-    {rows.map(({ t, depth, hasKids }) => { const r = V.D[t.id]; const ok = r.estado === 'terminada'; return <div key={t.id} data-id={t.id} className={'g-row' + (hasKids ? ' par' : '') + (ok ? ' done' : '') + (esTerc(t) ? ' terc' : '') + (fila && fila.id === t.id ? ' g-mueve' : '') + (fila && fila.sobre === t.id ? (fila.abajo ? ' g-drop-ab' : ' g-drop-ar') : '')}>
+    {rows.map(({ t, depth, hasKids }) => { const r = V.D[t.id]; const ok = r.estado === 'terminada'; const xr = esTerc(t) && t.tercFecha ? (E.diffDays(a, t.tercFecha) + 0.5) * W : null; return <div key={t.id} data-id={t.id} className={'g-row' + (hasKids ? ' par' : '') + (ok ? ' done' : '') + (esTerc(t) ? ' terc' : '') + (fila && fila.id === t.id ? ' g-mueve' : '') + (fila && fila.sobre === t.id ? (fila.abajo ? ' g-drop-ab' : ' g-drop-ar') : '')}>
       <div className="g-left"><div className="tname" style={{ paddingLeft: `calc(var(--ind, 14px) * ${depth})` }}>
         <span className="g-grip" title="Arrastrá para subir o bajar la fila" aria-label="Mover fila" onPointerDown={e => moverFila(e, t)}>⠿</span>{hasKids ? <button className="tog" onClick={() => toggle(t.id)} aria-label="Desplegar">{collapsed.has(t.id) ? '▸' : '▾'}</button> : <span className="tog" />}
         {ok && <span className={'g-ok' + (r.sin0 ? ' w0' : '') + (t.tercerizada ? ' terc' : '')} title={t.tercerizada ? tercTxt(t) : r.sin0 ? aviso0(r) : 'Finalizada'}>{t.tercerizada ? '↗' : '✓'}</span>}{E.estaFrenada(t) && <span className="g-fren" title={`Frenada · ${txtFreno(t)}`}>⏸</span>}<button className="tlink" title={t.nombre} onClick={() => ui.modal({ k: 'task', id: t.id })}>{t.nombre}</button><button className="g-add" title={'Agregar hijo a ' + t.nombre} aria-label="Agregar hijo" onClick={() => ui.modal({ k: 'task', draft: { ...E.blankTask(t.tipo, t.proyId), parentId: t.id, prioridad: t.prioridad } })}>＋</button></div><span className="num">{t.cant}</span></div>
@@ -795,7 +795,11 @@ function Gantt({ rows, entrega, color, collapsed, toggle, alto, todo, ts }) {
           title={`${t.nombre}: ${fDT(r.inicio)} → ${fDT(r.fin)}${r.parent || ok ? '' : ' · arrastrala para moverla de día'}`} onPointerDown={e => arrastrar(e, t, r)}><span style={{ width: r.avance + '%' }} /></div>}
         {E.estaFrenada(t) && !r.inicio && <span className="g-lab fren" style={{ left: xHoy + 6 }}>⏸ frenada sin fecha · {t.frenada.motivo}</span>}
         {arr && arr.id === t.id && arr.d !== 0 && <span className="g-mov" style={{ left: x(r.inicio) + arr.d * W }}>{arr.d > 0 ? '+' : ''}{arr.d} d · {fD(E.addDays(t.inicio.slice(0, 10), arr.d))}</span>}
-        {r.inicio && r.fin && <span className={'g-lab' + (ok ? ' ok' : '') + (ok && t.tercerizada ? ' terc' : '') + (ok && r.sin0 ? ' w0' : '')} style={{ left: Math.max(x(r.fin), x(r.inicio) + 6) + 6 }}>{ok ? (t.tercerizada ? '↗ tercerizada' + (t.proveedor ? ' · ' + t.proveedor : '') : '✓ finalizada') : Math.round(r.avance) + '%'}{t.empuje && !ok ? ' · ↦' : ''}</span>}
+        {r.inicio && r.fin && xr === null && <span className={'g-lab' + (ok ? ' ok' : '') + (ok && t.tercerizada ? ' terc' : '') + (ok && r.sin0 ? ' w0' : '')} style={{ left: Math.max(x(r.fin), x(r.inicio) + 6) + 6 }}>{ok ? (t.tercerizada ? '↗ tercerizada' + (t.proveedor ? ' · ' + t.proveedor : '') : '✓ finalizada') : Math.round(r.avance) + '%'}{t.empuje && !ok ? ' · ↦' : ''}</span>}
+        {xr !== null && (() => { const x0 = r.inicio && r.fin ? Math.max(x(r.fin), x(r.inicio) + 6) : x(t.finReal || E.nowDT()), pas = t.tercFecha < t0; return <>
+          {xr > x0 && <i className="g-tr-line" style={{ left: x0, width: xr - x0 }} />}
+          <span className={'g-tr-pin' + (pas ? ' pas' : '')} style={{ left: xr }} title={tercTxt(t) + (t.tercNota ? ' · ' + t.tercNota : '')}>◆</span>
+          <span className="g-lab terc" style={{ left: Math.max(xr, x0) + 12 }}>↗ tercerizada{t.proveedor ? ' · ' + t.proveedor : ''} · {pas ? 'debía volver el' : 'vuelve'} {fD(t.tercFecha)}</span></>; })()}
       </div></div>; })}
   </div></div></>;
 }
