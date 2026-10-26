@@ -959,3 +959,11 @@ label.chk.cadena { font-size: 13px !important; color: var(--mut) !important; }
 .proxd .tlink { font-weight: 600; overflow-wrap: anywhere; text-align: left; }
 .proxd .mut { font-size: 12.5px; }
 @media (max-width: 560px) { .proxi { grid-template-columns: auto minmax(0, 1fr); } .proxi > .btn { grid-column: 2; justify-self: end; } }
+
+/* Post Venta: registro de envíos */
+.pvwrap { overflow-x: auto; }
+.pvtab { font-size: 13px; min-width: 760px; }
+.pvtab th, .pvtab td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--line, #e3e3e3); vertical-align: top; }
+.pvtab th { font-weight: 600; white-space: nowrap; }
+.pvtab tr.pv-av { background: color-mix(in srgb, var(--bad, #c0392b) 7%, transparent); }
+.pvtab .tag { display: inline-block; margin: 0 4px 2px 0; }

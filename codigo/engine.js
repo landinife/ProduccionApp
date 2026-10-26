@@ -308,7 +308,7 @@ export function unassign(S, id, op) {
   const ops = t.ops.filter(o => o !== op);
   return patchTask(S, id, { ops, inicio: ops.length ? t.inicio : null, empuje: ops.length ? t.empuje : null }, false);
 }
-export const blankTask = (tipo, proyId) => ({ id: uid(), tipo, proyId: proyId || null, parentId: null, orden: '', cliente: '', entrega: '', creada: today(), codigo: '', nombre: '', cant: 1, prioridad: 'media', operacionId: '', ops: [], turno: 'normal', inicio: null, hh: 9, estado: 'pendiente', avance: 0, hhReal: 0, finReal: null, preds: [], empuje: null });
+export const blankTask = (tipo, proyId, pv) => ({ id: uid(), tipo, proyId: proyId || null, parentId: null, orden: '', cliente: '', entrega: '', creada: today(), codigo: '', nombre: '', cant: 1, prioridad: 'media', operacionId: '', ops: [], turno: 'normal', inicio: null, hh: 9, estado: 'pendiente', avance: 0, hhReal: 0, finReal: null, preds: [], empuje: null, ...(pv ? { origen: 'fabricada', motivo: '', cantEnv: 0, fechaEnvio: '', remito: '', destinatario: '', remitoOk: false } : {}) });
 
 // Habilita horas extra (para trabajo aparte) a los operarios de una tarea en turno extra, día por día desde su inicio, hasta que entre
 export function habilitarExtras(S, id, h, soloDias) {

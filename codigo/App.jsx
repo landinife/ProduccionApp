@@ -126,7 +126,7 @@ function permiso(p, n, pm) {
   if (proyProg && !pm.rep && !pm.proy) return 'Este usuario es solo de consulta.';
   return null;
 }
-const CAMPOS = { nombre: 'pieza', cant: 'cantidad', material: 'material', peso: 'peso', tiempoFuera: 'descartada del promedio', prioridad: 'prioridad', estado: 'estado', operacionId: 'operación', ops: 'operarios', turno: 'turno', inicio: 'inicio', hh: 'duración', hhReal: 'horas reales', avance: 'avance', entrega: 'entrega', orden: 'OV/OC', cliente: 'cliente', creada: 'fecha de carga', frenada: 'freno' };
+const CAMPOS = { nombre: 'pieza', cant: 'cantidad', material: 'material', peso: 'peso', tiempoFuera: 'descartada del promedio', prioridad: 'prioridad', estado: 'estado', operacionId: 'operación', ops: 'operarios', turno: 'turno', inicio: 'inicio', hh: 'duración', hhReal: 'horas reales', avance: 'avance', entrega: 'entrega', orden: 'OV/OC', cliente: 'cliente', creada: 'fecha de carga', frenada: 'freno', origen: 'origen', motivo: 'motivo', cantEnv: 'cantidad enviada', fechaEnvio: 'fecha de envío', remito: 'N° de remito', destinatario: 'destinatario', remitoOk: 'remito verificado' };
 const FER2026 = [['01-01', 'Año Nuevo'], ['02-16', 'Carnaval'], ['02-17', 'Carnaval'], ['03-24', 'Día de la Memoria'], ['04-02', 'Veteranos y Caídos en Malvinas'], ['04-03', 'Viernes Santo'], ['05-01', 'Día del Trabajador'], ['05-25', 'Revolución de Mayo'], ['06-15', 'Paso a la Inmortalidad de Güemes'], ['06-20', 'Paso a la Inmortalidad de Belgrano'], ['07-09', 'Día de la Independencia'], ['08-17', 'Paso a la Inmortalidad de San Martín'], ['10-12', 'Respeto a la Diversidad Cultural'], ['11-23', 'Soberanía Nacional'], ['12-08', 'Inmaculada Concepción'], ['12-25', 'Navidad']];
 const NOLAB2026 = [['03-23', 'Día no laborable'], ['07-10', 'Día no laborable'], ['12-07', 'Día no laborable']];
 function describir(p, n) {
@@ -352,7 +352,7 @@ function Alertas({ tipo, days, ops, wk, cerrar }) {
     cont = rs.length ? rs.map(x => { const ids = x.proy ? S.tareas.filter(t => t.proyId === x.proy).map(t => t.id) : [x.id, ...E.descendants(S, x.id)]; const u = ultima(ids); const ent = x.proy ? (S.proyectos.find(p => p.id === x.proy) || {}).entrega : V.byId[x.id].entrega;
       return fila(x.id || x.proy, <><b>{x.txt}</b><span className="mut">entrega {fD(ent)} · termina {fD((x.proy ? ids.map(i => V.D[i].fin).filter(Boolean).sort().pop() : V.D[x.id].fin || '').slice(0, 10))} · <span className="c-bad">+{x.dias} {x.dias === 1 ? 'día' : 'días'}</span></span>
         {u && <span className="mut">La que termina más tarde: <button className="al-t" onClick={() => abrir(u.id)}><Chip t={u} small /> {etiqueta(V, u)}</button> · {u.ops.map(o => opName(S, o)).join(', ') || 'sin operario'} · {u.turno === 'extra' ? 'horas extra' : u.turno === 'ambos' ? 'normal + extra' : 'turno normal'} · fin {fDT(V.D[u.id].fin)}</span>}</>,
-        <>{x.proy ? <button className="btn sm" onClick={() => { try { localStorage.setItem('produccionapp-proy-actual', x.proy); } catch (e) { } ui.tab('proyectos'); }}>Ver proyecto</button> : <button className="btn sm" onClick={() => abrir(x.id)}>Abrir</button>}
+        <>{x.proy ? <button className="btn sm" onClick={() => { try { const pvx = (S.proyectos.find(p => p.id === x.proy) || {}).pv; localStorage.setItem(pvx ? 'produccionapp-pv-actual' : 'produccionapp-proy-actual', x.proy); ui.tab(pvx ? 'postventa' : 'proyectos'); } catch (e) { } }}>Ver proyecto</button> : <button className="btn sm" onClick={() => abrir(x.id)}>Abrir</button>}
           {u && u.ops.length > 0 && u.turno === 'normal' && <button className="btn sm" title="Que la última tarea use también las horas extra de cada día" onClick={() => { up(s => E.patchTask(s, u.id, { turno: 'ambos' }, true)); ui.toast('Ahora usa el turno normal y las horas extra. Habilitá extras en el operario si hace falta.'); }}>Sumarle horas extra</button>}
           {u && u.ops.length > 0 && <button className="btn sm" onClick={() => ui.modal({ k: 'op', id: u.ops[0] })}>Extras de {opName(S, u.ops[0])}</button>}
           <button className="btn sm" title="Pone en prioridad alta todas sus tareas" onClick={() => up(s => ({ ...s, tareas: s.tareas.map(t => ids.includes(t.id) && t.prioridad !== 'alta' ? { ...t, prioridad: 'alta' } : t) }))}>Prioridad alta</button></>, 'bad'); }) : <p className="mut">No hay entregas en riesgo.</p>;
@@ -831,14 +831,14 @@ function Desglose({ roots, ts, vista, hhv, setHhv, color, cerrar }) {
   </section>;
 }
 function useTopH() { useEffect(() => { const top = document.querySelector('.top'); if (!top) return; const f = () => document.documentElement.style.setProperty('--toph', top.offsetHeight + 'px'); f(); const ro = new ResizeObserver(f); ro.observe(top); return () => ro.disconnect(); }, []); }
-function ProyTabs({ pid, setPid, info }) {
-  const { S } = useApp(); const ref = useRef(null);
+function ProyTabs({ pid, setPid, info, lista }) {
+  const { S } = useApp(); const L = lista || S.proyectos; const ref = useRef(null);
   useTopH();
   useEffect(() => { const b = ref.current && ref.current.querySelector('.ptab.on'); if (b && b.scrollIntoView) b.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }, [pid]);
-  if (!S.proyectos.length) return null;
+  if (!L.length) return null;
   return <div className="ptabs" ref={ref}>
     <button className={'ptab todos' + (!pid ? ' on' : '')} onClick={() => setPid(null)} title="Ver todos los proyectos">▦ Todos</button>
-    {S.proyectos.map((pr, k) => { const i = info(pr); const late = pr.entrega && i.fin && i.fin.slice(0, 10) > pr.entrega;
+    {L.map((pr, k) => { const i = info(pr); const late = pr.entrega && i.fin && i.fin.slice(0, 10) > pr.entrega;
       return <button key={pr.id} className={'ptab' + (pr.id === pid ? ' on' : '')} style={{ '--c': pr.color }} onClick={() => setPid(pr.id)} title={`${pr.nombre} · ${Math.round(i.av)}%${k < 9 ? ` · Alt+${k + 1}` : ''}`}>
         <span className="chip">{pr.ini}</span><span className="pt-n">{pr.nombre}</span>
         <span className="pt-av"><i style={{ width: Math.round(i.av) + '%' }} /></span><small>{Math.round(i.av)}%</small>{late && <em className="pt-late" title="Se pasa de la entrega">!</em>}
@@ -934,26 +934,63 @@ function TablaMovil({ roots, vis, orden }) {
     </div>; })}</div>;
 }
 
-function Proyectos() {
-  const { S, V, up, ui } = useApp(); const movil = useMovil(); const [vistaM, setVistaM] = useState(() => prefG('movil-vista', 'lista')); const [masM, setMasM] = useState(false); const [pid, setPid0] = useState(() => { try { return localStorage.getItem('produccionapp-proy-actual') || null; } catch (e) { return null; } });
-  const setPid = id => { setPid0(id); try { id ? localStorage.setItem('produccionapp-proy-actual', id) : localStorage.removeItem('produccionapp-proy-actual'); } catch (e) { } if (typeof window.scrollTo === 'function') window.scrollTo({ top: 0 }); };
-  useEffect(() => { const k = e => { if (!e.altKey || e.ctrlKey || e.metaKey) return; const n = Number(e.key); if (n >= 1 && n <= 9 && S.proyectos[n - 1]) { e.preventDefault(); setPid(S.proyectos[n - 1].id); } else if (e.key === '0') { e.preventDefault(); setPid(null); } }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [S.proyectos]); const [col, tog, setCol] = useSet(); const [det, setDet] = useState(null); const [hhv, setHhv] = useState('padre'); const [altoG, setAltoG] = useState('completo'); const [q, setQ] = useState(''); const [verFin, setVerFin] = useState(() => prefG('verfin', false));
+/* ================= POST VENTA: estado y registro de envíos ================= */
+const MOTIVOS_PV = ['Garantía', 'Repuesto vendido', 'Falla de diseño', 'Reclamo de cliente', 'Otro'];
+const pvEstado = t => { const c = Number(t.cant) || 0, e = Number(t.cantEnv) || 0, rv = t.origen === 'reventa';
+  if (e > 0 && e >= c) return ['Enviada', 'ok']; if (e > 0) return ['Envío parcial ' + e + '/' + c, 'warn'];
+  if (t.estado === 'terminada') return [rv ? 'Recibida, lista para enviar' : 'Lista para enviar', 'warn'];
+  if (t.estado === 'en proceso') return [rv ? 'En camino' : 'En fabricación', ''];
+  return [rv ? 'Pedida al proveedor' : 'Programada', '']; };
+const pvAvisos = t => { const a = [], e = Number(t.cantEnv) || 0;
+  if (e > 0 && !t.remito) a.push('Enviada sin N° de remito');
+  if (e > 0 && t.remito && !t.remitoOk) a.push('Remito sin verificar en depósito');
+  if (e > (Number(t.cant) || 0)) a.push('Se envió más de lo pedido');
+  if (t.estado === 'terminada' && !e && t.finReal) { const d = E.diffDays(t.finReal.slice(0, 10), E.today()); if (d >= 3) a.push('Lista hace ' + d + ' días sin enviar'); }
+  return a; };
+function RegistroPV({ ts, conCaso }) {
+  const { S, V, up, ui } = useApp(); const [solo, setSolo] = useState(false);
+  const todas = ts.filter(t => !V.D[t.id].parent);
+  const con = todas.map(t => ({ t, est: pvEstado(t), av: pvAvisos(t) }));
+  const nAv = con.filter(x => x.av.length).length, nPend = con.filter(x => x.est[0] !== 'Enviada').length;
+  const vis = con.filter(x => !solo || x.av.length).sort((a, b) => (b.av.length > 0) - (a.av.length > 0) || (a.est[0] === 'Enviada') - (b.est[0] === 'Enviada'));
+  return <section className="pvreg"><div className="sec-h"><h2>Registro de envíos <span className="cnt">{todas.length}</span></h2>
+    <div className="row"><span className="mut">{nPend} sin enviar completas</span><button className={'btn sm' + (solo ? ' pri-b' : '')} disabled={!nAv && !solo} onClick={() => setSolo(!solo)} title="Muestra solo las piezas con diferencias que revisar">{nAv ? `⚠ ${nAv} con avisos` : 'Sin avisos'}{solo ? ' (viendo solo esas)' : ''}</button></div></div>
+    {todas.length === 0 ? <Vacio ic="caja" chico t="Todavía no hay piezas cargadas">Agregá piezas con "+ Pieza" y completá los datos de envío al despacharlas.</Vacio>
+      : <div className="pvwrap"><table className="pvtab"><thead><tr>{conCaso && <th>Caso</th>}<th>Pieza</th><th>Origen</th><th>Motivo</th><th>Cant.</th><th>Estado</th><th>Envío</th><th>Remito</th><th title="El remito fue verificado en depósito">Dep. ✓</th><th>Avisos</th></tr></thead>
+        <tbody>{vis.map(({ t, est, av }) => { const pr = S.proyectos.find(x => x.id === t.proyId) || {};
+          return <tr key={t.id} className={av.length ? 'pv-av' : ''}>
+            {conCaso && <td><span className="chip" style={{ '--c': pr.color }}>{pr.ini}</span> {pr.nombre}</td>}
+            <td><button className="tlink" onClick={() => ui.modal({ k: 'task', id: t.id })}>{t.nombre || '(sin nombre)'}</button></td>
+            <td>{t.origen === 'reventa' ? 'Reventa' : 'Fabricada'}</td><td>{t.motivo || '—'}</td>
+            <td>{Number(t.cantEnv) || 0} / {Number(t.cant) || 0}</td>
+            <td><span className={'tag ' + (est[1] === 'ok' ? 'ok' : est[1] === 'warn' ? 'warn' : '')}>{est[0]}</span></td>
+            <td>{t.fechaEnvio ? fD(t.fechaEnvio) : '—'}{t.destinatario ? <small className="mut"> · {t.destinatario}</small> : ''}</td>
+            <td>{t.remito || '—'}</td>
+            <td><input type="checkbox" aria-label="Remito verificado en depósito" checked={!!t.remitoOk} disabled={!t.remito} onChange={e => up(s => E.patchTask(s, t.id, { remitoOk: e.target.checked }))} /></td>
+            <td>{av.length ? av.map(x => <span key={x} className="tag bad">{x}</span>) : <span className="mut">—</span>}</td></tr>; })}</tbody></table></div>}
+  </section>;
+}
+
+function Proyectos({ pv = false }) {
+  const { S, V, up, ui } = useApp(); const lista = S.proyectos.filter(x => !!x.pv === !!pv), LK = pv ? 'produccionapp-pv-actual' : 'produccionapp-proy-actual'; const movil = useMovil(); const [vistaM, setVistaM] = useState(() => prefG('movil-vista', 'lista')); const [masM, setMasM] = useState(false); const [pid, setPid0] = useState(() => { try { return localStorage.getItem(LK) || null; } catch (e) { return null; } });
+  const setPid = id => { setPid0(id); try { id ? localStorage.setItem(LK, id) : localStorage.removeItem(LK); } catch (e) { } if (typeof window.scrollTo === 'function') window.scrollTo({ top: 0 }); };
+  useEffect(() => { const k = e => { if (!e.altKey || e.ctrlKey || e.metaKey) return; const n = Number(e.key); if (n >= 1 && n <= 9 && lista[n - 1]) { e.preventDefault(); setPid(lista[n - 1].id); } else if (e.key === '0') { e.preventDefault(); setPid(null); } }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [S.proyectos, pv]); const [col, tog, setCol] = useSet(); const [det, setDet] = useState(null); const [hhv, setHhv] = useState('padre'); const [altoG, setAltoG] = useState('completo'); const [q, setQ] = useState(''); const [verFin, setVerFin] = useState(() => prefG('verfin', false));
   useEffect(() => { if (pid) setAltoG(prefG('alto-' + pid, 'completo')); }, [pid]);
-  const p = S.proyectos.find(x => x.id === pid);
+  const p = lista.find(x => x.id === pid);
   const info = pr => { const ts = S.tareas.filter(t => t.proyId === pr.id), rs = ts.filter(t => !t.parentId).map(t => V.D[t.id]); const hh = rs.reduce((a, r) => a + r.hh, 0);
     return { ts, hh, av: hh ? rs.reduce((a, r) => a + r.hh * r.avance, 0) / hh : 0, real: rs.reduce((a, r) => a + r.hhReal, 0), ini: rs.map(r => r.inicio).filter(Boolean).sort()[0], fin: rs.map(r => r.fin).filter(Boolean).sort().pop() }; };
-  const nuevo = () => { const id = E.uid(); up(s => ({ ...s, proyectos: [...s.proyectos, { id, nombre: 'Proyecto nuevo', ini: 'NVO', color: ACCENTS[s.proyectos.length % ACCENTS.length], entrega: '' }] })); setPid(id); };
-  const tabs = <ProyTabs pid={p ? pid : null} setPid={setPid} info={info} />;
+  const nuevo = () => { const id = E.uid(); up(s => ({ ...s, proyectos: [...s.proyectos, { id, nombre: pv ? 'Caso nuevo' : 'Proyecto nuevo', ini: pv ? 'PV' : 'NVO', color: ACCENTS[s.proyectos.length % ACCENTS.length], entrega: '', ...(pv ? { pv: true } : {}) }] })); setPid(id); };
+  const tabs = <ProyTabs pid={p ? pid : null} setPid={setPid} info={info} lista={lista} />;
   if (!p) return <div className="view">{tabs}<section>
-    <div className="sec-h"><h2>Proyectos</h2><button className="btn pri-b" onClick={nuevo}>+ Proyecto</button></div>
-    <div className="pcards">{S.proyectos.map(pr => { const i = info(pr); const late = pr.entrega && i.fin && i.fin.slice(0, 10) > pr.entrega; return <button key={pr.id} className="pcard" style={{ '--c': pr.color }} onClick={() => setPid(pr.id)}>
+    <div className="sec-h"><h2>{pv ? 'Post Venta' : 'Proyectos'}</h2><button className="btn pri-b" onClick={nuevo}>{pv ? '+ Caso' : '+ Proyecto'}</button></div>
+    <div className="pcards">{lista.map(pr => { const i = info(pr); const late = pr.entrega && i.fin && i.fin.slice(0, 10) > pr.entrega; return <button key={pr.id} className="pcard" style={{ '--c': pr.color }} onClick={() => setPid(pr.id)}>
       <span className="chip">{pr.ini}</span><b>{pr.nombre}</b>
       <span className="pline"><Bar v={i.av} color={pr.color} /> {Math.round(i.av)}%</span>
       <span className="mut">{fD(i.ini && i.ini.slice(0, 10))} → {fD(i.fin && i.fin.slice(0, 10))} · {fN(i.hh)} HH</span>
       {pr.entrega && <span className={'tag ' + (late ? 'bad' : '')}>{late ? `se pasa ${E.diffDays(pr.entrega, i.fin.slice(0, 10))} d de la entrega` : `entrega ${fD(pr.entrega)}`}</span>}
     </button>; })}
-      {S.proyectos.length === 0 && <Vacio ic="caja" t="Todavía no hay proyectos">Creá el primero con el botón de arriba.</Vacio>}</div>
-  </section><Proximas filtro={t => t.tipo === 'proy'} donde="en proyectos" /></div>;
+      {lista.length === 0 && <Vacio ic="caja" t={pv ? 'Todavía no hay casos de post venta' : 'Todavía no hay proyectos'}>{pv ? 'Creá el primero con "+ Caso": puede ser un cliente, un equipo o un reclamo.' : 'Creá el primero con el botón de arriba.'}</Vacio>}</div>
+  </section>{pv && <RegistroPV ts={S.tareas.filter(t => t.tipo === 'proy' && lista.some(x => x.id === t.proyId))} conCaso />}<Proximas filtro={t => t.tipo === 'proy' && lista.some(x => x.id === t.proyId)} donde={pv ? 'en post venta' : 'en proyectos'} /></div>;
   const i = info(p); const setP = (k, v) => up(s => ({ ...s, proyectos: s.proyectos.map(x => x.id === p.id ? { ...x, [k]: v } : x) }));
   const roots = i.ts.filter(t => !t.parentId);
   const qn = q.trim().toLowerCase(); let visQ = null, nQ = 0;
@@ -973,6 +1010,7 @@ function Proyectos() {
   const rA = [i.ini && i.ini.slice(0, 10), hoyD].filter(Boolean).sort()[0], rB = [i.fin && i.fin.slice(0, 10), p.entrega, hoyD].filter(Boolean).sort().pop();
   const rango = { a: rA, dias: E.diffDays(rA, rB) + 1, hoy: hoyD, ent: p.entrega || null };
   const diasEnt = p.entrega ? E.diffDays(hoyD, p.entrega) : null;
+  const pvForm = <><label>Cliente<input id="p-cli" value={p.cliente || ''} onChange={e => setP('cliente', e.target.value)} /></label><label>Equipo / N° de serie<input id="p-eq" value={p.equipo || ''} onChange={e => setP('equipo', e.target.value)} placeholder="equipo y serie" /></label><label>OV original<input id="p-ov" value={p.ov || ''} onChange={e => setP('ov', e.target.value)} /></label></>;
   const vistaMov = v => { setVistaM(v); guardaG('movil-vista', v); };
   const buscador = <div className="pbusca"><input type="search" placeholder="Buscar pieza por código o descripción" value={q} onChange={e => setQ(e.target.value)} aria-label="Buscar pieza" />{qn && <span className="mut">{nQ ? `${nQ} ${nQ === 1 ? 'pieza encontrada' : 'piezas encontradas'}` : 'Ninguna pieza coincide'}</span>}{qn && <button className="btn sm" onClick={() => setQ('')}>Limpiar</button>}
       {lotes.map(g => <button key={g.k} className="btn sm pri-b" title="Editar a la vez todas las veces que aparece esta pieza en el proyecto" onClick={() => ui.modal({ k: 'lote', ids: g.ids, titulo: g.nom })}>✎ Editar en lote: {g.nom} (×{g.ids.length})</button>)}</div>;
@@ -993,7 +1031,8 @@ function Proyectos() {
         <label>Nombre<input id="p-nom" value={p.nombre} onChange={e => setP('nombre', e.target.value)} /></label>
         <label>Iniciales<input id="p-ini" className="w4" maxLength="4" value={p.ini} onChange={e => setP('ini', e.target.value.toUpperCase())} /></label>
         <label>Color<input id="p-col" type="color" value={p.color} onChange={e => setP('color', e.target.value)} /></label>
-        <label>Entrega comprometida<input id="p-ent" type="date" value={p.entrega || ''} onChange={e => setP('entrega', e.target.value)} /></label>
+        <label>{pv ? 'Fecha comprometida de envío' : 'Entrega comprometida'}<input id="p-ent" type="date" value={p.entrega || ''} onChange={e => setP('entrega', e.target.value)} /></label>
+        {pv && pvForm}
         <label className="chk etp" title="Dentro de cada ensamblaje, cada etapa (corte, lijado, plegado, mecanizado, soldadura…) espera a que terminen las anteriores. El orden de las etapas se define en Configuración → Operaciones."><input type="checkbox" checked={!!p.etapas} onChange={e => setP('etapas', e.target.checked)} /> Desplazar por etapas de fabricación</label>
         {p.etapas && <button className="btn" onClick={() => { let n = 0; up(s => { const r = E.acomodarEtapas(s, p.id); n = r.n; return r.S; }); ui.toast(n ? `${n} ${n === 1 ? 'tarea corrida' : 'tareas corridas'} para respetar el orden de las etapas` : 'Ya estaba todo en orden de etapas'); }}>Acomodar por etapas</button>}
         {i.ts.some(t => t.pos !== undefined && t.pos !== null) && <button className="btn" title="Borra el orden manual (▲▼) y vuelve a ordenar por etapa" onClick={() => up(s => ({ ...s, tareas: s.tareas.map(t => t.proyId === p.id && t.pos !== undefined && t.pos !== null ? { ...t, pos: null } : t) }))}>Ordenar por etapa</button>}
@@ -1005,7 +1044,7 @@ function Proyectos() {
   if (movil) return <div className="view pmovil">{tabs}
     <section>
       <div className="sec-h"><div className="row"><span className="chip" style={{ '--c': p.color }}>{p.ini}</span><h2>{p.nombre}</h2></div>
-        <button className="btn pri-b" onClick={() => ui.modal({ k: 'task', draft: E.blankTask('proy', p.id) })}>+ Pieza</button></div>
+        <button className="btn pri-b" onClick={() => ui.modal({ k: 'task', draft: E.blankTask('proy', p.id, pv) })}>+ Pieza</button></div>
       <button type="button" className={'presum' + (masM ? ' on' : '')} style={{ '--c': p.color }} aria-expanded={masM} onClick={() => setMasM(!masM)}>
         <span className="presum-av"><b>{Math.round(i.av)}%</b><Bar v={i.av} color={p.color} /></span>
         <span className={'presum-d' + (late ? ' c-bad' : '')}><b>{diasEnt === null ? fD(i.fin && i.fin.slice(0, 10)) : late ? `+${E.diffDays(p.entrega, i.fin.slice(0, 10))} d` : diasEnt < 0 ? 'vencida' : `${diasEnt} d`}</b><small>{diasEnt === null ? 'fin proyectado' : late ? 'pasada de la entrega' : diasEnt < 0 ? `entrega ${fD(p.entrega)}` : `a la entrega (${fD(p.entrega)})`}</small></span>
@@ -1018,18 +1057,20 @@ function Proyectos() {
     {det && <Desglose roots={roots} ts={i.ts} vista={det} hhv={hhv} setHhv={setHhv} color={p.color} cerrar={() => setDet(null)} />}
     {buscador}
     <div className="seg vistam">{[['lista', 'Lista', 'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01'], ['gantt', 'Gantt', 'M4 6h9M8 12h10M6 18h7'], ['tabla', 'Tabla', 'M4 4h16v16H4zM4 10h16M10 4v16']].map(([k, l, d]) => <button key={k} className={vistaM === k ? 'on' : ''} onClick={() => vistaMov(k)}><svg viewBox="0 0 24 24"><path d={d} /></svg>{l}</button>)}</div>
+    {pv && <RegistroPV ts={i.ts} />}
     <Proximas filtro={t => t.proyId === p.id} donde="en este proyecto" />
     {vistaM === 'lista' ? <ProyLista roots={roots} ts={i.ts} p={p} rango={rango} visQ={visQ} q={qn} /> : vistaM === 'gantt' ? ganttSec : tablasMovil}
   </div>;
   return <div className="view">{tabs}
     <section>
       <div className="sec-h"><div className="row"><span className="chip" style={{ '--c': p.color }}>{p.ini}</span><h2>{p.nombre}</h2></div>
-        <div className="row"><button className="btn" onClick={() => ui.modal({ k: 'imp', mode: 'proy', proyId: p.id })}>Importar árbol .xlsx</button><button className="btn pri-b" onClick={() => ui.modal({ k: 'task', draft: E.blankTask('proy', p.id) })}>+ Pieza</button></div></div>
+        <div className="row"><button className="btn" onClick={() => ui.modal({ k: 'imp', mode: 'proy', proyId: p.id })}>Importar árbol .xlsx</button><button className="btn pri-b" onClick={() => ui.modal({ k: 'task', draft: E.blankTask('proy', p.id, pv) })}>+ Pieza</button></div></div>
       <div className="form inline">
         <label>Nombre<input id="p-nom" value={p.nombre} onChange={e => setP('nombre', e.target.value)} /></label>
         <label>Iniciales<input id="p-ini" className="w4" maxLength="4" value={p.ini} onChange={e => setP('ini', e.target.value.toUpperCase())} /></label>
         <label>Color<input id="p-col" type="color" value={p.color} onChange={e => setP('color', e.target.value)} /></label>
-        <label>Entrega comprometida<input id="p-ent" type="date" value={p.entrega || ''} onChange={e => setP('entrega', e.target.value)} /></label>
+        <label>{pv ? 'Fecha comprometida de envío' : 'Entrega comprometida'}<input id="p-ent" type="date" value={p.entrega || ''} onChange={e => setP('entrega', e.target.value)} /></label>
+        {pv && pvForm}
         <label className="chk etp" title="Dentro de cada ensamblaje, cada etapa (corte, lijado, plegado, mecanizado, soldadura…) espera a que terminen las anteriores. El orden de las etapas se define en Configuración → Operaciones."><input type="checkbox" checked={!!p.etapas} onChange={e => setP('etapas', e.target.checked)} /> Desplazar por etapas de fabricación</label>
         {p.etapas && <button className="btn" onClick={() => { let n = 0; up(s => { const r = E.acomodarEtapas(s, p.id); n = r.n; return r.S; }); ui.toast(n ? `${n} ${n === 1 ? 'tarea corrida' : 'tareas corridas'} para respetar el orden de las etapas` : 'Ya estaba todo en orden de etapas'); }}>Acomodar por etapas</button>}
         {i.ts.some(t => t.pos !== undefined && t.pos !== null) && <button className="btn" title="Borra el orden manual (▲▼) y vuelve a ordenar por etapa" onClick={() => up(s => ({ ...s, tareas: s.tareas.map(t => t.proyId === p.id && t.pos !== undefined && t.pos !== null ? { ...t, pos: null } : t) }))}>Ordenar por etapa</button>}
@@ -1049,6 +1090,7 @@ function Proyectos() {
         {altoG !== 'oculto' && <span className="mut legend"><i className="lg t" />hoy <i className="lg d" />entrega</span>}</div>
       {altoG === 'oculto' ? <p className="mut">Oculto ({rows.length} {rows.length === 1 ? 'fila' : 'filas'}). Elegí Compacto o Completo para verlo.</p>
         : <Gantt rows={rows} ts={i.ts} entrega={p.entrega} color={p.color} collapsed={colV} toggle={tog} alto={altoG} todo={c => setCol(c ? new Set(i.ts.filter(t => (V.kids[t.id] || []).length).map(t => t.id)) : new Set())} />}</section>
+    {pv && <RegistroPV ts={i.ts} />}
     <Proximas filtro={t => t.proyId === p.id} donde="en este proyecto" />
     <section><div className="sec-h"><h2>Pendientes y en proceso <span className="cnt">{nAct}</span></h2><span className="mut">Mayús + Espacio (Shift + Space) marca la fila · en la casilla alcanza con Espacio</span></div><TaskTable roots={roots} tipo="proy" vis={visAct} collapsed={colV} toggle={tog} orden={ord} /></section>
     <section className="finsec"><div className="sec-h"><button className="dgrp-t fin-t" onClick={() => { setVerFin(!verFin); guardaG('verfin', !verFin); }}><span className="car">{verFin ? '▾' : '▸'}</span><h2>Finalizadas <span className="cnt ok">{nFin}</span></h2></button></div>
@@ -1063,7 +1105,7 @@ function TaskEditor({ id, draft, onClose }) {
   const [hhTocado, setHhTocado] = useState(!!id); const [t, setT] = useState(orig); const [predOpen, setPredOpen] = useState(false); const [pq, setPq] = useState('');
   if (!orig || !t) return null;
   const isNew = !id, parent = !!id && !!V.D[id] && V.D[id].parent, root = !t.parentId;
-  const set = (k, v) => setT(p => ({ ...p, [k]: v }));
+  const set = (k, v) => setT(p => ({ ...p, [k]: v })); const pvT = t.tipo === 'proy' && !!(S.proyectos.find(x => x.id === t.proyId) || {}).pv;
   const n = Math.max(1, t.ops.length), hh = Number(t.hh) || 0;
   const w = t.inicio ? E.addWork(S, t.inicio, hh / n, t.turno, t.ops) : null;
   const hhEntre = fin => t.inicio && fin && fin > t.inicio ? Math.round(E.workBetween(S, t.inicio, fin, t.turno, t.ops) * n * 100) / 100 : 0;
@@ -1147,6 +1189,14 @@ function TaskEditor({ id, draft, onClose }) {
         <label>Material<select id="te-mat" value={t.material || ''} onChange={e => set('material', e.target.value)}><option value="">—</option>{(S.materiales || []).map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}</select>
           {!(S.materiales || []).length && <small className="hint">Los materiales se cargan en Configuración → Materiales.</small>}</label>
         <label>Peso total (kg)<input id="te-peso" type="number" min="0" step="0.1" value={t.peso ?? ''} placeholder="de toda la cantidad" onChange={e => set('peso', e.target.value === '' ? null : Number(e.target.value))} /></label>
+        {pvT && <><div className="g2 fld"><b>Post venta</b><small className="mut">Dejá acá el registro de lo que se hizo y se envió: sirve para cruzarlo con los remitos de depósito.</small></div>
+          <label>Origen<select id="te-ori" value={t.origen || 'fabricada'} onChange={e => set('origen', e.target.value)}><option value="fabricada">Fabricada por nosotros</option><option value="reventa">Reventa (pasa mano)</option></select></label>
+          <label>Motivo<select id="te-mot" value={t.motivo || ''} onChange={e => set('motivo', e.target.value)}><option value="">—</option>{MOTIVOS_PV.map(m => <option key={m}>{m}</option>)}</select></label>
+          <label>Cantidad enviada<input id="te-cenv" type="number" min="0" value={t.cantEnv ?? ''} placeholder={'de ' + (Number(t.cant) || 0)} onChange={e => { set('cantEnv', e.target.value === '' ? '' : Number(e.target.value)); if (Number(e.target.value) > 0 && !t.fechaEnvio) set('fechaEnvio', E.today()); }} /></label>
+          <label>Fecha de envío<input id="te-fenv" type="date" value={t.fechaEnvio || ''} onChange={e => set('fechaEnvio', e.target.value)} /></label>
+          <label>N° de remito<input id="te-rem" value={t.remito || ''} onChange={e => set('remito', e.target.value)} /></label>
+          <label>Destinatario / destino<input id="te-dest" value={t.destinatario || ''} onChange={e => set('destinatario', e.target.value)} /></label>
+          <label className="chk g2"><input type="checkbox" checked={!!t.remitoOk} disabled={!t.remito} onChange={e => set('remitoOk', e.target.checked)} /> Remito verificado en depósito (doble check)</label></>}
         <div className="g2 fld preds"><button type="button" className="predh" aria-expanded={predOpen} onClick={() => setPredOpen(!predOpen)}>
             <span className="car">{predOpen ? '▾' : '▸'}</span><span>Empieza después de (predecesoras)</span><span className="cnt">{(t.preds || []).length}</span></button>
           {(t.preds || []).length > 0 && <div className="togs">{t.preds.map(pid => V.byId[pid] && <button key={pid} type="button" className="togb on" title="Tocá para quitarla" onClick={() => togPred(pid)}>{etiqueta(V, V.byId[pid])} ✕</button>)}</div>}
@@ -1576,8 +1626,9 @@ function Config() {
   const fila = t => { const r = V.D[t.id], root = V.rootOf(t); const p = S.proyectos.find(x => x.id === t.proyId);
     return { Tipo: t.tipo === 'rep' ? 'Repuesto' : 'Proyecto', Proyecto: p ? p.nombre : '', 'OV/OC': t.tipo === 'rep' ? root.orden : '', Cliente: t.tipo === 'rep' ? root.cliente : '', Pieza: t.nombre, 'Depende de': t.parentId ? V.byId[t.parentId].nombre : '', Cantidad: Number(t.cant) || 0, Prioridad: t.prioridad, Operación: r.parent ? '' : operName(S, t.operacionId), Operarios: r.ops.map(o => opName(S, o)).join(', '), Turno: r.parent ? '' : t.turno, Inicio: r.inicio ? r.inicio.replace('T', ' ') : '', Fin: r.fin ? r.fin.replace('T', ' ') : '', 'Horas-hombre': r.hh, 'Duración calendario (h)': r.parent ? '' : r.durCal, Estado: estTxt(r.estado), 'Avance %': Math.round(r.avance), 'HH reales': r.hhReal }; };
   const exportar = () => { if (!window.XLSX) { ui.toast('No se pudo cargar el generador de Excel'); return; } const X = window.XLSX, wb = X.utils.book_new();
-    const orden = tipo => { const out = []; const go = t => { out.push(fila(t)); (V.kids[t.id] || []).forEach(go); }; S.tareas.filter(t => t.tipo === tipo && !t.parentId).forEach(go); return out; };
-    X.utils.book_append_sheet(wb, X.utils.json_to_sheet(orden('rep')), 'Repuestos'); X.utils.book_append_sheet(wb, X.utils.json_to_sheet(orden('proy')), 'Proyectos');
+    const esPV = t => !!(S.proyectos.find(x => x.id === t.proyId) || {}).pv;
+    const orden = (tipo, pv) => { const out = []; const go = t => { out.push(pv ? { ...fila(t), Origen: t.origen === 'reventa' ? 'Reventa' : 'Fabricada', Motivo: t.motivo || '', 'Cant. enviada': Number(t.cantEnv) || 0, 'Fecha de envío': t.fechaEnvio || '', Remito: t.remito || '', Destinatario: t.destinatario || '', 'Remito verificado': t.remitoOk ? 'Sí' : 'No', Avisos: pvAvisos(t).join(' / ') } : fila(t)); (V.kids[t.id] || []).forEach(go); }; S.tareas.filter(t => t.tipo === tipo && !t.parentId && (tipo !== 'proy' || esPV(t) === !!pv)).forEach(go); return out; };
+    X.utils.book_append_sheet(wb, X.utils.json_to_sheet(orden('rep')), 'Repuestos'); X.utils.book_append_sheet(wb, X.utils.json_to_sheet(orden('proy')), 'Proyectos'); X.utils.book_append_sheet(wb, X.utils.json_to_sheet(orden('proy', true)), 'Post Venta');
     saveFile(`produccion-${E.today()}.xlsx`, X.write(wb, { type: 'array', bookType: 'xlsx' }), ui.toast); };
   const [imp, setImp] = useState(null);
   const leerHist = e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; if (!window.XLSX) { ui.toast('No se pudo cargar el lector de Excel'); return; }
@@ -1897,7 +1948,7 @@ function CotEditor({ r, onClose }) {
 }
 
 /* ================= APP ================= */
-const TABS = [['resumen', 'Producción', 'M4 5h16v15H4zM4 10h16M9 5v15M15 5v15'], ['repuestos', 'Repuestos', 'M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9zM12 9a3 3 0 100 6 3 3 0 000-6z'], ['proyectos', 'Proyectos', 'M4 6h9M8 12h11M5 18h8'], ['taller', 'Taller', 'M14.5 5.5a4 4 0 00-5.2 5.2L4 16l4 4 5.3-5.3a4 4 0 005.2-5.2l-2.7 2.7-2.3-.7-.7-2.3z'], ['tiempos', 'Tiempos', 'M12 7v5l3 2M12 3a9 9 0 100 18 9 9 0 000-18z'], ['config', 'Configuración', 'M4 7h10M18 7h2M4 17h2M10 17h10M16 5v4M8 15v4', 'Config.']];
+const TABS = [['resumen', 'Producción', 'M4 5h16v15H4zM4 10h16M9 5v15M15 5v15'], ['repuestos', 'Repuestos', 'M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9zM12 9a3 3 0 100 6 3 3 0 000-6z'], ['proyectos', 'Proyectos', 'M4 6h9M8 12h11M5 18h8'], ['postventa', 'Post Venta', 'M3 7l9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10'], ['taller', 'Taller', 'M14.5 5.5a4 4 0 00-5.2 5.2L4 16l4 4 5.3-5.3a4 4 0 005.2-5.2l-2.7 2.7-2.3-.7-.7-2.3z'], ['tiempos', 'Tiempos', 'M12 7v5l3 2M12 3a9 9 0 100 18 9 9 0 000-18z'], ['config', 'Configuración', 'M4 7h10M18 7h2M4 17h2M10 17h10M16 5v4M8 15v4', 'Config.']];
 const AVC = ['#5cc8c0', '#e59a57', '#b08cf0', '#e37fa7', '#8fbf5a', '#6f9df5', '#d9c15a', '#d98a8a', '#58b7e8', '#c9a0dc'];
 const Av = ({ o, i, sm }) => <span className={'av' + (sm ? ' sm' : '')} style={{ '--c': AVC[i % AVC.length] }}>{(o.nombre || '?').trim().slice(0, 2).toUpperCase()}</span>;
 export function App({ db, ses, S0 }) {
@@ -1947,7 +1998,7 @@ export function App({ db, ses, S0 }) {
           <button className="btn tema" onClick={() => { const n = tema === 'claro' ? 'oscuro' : 'claro'; setTema(n); try { localStorage.setItem(TEMA_K, n); } catch (e) { } }} title={tema === 'claro' ? 'Pasar al tema oscuro' : 'Pasar al tema claro (mejor con mucha luz en el taller)'} aria-label={tema === 'claro' ? 'Tema oscuro' : 'Tema claro'}>{tema === 'claro' ? '☾' : '☀'}<span className="tl">{tema === 'claro' ? ' Oscuro' : ' Claro'}</span></button>
           <span className="undo"><button className="btn" onClick={undo} disabled={!nh} title={nh ? 'Deshacer (Ctrl+Z): ' + hist.current[hist.current.length - 1].txt : 'Nada para deshacer'}>↶ Deshacer</button><button className="btn" onClick={redo} disabled={!nf} title={nf ? 'Rehacer (Ctrl+Y): ' + fut.current[fut.current.length - 1].txt : 'Nada para rehacer'} aria-label="Rehacer">↷</button></span></div>
       </header>
-      <main>{tabV === 'resumen' ? <Resumen /> : tabV === 'repuestos' ? <Repuestos /> : tabV === 'proyectos' ? <Proyectos /> : tabV === 'taller' ? <Taller /> : tabV === 'tiempos' ? <Tiempos /> : <Config />}</main>
+      <main>{tabV === 'resumen' ? <Resumen /> : tabV === 'repuestos' ? <Repuestos /> : tabV === 'proyectos' ? <Proyectos key="proy" /> : tabV === 'postventa' ? <Proyectos key="pv" pv /> : tabV === 'taller' ? <Taller /> : tabV === 'tiempos' ? <Tiempos /> : <Config />}</main>
       {modal && modal.k === 'task' && <TaskEditor key={modal.id || modal.draft.id} id={modal.id} draft={modal.draft} onClose={close} />}
       {modal && modal.k === 'op' && <OperarioPanel id={modal.id} onClose={close} />}
       {modal && modal.k === 'pick' && <Picker {...modal} onClose={close} />}
