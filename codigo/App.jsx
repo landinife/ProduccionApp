@@ -166,11 +166,13 @@ function FrenoTag({ t }) { if (!E.estaFrenada(t)) return null;
 // Pausar o frenar: "sigue en la cola" es la pausa de siempre; frenar deja lo que falta afuera del calendario (o desde una fecha)
 function TercerizarDlg({ id, onClose }) {
   const { S, up, ui } = useApp(); const t = S.tareas.find(x => x.id === id);
-  const [prov, setProv] = useState(''); const [fecha, setFecha] = useState(''); const [nota, setNota] = useState('');
+  const [prov, setProv] = useState(''); const [fecha, setFecha] = useState(''); const [nota, setNota] = useState(''); const [q, setQ] = useState(() => String(Math.max(1, Number(t && t.cant) || 1)));
   if (!t) return null;
-  const ok = () => { let n = 0; up(s => { const r = E.tercerizar(s, id, { proveedor: prov, fecha, nota }); n = r.n; return r.S; });
-    ui.toast('Tercerizada' + (prov.trim() ? ' en ' + prov.trim() : '') + (fecha ? ` · vuelve el ${fD(fecha)}` : '') + (n ? `. ${n === 1 ? 'La tarea que venía detrás se adelantó' : n + ' tareas que venían detrás se adelantaron'}.` : '.')); onClose(); };
+  const total = Math.max(1, Number(t.cant) || 1), elige = total > 1 && !(Number(t.cantEnv) > 0), c = elige ? Math.min(total, Math.max(1, Math.floor(Number(q)) || total)) : total;
+  const ok = () => { let n = 0; up(s => { const r = E.tercerizar(s, id, { proveedor: prov, fecha, nota, cant: c }); n = r.n; return r.S; });
+    ui.toast((c < total ? `${c} de ${total} unidades tercerizadas` : 'Tercerizada') + (prov.trim() ? ' en ' + prov.trim() : '') + (fecha ? ` · vuelve el ${fD(fecha)}` : '') + (n ? `. ${n === 1 ? 'La tarea que venía detrás se adelantó' : n + ' tareas que venían detrás se adelantaron'}.` : '.')); onClose(); };
   return createPortal(<Modal title={'Tercerizar · ' + t.nombre} onClose={onClose} foot={<><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn terc-b" onClick={ok}>↗ Tercerizar</button></>}>
+    {elige && <label className="fld">Cantidad a tercerizar (de {total})<input type="number" min="1" max={total} step="1" value={q} onChange={e => setQ(e.target.value)} />{c < total && <small className="hint">Se divide la pieza: {c} {c === 1 ? 'unidad queda' : 'unidades quedan'} tercerizadas y {total - c} siguen en planta (con las horas repartidas en proporción).</small>}</label>}
     <label className="fld">Proveedor (opcional)<input type="text" value={prov} placeholder="Ej.: Plegados Rossi" onChange={e => setProv(e.target.value)} /></label>
     <label className="fld">Vuelve el (opcional)<input type="date" value={fecha} onChange={e => setFecha(e.target.value)} /></label>
     <label className="fld">Notas (opcional)<textarea rows="2" value={nota} placeholder="Ej.: se retira el lunes con el plano rev. B" onChange={e => setNota(e.target.value)} /></label>
@@ -636,7 +638,7 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden }) {
     <tbody>
       {rows.length === 0 && <tr><td colSpan={cols.length} className="mut pad">No hay tareas para mostrar. Cargá una a mano o importá una planilla.</td></tr>}
       {rows.map(({ t, depth, hasKids }) => { const r = V.D[t.id]; const oc = tipo === 'rep' && !t.parentId ? E.chipOf(S, V, t).color : null;
-        return <tr key={t.id} data-id={t.id} className={(hasKids ? 'par ' : '') + (r.parent ? 'grp ' : hasKids ? 'trab ' : '') + (r.estado === 'terminada' ? 'done ' : '') + (sel.has(t.id) ? 'selr' : '')}>{cols.map((c, i) => <td key={c[0]} tabIndex={-1} style={i === 0 && oc ? { boxShadow: `inset 3px 0 ${oc}` } : undefined}>{i === 0 ? <div className="c0"><input type="checkbox" className="selc" aria-label="Seleccionar" checked={sel.has(t.id)} onChange={() => togSel(t.id)} />{cell(c[0], t, depth, hasKids, r)}{marcas(t, hasKids, r)}</div> : cell(c[0], t, depth, hasKids, r)}</td>)}</tr>; })}
+        return <tr key={t.id} data-id={t.id} className={(hasKids ? 'par ' : '') + (r.parent ? 'grp ' : hasKids ? 'trab ' : '') + (r.estado === 'terminada' ? 'done ' : '') + (esTerc(t) ? 'terc ' : '') + (sel.has(t.id) ? 'selr' : '')}>{cols.map((c, i) => <td key={c[0]} tabIndex={-1} style={i === 0 && oc ? { boxShadow: `inset 3px 0 ${oc}` } : undefined}>{i === 0 ? <div className="c0"><input type="checkbox" className="selc" aria-label="Seleccionar" checked={sel.has(t.id)} onChange={() => togSel(t.id)} />{cell(c[0], t, depth, hasKids, r)}{marcas(t, hasKids, r)}</div> : cell(c[0], t, depth, hasKids, r)}</td>)}</tr>; })}
     </tbody></table></div></>;
 }
 
@@ -779,7 +781,7 @@ function Gantt({ rows, entrega, color, collapsed, toggle, alto, todo, ts }) {
       <div className="g-right" style={{ width: N * W, backgroundImage: semanas }}>{days.map((d, i) => { const g = E.dow(d); return <span key={d} className={'g-day' + (d === t0 ? ' hoy' : '') + (E.isWork(S, d) ? '' : ' off')} style={{ left: i * W, width: W }}>
         {(g === 1 || (d.slice(8) === '01' && g >= 2 && g <= 5)) && <em>{E.MESES[Number(d.slice(5, 7)) - 1]}{(i === 0 || d.slice(5) === '01-01' || (g === 1 && d.slice(8) <= '07' && d.slice(5, 7) === '01')) ? ' ' + d.slice(0, 4) : ''}</em>}<small>{LETRA[g]}</small>{Number(d.slice(8))}</span>; })}</div></div>
     {rows.length === 0 && <p className="mut pad">Este proyecto todavía no tiene piezas. Agregá una o importá el árbol desde una planilla.</p>}
-    {rows.map(({ t, depth, hasKids }) => { const r = V.D[t.id]; const ok = r.estado === 'terminada'; return <div key={t.id} data-id={t.id} className={'g-row' + (hasKids ? ' par' : '') + (ok ? ' done' : '') + (fila && fila.id === t.id ? ' g-mueve' : '') + (fila && fila.sobre === t.id ? (fila.abajo ? ' g-drop-ab' : ' g-drop-ar') : '')}>
+    {rows.map(({ t, depth, hasKids }) => { const r = V.D[t.id]; const ok = r.estado === 'terminada'; return <div key={t.id} data-id={t.id} className={'g-row' + (hasKids ? ' par' : '') + (ok ? ' done' : '') + (esTerc(t) ? ' terc' : '') + (fila && fila.id === t.id ? ' g-mueve' : '') + (fila && fila.sobre === t.id ? (fila.abajo ? ' g-drop-ab' : ' g-drop-ar') : '')}>
       <div className="g-left"><div className="tname" style={{ paddingLeft: `calc(var(--ind, 14px) * ${depth})` }}>
         <span className="g-grip" title="Arrastrá para subir o bajar la fila" aria-label="Mover fila" onPointerDown={e => moverFila(e, t)}>⠿</span>{hasKids ? <button className="tog" onClick={() => toggle(t.id)} aria-label="Desplegar">{collapsed.has(t.id) ? '▸' : '▾'}</button> : <span className="tog" />}
         {ok && <span className={'g-ok' + (r.sin0 ? ' w0' : '') + (t.tercerizada ? ' terc' : '')} title={t.tercerizada ? tercTxt(t) : r.sin0 ? aviso0(r) : 'Finalizada'}>{t.tercerizada ? '↗' : '✓'}</span>}{E.estaFrenada(t) && <span className="g-fren" title={`Frenada · ${txtFreno(t)}`}>⏸</span>}<button className="tlink" title={t.nombre} onClick={() => ui.modal({ k: 'task', id: t.id })}>{t.nombre}</button><button className="g-add" title={'Agregar hijo a ' + t.nombre} aria-label="Agregar hijo" onClick={() => ui.modal({ k: 'task', draft: { ...E.blankTask(t.tipo, t.proyId), parentId: t.id, prioridad: t.prioridad } })}>＋</button></div><span className="num">{t.cant}</span></div>
@@ -892,7 +894,7 @@ function FilaLista({ t, depth, abierto, tog, rango, color, now, verFin }) {
   const kids = (V.kids[t.id] || []).filter(c => verFin || V.D[c.id].estado !== 'terminada' || (V.kids[c.id] || []).length);
   const m = marcasDe(S, V, t, now), hijas = (V.kids[t.id] || []).length > 0;
   const quien = !hijas && t.ops.length ? t.ops.map(o => opName(S, o)).join(', ') : '';
-  return <div className={'lfila' + (ok ? ' done' : '') + (hijas ? ' par' : '')} style={{ '--d': depth }}>
+  return <div className={'lfila' + (ok ? ' done' : '') + (esTerc(t) ? ' terc' : '') + (hijas ? ' par' : '')} style={{ '--d': depth }}>
     <div className="lfila-h">
       {hijas ? <button className="tog" onClick={() => tog(t.id)} aria-label={abierto ? 'Plegar' : 'Desplegar'}>{abierto ? '▾' : '▸'}</button> : <span className="tog" />}
       <button className="lfila-t" onClick={() => ui.modal({ k: 'task', id: t.id })}>
@@ -931,7 +933,7 @@ function TablaMovil({ roots, vis, orden }) {
   return <div className="tmov">{rows.map(({ t, depth, hasKids }) => { const r = V.D[t.id], ok = r.estado === 'terminada', on = ab.has(t.id);
     const ops = (r.parent ? r.ops : t.ops).map(o => opName(S, o)).join(', '), atr = !!atrasadaT(V, t, now), fren = !r.parent && E.estaFrenada(t);
     const dato = (l, v) => <div><span>{l}</span><b>{v || '—'}</b></div>;
-    return <div key={t.id} className={'tmf' + (hasKids ? ' par' : '') + (ok ? ' done' : '') + (on ? ' on' : '')} style={{ '--d': depth }}>
+    return <div key={t.id} className={'tmf' + (hasKids ? ' par' : '') + (ok ? ' done' : '') + (esTerc(t) ? ' terc' : '') + (on ? ' on' : '')} style={{ '--d': depth }}>
       <div className="tmf-h">
         {hasKids ? <button className="tog" onClick={() => tog(t.id)} aria-label={col.has(t.id) ? 'Desplegar' : 'Plegar'}>{col.has(t.id) ? '▸' : '▾'}</button> : <span className="tog" />}
         <button className="tmf-t" aria-expanded={on} onClick={() => togAb(t.id)}>

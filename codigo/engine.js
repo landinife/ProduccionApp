@@ -406,13 +406,25 @@ export const estaFrenada = t => !!(t && t.frenada && t.estado !== 'terminada');
 // Queda "terminada" para el calendario, el Taller y los padres, pero con la marca tercerizada: no suma horas reales ni entra al promedio de Tiempos.
 // fecha (opcional) = cuándo vuelve del proveedor: lo que depende de ella (Predecesoras) no empieza antes.
 export const finTerc = t => (t && t.tercerizada && t.tercFecha) ? t.tercFecha + 'T00:00' : null;
-export function tercerizar(S, id, { proveedor, fecha, nota } = {}) {
+export function tercerizar(S, id, { proveedor, fecha, nota, cant } = {}) {
   const t = S.tareas.find(x => x.id === id); if (!t || t.estado === 'terminada' || !isLeaf(S, id)) return { S, n: 0 };
-  const finPlan = t.inicio && t.ops.length ? finOf(S, t) : null, now = nowDT();
-  let S1 = { ...S, tareas: S.tareas.map(x => x.id === id ? { ...x, estado: 'terminada', avance: 100, proximo: null, hhReal: 0, finReal: now, realFin: false, crono: { acum: 0, desde: null }, pausada: false, empuje: null, tercerizada: true, proveedor: (proveedor || '').trim(), tercFecha: fecha || null, tercNota: (nota || '').trim() } : x) };
-  let n = 0;
-  if (finPlan && (S.cfg || {}).adelantarCola !== false) { const a = adelantarCola(S1, id, finPlan); S1 = a.S; n = a.n; }   // el lugar que deja libre lo aprovecha lo que venía detrás
-  S1.tareas.filter(x => (x.preds || []).includes(id) && x.inicio && x.estado !== 'terminada').forEach(x => { S1 = patchTask(S1, x.id, {}, true); });   // lo que depende de ella espera a la fecha de retorno
+  const total = Math.max(1, Number(t.cant) || 1), q = Math.floor(Number(cant) || total);
+  const parcial = q >= 1 && q < total && !(Number(t.cantEnv) > 0);   // solo parte de la cantidad: la pieza se divide en dos
+  const marca = { estado: 'terminada', avance: 100, proximo: null, hhReal: 0, finReal: nowDT(), realFin: false, crono: { acum: 0, desde: null }, pausada: false, empuje: null, tercerizada: true, proveedor: (proveedor || '').trim(), tercFecha: fecha || null, tercNota: (nota || '').trim() };
+  const finPlan = t.inicio && t.ops.length ? finOf(S, t) : null;
+  let S1, n = 0, nid = id;
+  if (!parcial) {
+    S1 = { ...S, tareas: S.tareas.map(x => x.id === id ? { ...x, ...marca } : x) };
+    if (finPlan && (S.cfg || {}).adelantarCola !== false) { const a = adelantarCola(S1, id, finPlan); S1 = a.S; n = a.n; }   // el lugar que deja libre lo aprovecha lo que venía detrás
+  } else {
+    const hh = Number(t.hh) || 0, mit = v => hh > 0 ? Math.max(0.5, Math.round(v * 2) / 2) : 0;
+    const hhT = mit(hh * q / total), hhR = mit(hh * (total - q) / total); nid = uid();
+    const nueva = { ...t, ...marca, id: nid, cant: q, hh: hhT, frenada: null, ...(t.cantEnv !== undefined ? { cantEnv: 0, fechaEnvio: '', remito: '', remitoOk: false } : {}) };
+    const tareas = []; S.tareas.forEach(x => { if (x.id === id) { tareas.push({ ...x, cant: total - q, hh: hhR }, nueva); } else tareas.push((x.preds || []).includes(id) ? { ...x, preds: [...x.preds, nid] } : x); });   // lo que dependía de la pieza espera también a la parte tercerizada
+    S1 = patchTask({ ...S, tareas }, id, {}, true);
+    if (finPlan && (S.cfg || {}).adelantarCola !== false) t.ops.forEach(o => { const c = compactar(S1, o); S1 = c.S; n += c.n; });   // el tiempo que libera la parte tercerizada lo aprovecha lo que venía detrás
+  }
+  S1.tareas.filter(x => (x.preds || []).includes(nid) && x.inicio && x.estado !== 'terminada').forEach(x => { S1 = patchTask(S1, x.id, {}, true); });   // lo que depende de ella espera a la fecha de retorno
   return { S: S1, n };
 }
 // Se arrepintieron: la pieza vuelve a planta como pendiente

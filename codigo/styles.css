@@ -998,3 +998,9 @@ label.chk.cadena { font-size: 13px !important; color: var(--mut) !important; }
 .g-lab.terc { color: var(--ext); font-weight: 600; }
 .btn.terc-b { border-color: var(--ext); color: var(--ext); background: color-mix(in srgb, var(--ext) 12%, var(--panel2)); }
 .note.terc { color: var(--ink); border-color: var(--ext); }
+.tt tr.done.terc td { background-color: color-mix(in srgb, var(--ext) 9%, var(--panel)); }
+.tt tr.done.terc .tname input { color: var(--ext); }
+.g-row.done.terc .g-left { background-color: color-mix(in srgb, var(--ext) 10%, var(--panel)); }
+.g-row.done.terc .tlink { color: var(--ext); }
+.lfila.done.terc .lfila-n { color: var(--ext); }
+.tmf.done.terc .tmf-n { color: var(--ext); }
