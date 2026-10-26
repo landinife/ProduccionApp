@@ -419,7 +419,7 @@ function Resumen() {
     const fer = E.feriadoDe(S, d), aus = E.ausenciaDe(S, o.id, d), wd = E.isWork(S, d);
     const motivo = aus ? aus.motivo : fer ? 'Feriado' : !wd ? '' : null;
     return <td key={d} className={d === hoy ? 'hoy' : ''}>
-      <div className={`half sem-${semOf(ln, cn)}${motivo !== null ? ' blk' : ''}`} {...dnd(o.id, d, 'normal')}>
+      <div className={`half sem-${semOf(ln, cn)}${motivo !== null ? ' blk' : ''}${aus ? ' aus' : ''}`} {...dnd(o.id, d, 'normal')}>
         <div className="half-h"><span className="tn">N</span>
           {motivo !== null ? <span className="ld">{motivo}</span> : <span className="ld">{fN(ln)}/{fN(cn)} h</span>}
           {motivo === null && <button className="mini" aria-label="Asignar tarea" onClick={() => ui.modal({ k: 'pick', op: o.id, d, turno: 'normal' })}>+</button>}
@@ -1592,12 +1592,12 @@ function Importer({ mode, proyId, onClose }) {
 }
 
 /* ================= CONFIGURACIÓN ================= */
-function ListEdit({ title, items, onAdd, onDel, render, addLabel, extra, nota }) {
+function ListEdit({ title, items, onAdd, onDel, render, addLabel, extra, nota, rowClass }) {
   const PL = useContext(PlCtx);
   return <section className={'card' + PL.c(title)}><div className="sec-h"><h2>{PL.h(title)}</h2><div className="row">{extra}<button className="btn" onClick={onAdd}>{addLabel || '+ Agregar'}</button></div></div>
     {nota && <p className="mut">{nota}</p>}
     {items.length === 0 && <p className="mut">Nada cargado todavía.</p>}
-    {items.map((it, i) => <div key={it.id || i} className="lrow">{render(it, i)}<button className="btn sm danger" onClick={() => onDel(it, i)}>Borrar</button></div>)}</section>;
+    {items.map((it, i) => <div key={it.id || i} className={'lrow' + (rowClass ? rowClass(it) : '')}>{render(it, i)}<button className="btn sm danger" onClick={() => onDel(it, i)}>Borrar</button></div>)}</section>;
 }
 const PlCtx = createContext({ c: () => '', h: t => t });
 const CFG_SECS = ['Atajos de teclado', 'Operarios', 'Ausencias', 'Operaciones', 'Códigos de operación', 'Tarifas de mano de obra', 'Materiales', 'Horarios laborales', 'Feriados', 'Usuarios y permisos', 'Color de énfasis', 'Datos', 'Registro de cambios', 'Sesión'];
@@ -1620,6 +1620,16 @@ function Config() {
   const log = (S.log || []).filter(e => !lq || e.uid === lq);
   const setL = (k, id, patch) => up(s => ({ ...s, [k]: s[k].map(x => x.id === id ? { ...x, ...patch } : x) }));
   const setAus = (id, patch) => up(s => E.setAusencias(s, s.ausencias.map(x => x.id === id ? { ...x, ...patch } : x)));   // corre las tareas de los operarios afectados
+  // Resumen de una ausencia: días hábiles que cubre y aviso si incluye hoy
+  const incluyeHoy = a => { const hoyD = E.today(); return !!a.opId && a.desde <= hoyD && hoyD <= a.hasta; };
+  const resumenAus = a => {
+    if (!a.desde || !a.hasta || a.hasta < a.desde) return null;
+    const incl = incluyeHoy(a);
+    const n = Math.round((new Date(a.hasta) - new Date(a.desde)) / 864e5) + 1;
+    let txt = `${n} días corridos: revisá las fechas`;
+    if (n <= 400) { let h = 0, d = a.desde; for (let i = 0; i < n; i++, d = E.addDays(d, 1)) if (E.isWork(S, d)) h++; txt = `${h} ${h === 1 ? 'día hábil' : 'días hábiles'}`; }
+    return <span className={incl ? 'c-bad' : 'mut'}>{incl ? '⚠ incluye hoy · ' : ''}{txt}</span>;
+  };
   const act = E.seasonNow(S); const otra = act === 'invierno' ? 'verano' : 'invierno';
   const setH = (t, k, v) => up(s => ({ ...s, cfg: { ...s.cfg, horarios: { ...s.cfg.horarios, [t]: { ...s.cfg.horarios[t], [k]: v } } } }));
   const cambiar = () => { up(s => ({ ...s, cfg: { ...s.cfg, temporadas: [...s.cfg.temporadas.filter(x => x.desde !== E.today()), { desde: E.today(), t: otra }] } })); ui.toast(`Horario de ${otra} activo desde hoy`); };
@@ -1644,7 +1654,9 @@ function Config() {
       onDel={a => up(s => E.setAusencias(s, s.ausencias.filter(x => x.id !== a.id)))}
       render={a => <><select aria-label="Operario" value={a.opId} onChange={e => setAus(a.id, { opId: e.target.value })}><option value="">Elegí el operario</option>{S.operarios.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select>
         <input aria-label="Desde" type="date" value={a.desde} onChange={e => e.target.value && setAus(a.id, { desde: e.target.value, hasta: e.target.value > a.hasta ? e.target.value : a.hasta })} /><input aria-label="Hasta" type="date" value={a.hasta} min={a.desde} onChange={e => e.target.value && setAus(a.id, { hasta: e.target.value })} />
-        <input aria-label="Motivo" value={a.motivo} onChange={e => setL('ausencias', a.id, { motivo: e.target.value })} /></>}
+        <input aria-label="Motivo" value={a.motivo} onChange={e => setL('ausencias', a.id, { motivo: e.target.value })} />
+        {resumenAus(a)}</>}
+      rowClass={a => incluyeHoy(a) ? ' aus-hoy' : ''}
       nota="Los días de ausencia, las tareas de ese operario no avanzan: terminan más tarde y ese día no suma horas (tampoco en el cronómetro ni en Tiempos)." />
     <ListEdit title="Operaciones" items={S.operaciones} addLabel="+ Operación" onAdd={() => up(s => ({ ...s, operaciones: [...s.operaciones, { id: E.uid(), nombre: 'Nueva operación' }] }))}
       onDel={o => up(s => ({ ...s, operaciones: s.operaciones.filter(x => x.id !== o.id) }))}

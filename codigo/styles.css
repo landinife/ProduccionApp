@@ -967,3 +967,8 @@ label.chk.cadena { font-size: 13px !important; color: var(--mut) !important; }
 .pvtab th { font-weight: 600; white-space: nowrap; }
 .pvtab tr.pv-av { background: color-mix(in srgb, var(--bad, #c0392b) 7%, transparent); }
 .pvtab .tag { display: inline-block; margin: 0 4px 2px 0; }
+
+/* Ausente: casilla resaltada en amarillo (calendario de Producción y fila de Ausencias que incluye hoy) */
+.half.aus { background: color-mix(in srgb, var(--warn) 22%, transparent); border-left-color: var(--warn); }
+.half.aus .half-h, .half.aus .ld { color: var(--warn); font-weight: 600; }
+.lrow.aus-hoy { background: color-mix(in srgb, var(--warn) 16%, transparent); border: 1px solid var(--warn); border-radius: 8px; padding: 6px 8px; }
