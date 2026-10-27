@@ -612,7 +612,7 @@ label.chk.etp { align-self: end; padding-bottom: 6px; }
 .g-row:hover .g-add, .g-add:focus-visible { opacity: 1; }
 @media (hover: none) { .g-add { opacity: .7; } }
 /* horas reales: una barra por ensamblaje */
-.drow.hh1 { display: grid; grid-template-columns: minmax(140px, 30%) 1fr auto minmax(120px, auto); gap: 12px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.drow.hh1 { display: grid; grid-template-columns: minmax(140px, 30%) minmax(120px, 1fr) 150px 170px; gap: 12px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); }
 .drow.hh1.tot { font-weight: 700; border-bottom: 0; }
 .dtrack { position: relative; height: 16px; border-radius: 8px; background: var(--panel2); border: 1px solid var(--line); overflow: visible; }
 .dtrack i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 8px; background: var(--ok); }
@@ -620,6 +620,9 @@ label.chk.etp { align-self: end; padding-bottom: 6px; }
 .dtrack em { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--ink); border-radius: 1px; opacity: .8; }
 .dtrack .dmas { position: absolute; right: -2px; top: 50%; transform: translate(100%, -50%); font-size: 11px; color: var(--bad); padding-left: 4px; }
 .dnum1 { white-space: nowrap; font-variant-numeric: tabular-nums; } .dnum1 b { font-size: 15px; }
+.drow.hh1 .dnum1 { text-align: right; }
+.drow.hh1 .dsub { white-space: nowrap; }
+.dtrack .dmas { display: none; }
 .dleg .lg-plan { background: var(--panel2) !important; border: 1px solid var(--line); } .dleg .lg-tick { width: 3px !important; background: var(--ink) !important; }
 .sinh { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
 .sinh .cnt.warn { background: color-mix(in srgb, var(--warn) 25%, var(--panel2)); color: var(--warn); } .sinh .cnt.ok { color: var(--ok); }
