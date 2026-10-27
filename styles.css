@@ -1009,3 +1009,7 @@ label.chk.cadena { font-size: 13px !important; color: var(--mut) !important; }
 .tmf.done.terc .tmf-n { color: var(--ext); }
 .g-tr-line { position: absolute; top: 14px; height: 0; border-top: 2px dashed var(--ext); opacity: .8; }
 .g-tr-pin { position: absolute; top: 6px; transform: translateX(-50%); color: var(--ext); font-size: 14px; line-height: 18px; z-index: 2; } .g-tr-pin.pas { opacity: .6; }
+
+/* pieza en proceso que se pasó de hora: sigue ocupando el día */
+.g-bar.sigue { background-image: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--warn) 45%, transparent) 6px 9px); outline: 1px solid var(--warn); }
+.aviso-b { border: 1px solid var(--warn); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }

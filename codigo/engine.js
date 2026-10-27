@@ -145,11 +145,28 @@ export const calDur = t => t.hh / Math.max(1, t.ops.length);
 // Finalizada con fecha de fin real cargada: en el Gantt y el calendario ocupa lo que realmente duró (inicio → fin real)
 export const conFinReal = t => !!(t.realFin && t.estado === 'terminada' && t.finReal && t.inicio && t.finReal > t.inicio);
 export const durReal = (S, t) => workBetween(S, t.inicio, t.finReal, t.turno, t.ops);
-export const durDe = (S, t) => { if (conFinReal(t)) { const d = durReal(S, t); if (d > 0) return d; } return calDur(t); };
+// Fin según lo planificado (sin extender las que se pasaron de hora)
+export const finPlan = (S, t) => t.inicio ? addWork(S, t.inicio, calDur(t), t.turno, t.ops).end : null;
+// Pieza "en proceso" que ya pasó su hora de fin pero no se finalizó: sigue ocupando el día hasta el cierre de la jornada
+// (y de las siguientes, mientras no se finalice). Devuelve ese fin extendido, o null si no corresponde.
+// No cuenta si está pausada o frenada (esas no ocupan el día).
+export function finSigue(S, t) {
+  if (!t || t.estado !== 'en proceso' || !t.inicio || !t.ops.length || t.pausada || t.frenada || conFinReal(t) || esGrupo(S, t)) return null;
+  const now = nowDT(), base = finPlan(S, t);
+  if (!base || base >= now) return null;
+  let d = now.slice(0, 10);
+  for (let i = 0; i < 60; i++, d = addDays(d, 1)) { const iv = dayIv(S, d, t.turno, t.ops); if (!iv.length) continue; const e = join(d, iv[iv.length - 1][1]); if (e > now) return e; }
+  return null;
+}
+export const durDe = (S, t) => {
+  if (conFinReal(t)) { const d = durReal(S, t); if (d > 0) return d; }
+  const e = finSigue(S, t); if (e) { const d = workBetween(S, t.inicio, e, t.turno, t.ops); if (d > 0) return d; }
+  return calDur(t);
+};
 export const finOf = (S, t) => {
   if (esGrupo(S, t)) { const fs = S.tareas.filter(x => x.parentId === t.id).map(c => finOf(S, c)).filter(Boolean).sort(); return fs[fs.length - 1] || null; }
   if (conFinReal(t)) return t.finReal;
-  return t.inicio ? addWork(S, t.inicio, calDur(t), t.turno, t.ops).end : null;
+  return t.inicio ? addWork(S, t.inicio, durDe(S, t), t.turno, t.ops).end : null;
 };
 
 // ---- Datos derivados de todas las tareas ----
@@ -174,10 +191,10 @@ export function derive(S) {
       ch.forEach(calc); const sub = junta(ch.map(c => SUB[c.id]));
       r = { parent: true, ...sub, segs: [], durCal: null }; SUB[t.id] = sub;
     } else {
-      const real = conFinReal(t), dur = durDe(S, t);
+      const real = conFinReal(t), dur = durDe(S, t), sp = !real && !!finSigue(S, t);
       const w = t.inicio ? addWork(S, t.inicio, dur, t.turno, t.ops) : { end: null, segs: [], ok: true };
       if (real) w.ok = true;
-      r = { parent: false, conHijos: ch.length > 0, finRealOk: real, hh: Number(t.hh) || 0, inicio: t.inicio, fin: real ? t.finReal : w.end, avance: t.estado === 'terminada' ? 100 : (Number(t.avance) || 0), hhReal: Number(t.hhReal) || 0, estado: t.estado, ops: t.ops, segs: w.segs, durCal: dur, ok: w.ok, falta: w.falta, sin0: !(Number(t.hh) > 0) && t.estado !== 'terminada' && !ch.length ? 1 : 0 };
+      r = { parent: false, conHijos: ch.length > 0, finRealOk: real, hh: Number(t.hh) || 0, inicio: t.inicio, fin: real ? t.finReal : w.end, avance: t.estado === 'terminada' ? 100 : (Number(t.avance) || 0), hhReal: Number(t.hhReal) || 0, estado: t.estado, ops: t.ops, segs: w.segs, durCal: dur, sigueProc: sp, ok: w.ok, falta: w.falta, sin0: !(Number(t.hh) > 0) && t.estado !== 'terminada' && !ch.length ? 1 : 0 };
       ch.forEach(calc);
       SUB[t.id] = ch.length ? junta([r, ...ch.map(c => SUB[c.id])]) : r;
     }
@@ -746,7 +763,7 @@ export function reprogramar(S) {
   const now = nowDT(); let S2 = S, n = 0; const cls = t => t.turno === 'extra' ? 'extra' : 'normal';
   const hojas = St => St.tareas.filter(t => t.inicio && t.ops.length && t.estado !== 'terminada' && isLeaf(St, t.id));
   // 1) en proceso que ya debían haber terminado: se parte (lo hecho queda cerrado, el resto arranca ahora)
-  hojas(S).filter(t => t.estado === 'en proceso' && (finOf(S, t) || '') < now).forEach(t => {
+  hojas(S).filter(t => t.estado === 'en proceso' && (finPlan(S, t) || '') < now).forEach(t => {
     if (llevado(S2, t) >= 0.05 || Number(t.avance) > 0) { S2 = partir(S2, t.id, { correr: corriendo(t) }); n++; }
   });
   // 2) pendientes (y restos en pausa) que ya debían haber empezado
@@ -763,6 +780,67 @@ export function reprogramar(S) {
   });
   venc.forEach(t => { S2 = reflow(S2, t.id); });
   return { S: S2, n };
+}
+
+// ---- Pieza en proceso que se pasó de hora: sigue ocupando el día y empuja lo que viene detrás ----
+// Pura: devuelve { S, n } con n = tareas que se corrieron. Se llama sola cada tanto (no pasa por el historial de deshacer).
+export function sostener(S) {
+  let S2 = S, n = 0;
+  S.tareas.filter(t => isLeaf(S, t.id) && finSigue(S, t)).forEach(t => {
+    const S3 = reflow(S2, t.id);
+    S3.tareas.forEach((x, i) => { if (x.inicio !== S2.tareas[i].inicio) n++; });
+    S2 = S3;
+  });
+  return { S: n ? S2 : S, n };
+}
+
+// ---- Planificar un proyecto completo ----
+// Toma las piezas pendientes del proyecto, respeta las dependencias (preds, etapas y piezas hijas) y le da cada una
+// al operario (con esa operación como principal o secundaria) que la termine antes, detrás de lo que ya tiene en marcha.
+// Horas: las ya cargadas; si no hay, el promedio de lo ya fabricado; si es una pieza nueva, no planifica y la pide en "faltan".
+// horas = { idTarea: horas } con lo que el usuario cargó para las piezas nuevas.
+export function planificarProyecto(S, proyId, horas = {}) {
+  const c = idx(S), nomOp = id => (S.operaciones.find(o => o.id === id) || {}).nombre || '?';
+  const pend = S.tareas.filter(t => t.proyId === proyId && isLeaf(S, t.id) && t.estado === 'pendiente' && !t.tercerizada && !estaFrenada(t) && !t.sinFecha);
+  const faltan = [], noPudo = [], hhDe = {}, opDe = {}, origen = {}, elig = {};
+  pend.forEach(t => {
+    let h = Number(horas[t.id]); origen[t.id] = 'cargada';
+    if (!(h > 0)) { h = Number(t.hh) || 0; origen[t.id] = 'manual'; }
+    if (!(h > 0)) { const hi = historial(S, t.nombre); if (hi) { h = Math.max(0.5, Math.round(hi.porUnidad * Math.max(1, Number(t.cant) || 1) * 2) / 2); origen[t.id] = 'promedio'; } }
+    if (!(h > 0)) { faltan.push({ id: t.id, nombre: t.nombre, cant: t.cant || 1 }); return; }
+    hhDe[t.id] = h;
+    const op = t.operacionId || autoCompletar(S, t, false).operacionId || '';
+    opDe[t.id] = op;
+    elig[t.id] = op ? S.operarios.filter(o => o.activo && (o.op1 === op || o.op2 === op)).map(o => ({ o, nivel: o.op1 === op ? 1 : 2 })) : [];
+    if (!elig[t.id].length) noPudo.push({ id: t.id, nombre: t.nombre, motivo: op ? `nadie tiene "${nomOp(op)}" como operación` : 'no tiene operación' });
+  });
+  if (faltan.length || noPudo.length) return { ok: false, S, plan: [], faltan, noPudo, fin: null };
+  const ids = new Set(pend.map(t => t.id));
+  let W = { ...S, tareas: S.tareas.map(t => ids.has(t.id) ? { ...t, ops: [], inicio: null, empuje: null, hh: hhDe[t.id], operacionId: opDe[t.id] } : t) };
+  const PR = {}; pend.forEach(t => { PR[t.id] = predsDe(W, W.tareas.find(x => x.id === t.id)); });
+  const rest = new Set(ids), plan = [];
+  const clave = t => `${c.root(t).entrega || '9999-99-99'}|${String(c.et[opDe[t.id]] || 0).padStart(3, '0')}|${t.nombre}`;
+  while (rest.size) {
+    const listos = [...rest].filter(id => PR[id].every(p => !rest.has(p))).map(id => W.tareas.find(x => x.id === id)).sort((a, b) => clave(a) < clave(b) ? -1 : 1);
+    if (!listos.length) break;
+    const t = listos[0], tu = t.turno || 'normal', h = hhDe[t.id];
+    let minIni = nowDT();
+    PR[t.id].forEach(p => { const pt = W.tareas.find(x => x.id === p); if (!pt) return; const f = pt.estado !== 'terminada' ? finOf(W, pt) : finTerc(pt); if (f && f > minIni) minIni = f; });
+    let best = null;
+    elig[t.id].forEach(({ o, nivel }) => {
+      let ini = nextFree(W, o.id, tu, [o.id]); if (minIni > ini) ini = normStart(W, minIni, tu, [o.id]);
+      const w = addWork(W, ini, h, tu, [o.id]); if (!w.ok) return;
+      if (!best || w.end < best.fin || (w.end === best.fin && nivel < best.nivel)) best = { o, nivel, ini, fin: w.end };
+    });
+    rest.delete(t.id);
+    if (!best) { noPudo.push({ id: t.id, nombre: t.nombre, motivo: 'no entra en el calendario (¿turno extra sin horas?)' }); continue; }
+    W = { ...W, tareas: W.tareas.map(x => x.id === t.id ? { ...x, ops: [best.o.id], inicio: best.ini } : x) };
+    const ant = S.tareas.find(x => x.id === t.id);
+    plan.push({ id: t.id, nombre: t.nombre, op: best.o.id, opNombre: best.o.nombre, nivel: best.nivel, ini: best.ini, fin: best.fin, hh: h, origen: origen[t.id], antes: ant.inicio ? { ops: ant.ops, inicio: ant.inicio } : null });
+  }
+  rest.forEach(id => { const t = S.tareas.find(x => x.id === id); noPudo.push({ id, nombre: t.nombre, motivo: 'depende de una pieza que no se pudo planificar (o hay un ciclo de dependencias)' }); });
+  const fin = plan.reduce((a, x) => x.fin > a ? x.fin : a, '') || null;
+  return { ok: !noPudo.length, S: W, plan, faltan: [], noPudo, fin };
 }
 
 // ---- Métricas ----
