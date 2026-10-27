@@ -799,9 +799,14 @@ export function sostener(S) {
 // al operario (con esa operación como principal o secundaria) que la termine antes, detrás de lo que ya tiene en marcha.
 // Horas: las ya cargadas; si no hay, el promedio de lo ya fabricado; si es una pieza nueva, no planifica y la pide en "faltan".
 // horas = { idTarea: horas } con lo que el usuario cargó para las piezas nuevas.
-export function planificarProyecto(S, proyId, horas = {}) {
+// Por defecto solo planifica las pendientes que todavía no tienen día ni operario (las ya planificadas quedan donde están);
+// con opts.todas = true vuelve a planificar también las ya planificadas.
+export const planificarProyecto = (S, proyId, horas, opts) => planificarGrupo(S, t => t.proyId === proyId, horas, opts);
+export const planificarRepuestos = (S, horas, opts) => planificarGrupo(S, t => t.tipo === 'rep', horas, opts);
+export const planificarPV = (S, horas, opts) => { const ids = new Set((S.proyectos || []).filter(p => p.pv).map(p => p.id)); return planificarGrupo(S, t => t.tipo === 'proy' && ids.has(t.proyId), horas, opts); };
+export function planificarGrupo(S, filtro, horas = {}, opts = {}) {
   const c = idx(S), nomOp = id => (S.operaciones.find(o => o.id === id) || {}).nombre || '?';
-  const pend = S.tareas.filter(t => t.proyId === proyId && isLeaf(S, t.id) && t.estado === 'pendiente' && !t.tercerizada && !estaFrenada(t) && !t.sinFecha);
+  const pend = S.tareas.filter(t => filtro(t) && isLeaf(S, t.id) && t.estado === 'pendiente' && !t.tercerizada && !estaFrenada(t) && !t.sinFecha && (opts.todas || !t.inicio || !t.ops.length));
   const faltan = [], noPudo = [], hhDe = {}, opDe = {}, origen = {}, elig = {};
   pend.forEach(t => {
     let h = Number(horas[t.id]); origen[t.id] = 'cargada';

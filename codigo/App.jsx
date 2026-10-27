@@ -718,7 +718,7 @@ function Repuestos() {
         {sel('p', [['alta', 'Alta'], ['media', 'Media'], ['baja', 'Baja']], 'Toda prioridad')}
       </div><div className="row">
         <button className="btn" onClick={() => ui.tab('tiempos')}>Historial de tiempos →</button>
-        <button className="btn" onClick={() => ui.modal({ k: 'imp', mode: 'rep' })}>Importar .xlsx</button>
+        <button className="btn" onClick={() => ui.modal({ k: 'imp', mode: 'rep' })}>Importar .xlsx</button><button className="btn" onClick={() => ui.modal({ k: 'plan', alcance: 'rep' })}>Planificar repuestos</button>
         <button className="btn pri-b" onClick={() => ui.modal({ k: 'task', draft: E.blankTask('rep') })}>+ Repuesto</button>
       </div></div>
       {(() => { const corre = id => E.corriendo(V.byId[id]) || (V.kids[id] || []).some(c => corre(c.id));
@@ -1015,7 +1015,7 @@ function Proyectos({ pv = false }) {
   const nuevo = () => { const id = E.uid(); up(s => ({ ...s, proyectos: [...s.proyectos, { id, nombre: pv ? 'Caso nuevo' : 'Proyecto nuevo', ini: pv ? 'PV' : 'NVO', color: ACCENTS[s.proyectos.length % ACCENTS.length], entrega: '', ...(pv ? { pv: true } : {}) }] })); setPid(id); };
   const tabs = <ProyTabs pid={p ? pid : null} setPid={setPid} info={info} lista={lista} />;
   if (!p) return <div className="view">{tabs}<section>
-    <div className="sec-h"><h2>{pv ? 'Post Venta' : 'Proyectos'}</h2><button className="btn pri-b" onClick={nuevo}>{pv ? '+ Caso' : '+ Proyecto'}</button></div>
+    <div className="sec-h"><h2>{pv ? 'Post Venta' : 'Proyectos'}</h2><div className="row">{pv && <button className="btn" onClick={() => ui.modal({ k: 'plan', alcance: 'pv' })}>Planificar todos los casos</button>}<button className="btn pri-b" onClick={nuevo}>{pv ? '+ Caso' : '+ Proyecto'}</button></div></div>
     <div className="pcards">{lista.map(pr => { const i = info(pr); const late = pr.entrega && i.fin && i.fin.slice(0, 10) > pr.entrega; return <button key={pr.id} className="pcard" style={{ '--c': pr.color }} onClick={() => setPid(pr.id)}>
       <span className="chip">{pr.ini}</span><b>{pr.nombre}</b>
       <span className="pline"><Bar v={i.av} color={pr.color} /> {Math.round(i.av)}%</span>
@@ -2061,14 +2061,16 @@ const TABS = [['resumen', 'Producción', 'M4 5h16v15H4zM4 10h16M9 5v15M15 5v15']
 const AVC = ['#5cc8c0', '#e59a57', '#b08cf0', '#e37fa7', '#8fbf5a', '#6f9df5', '#d9c15a', '#d98a8a', '#58b7e8', '#c9a0dc'];
 const Av = ({ o, i, sm }) => <span className={'av' + (sm ? ' sm' : '')} style={{ '--c': AVC[i % AVC.length] }}>{(o.nombre || '?').trim().slice(0, 2).toUpperCase()}</span>;
 // Planificar un proyecto completo: reparte las piezas pendientes entre los operarios respetando dependencias y promedios
-function PlanificarDlg({ proyId, onClose }) {
+function PlanificarDlg({ proyId, alcance, onClose }) {
   const { S, up, ui } = useApp(); const p = S.proyectos.find(x => x.id === proyId);
-  const [hs, setHs] = useState({});
+  const [hs, setHs] = useState({}); const [todas, setTodas] = useState(false);
+  const run = (s, h) => alcance === 'rep' ? E.planificarRepuestos(s, h, { todas }) : alcance === 'pv' ? E.planificarPV(s, h, { todas }) : E.planificarProyecto(s, proyId, h, { todas });
   const horas = useMemo(() => { const o = {}; Object.entries(hs).forEach(([k, v]) => { const n = Number(String(v).replace(',', '.')); if (n > 0) o[k] = n; }); return o; }, [hs]);
-  const r = useMemo(() => E.planificarProyecto(S, proyId, horas), [S, proyId, horas]);
-  const aplicar = () => { let n = 0; up(s => { const x = E.planificarProyecto(s, proyId, horas); n = x.plan.length; return n ? x.S : s; }); ui.toast(n ? `Plan aplicado: ${n} ${n === 1 ? 'pieza' : 'piezas'} en el Gantt. Podés deshacerlo.` : 'No había nada para planificar'); onClose(); };
+  const r = useMemo(() => run(S, horas), [S, proyId, alcance, horas, todas]);
+  const aplicar = () => { let n = 0; up(s => { const x = run(s, horas); n = x.plan.length; return n ? x.S : s; }); ui.toast(n ? `Plan aplicado: ${n} ${n === 1 ? 'pieza' : 'piezas'} en el Gantt. Podés deshacerlo.` : 'No había nada para planificar'); onClose(); };
   const orig = { cargada: 'cargada ahora', manual: 'cargada', promedio: 'promedio' };
-  return <Modal title={'Planificar proyecto' + (p ? ' · ' + p.nombre : '')} onClose={onClose} wide foot={<><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!r.plan.length || r.faltan.length > 0} onClick={aplicar}>Aplicar plan</button></>}>
+  return <Modal title={alcance === 'rep' ? 'Planificar repuestos' : alcance === 'pv' ? 'Planificar todos los casos de Post Venta' : 'Planificar proyecto' + (p ? ' · ' + p.nombre : '')} onClose={onClose} wide foot={<><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!r.plan.length || r.faltan.length > 0} onClick={aplicar}>Aplicar plan</button></>}>
+    <label className="row"><input type="checkbox" checked={todas} onChange={e => setTodas(e.target.checked)} /> Volver a planificar también las piezas que ya tienen día y operario</label>
     {r.faltan.length > 0 && <div className="aviso-b"><b>Piezas nuevas: cargales el tiempo antes de planificar</b>
       <p className="mut">No hay historial de estas piezas. Poné las horas-hombre (h) de cada una.</p>
       {r.faltan.map(f => <label key={f.id} className="row">{f.nombre}{f.cant > 1 ? ` (x${f.cant})` : ''}<input inputMode="decimal" style={{ width: 80 }} placeholder="horas" value={hs[f.id] || ''} onChange={e => setHs({ ...hs, [f.id]: e.target.value })} /></label>)}</div>}
@@ -2076,7 +2078,7 @@ function PlanificarDlg({ proyId, onClose }) {
     {r.plan.length > 0 && <><p className="mut">Cada pieza va al operario que la termine antes (operación principal o secundaria), detrás de lo que ya tiene en marcha. Termina el {fDT(r.fin)}.</p>
       <div className="tbl-w"><table className="tbl"><thead><tr><th>Pieza</th><th>Operario</th><th>Inicio</th><th>Fin</th><th>Horas</th></tr></thead>
         <tbody>{r.plan.map(x => <tr key={x.id}><td>{x.nombre}</td><td>{x.opNombre}{x.nivel === 2 ? ' (sec.)' : ''}</td><td>{fDT(x.ini)}</td><td>{fDT(x.fin)}</td><td>{fN(x.hh)} <small className="mut">{orig[x.origen]}</small></td></tr>)}</tbody></table></div></>}
-    {!r.plan.length && !r.faltan.length && !r.noPudo.length && <p className="mut">No hay piezas pendientes para planificar en este proyecto.</p>}
+    {!r.plan.length && !r.faltan.length && !r.noPudo.length && <p className="mut">No hay piezas pendientes sin planificar{todas ? '' : ' (las que ya tienen día y operario no se tocan)'}.</p>}
   </Modal>;
 }
 export function App({ db, ses, S0 }) {
@@ -2141,7 +2143,7 @@ export function App({ db, ses, S0 }) {
       {aviso && <ExtrasAviso ids={aviso} onClose={() => setAviso(null)} />}
       {modal && modal.k === 'lote' && <LoteEditor ids={modal.ids} titulo={modal.titulo} onClose={close} />}
       {modal && modal.k === 'imp' && <Importer mode={modal.mode} proyId={modal.proyId} onClose={close} />}
-      {modal && modal.k === 'plan' && <PlanificarDlg proyId={modal.proyId} onClose={close} />}
+      {modal && modal.k === 'plan' && <PlanificarDlg proyId={modal.proyId} alcance={modal.alcance} onClose={close} />}
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   </Ctx.Provider>;
