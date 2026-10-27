@@ -264,7 +264,7 @@ export function delTask(S, id) {
 }
 export function dupTask(S, id) {
   const ids = [id, ...descendants(S, id)]; const map = {}; ids.forEach(i => { map[i] = uid(); });
-  const copies = S.tareas.filter(t => ids.includes(t.id)).map(t => ({ ...t, id: map[t.id], parentId: t.id === id ? t.parentId : map[t.parentId], nombre: t.id === id ? t.nombre + ' (copia)' : t.nombre, estado: 'pendiente', avance: 0, hhReal: 0, finReal: null, empuje: null, preds: (t.preds || []).map(p => map[p]).filter(Boolean) }));
+  const copies = S.tareas.filter(t => ids.includes(t.id)).map(t => ({ ...t, id: map[t.id], parentId: t.id === id ? t.parentId : map[t.parentId], nombre: t.id === id ? t.nombre + ' (copia)' : t.nombre, estado: 'pendiente', sinFecha: false, avance: 0, hhReal: 0, finReal: null, empuje: null, preds: (t.preds || []).map(p => map[p]).filter(Boolean) }));
   return { ...S, tareas: [...S.tareas, ...copies] };
 }
 // Primer momento libre: después de la última tarea sin terminar de CUALQUIERA de los operarios.
@@ -522,16 +522,21 @@ export function iniciar(S, id) {
   const t0 = S.tareas.find(x => x.id === id); if (!t0) return S; const now = nowDT(); let S1 = S;
   S.tareas.filter(x => x.id !== id && corriendo(x) && x.ops.some(o => t0.ops.includes(o))).forEach(x => { S1 = partir(S1, x.id); });   // una persona, una tarea a la vez
   const t = S1.tareas.find(x => x.id === id); const ini = t.ops.length ? normStart(S1, now, t.turno, t.ops) : t.inicio;
-  S1 = { ...S1, tareas: S1.tareas.map(x => x.id === id ? { ...x, estado: 'en proceso', pausada: false, proximo: null, finReal: null, inicio: !x.inicio || x.inicio > now || x.estado === 'pendiente' ? ini : x.inicio, crono: { acum: x.crono ? Number(x.crono.acum) || 0 : Number(x.hhReal) || 0, desde: now } } : x) };
+  S1 = { ...S1, tareas: S1.tareas.map(x => x.id === id ? { ...x, estado: 'en proceso', pausada: false, proximo: null, finReal: null, sinFecha: false, inicio: !x.inicio || x.inicio > now || x.estado === 'pendiente' ? ini : x.inicio, crono: { acum: x.crono ? Number(x.crono.acum) || 0 : Number(x.hhReal) || 0, desde: now } } : x) };
   return t.ops.length ? reflow(S1, id) : S1;
 }
 // real = se finaliza en el momento (desde el taller): el fin real es ahora y la barra pasa a mostrar lo que duró
-export function finalizar(S, id, hh, real = false) { const h = r2(Math.max(0, Number(hh) || 0)); const now = nowDT(); return { ...S, tareas: S.tareas.map(x => x.id === id ? { ...x, estado: 'terminada', avance: 100, proximo: null, hhReal: h, finReal: now, realFin: !!(real && x.inicio && x.inicio < now), crono: { acum: h, desde: null } } : x) }; }
+export function finalizar(S, id, hh, real = false) { const h = r2(Math.max(0, Number(hh) || 0)); const now = nowDT(); return { ...S, tareas: S.tareas.map(x => x.id === id ? { ...x, estado: 'terminada', avance: 100, proximo: null, hhReal: h, finReal: now, realFin: !!(real && x.inicio && x.inicio < now), crono: { acum: h, desde: null }, sinFecha: false } : x) }; }
+// Finalizada sin día ni hora puntual (datos migrados de una planilla): queda finalizada y suma sus horas reales al proyecto,
+// pero no tiene fin real, no corre ni adelanta lo que viene detrás y no entra al promedio de Tiempos.
+export function finalizarSinFecha(S, id, hh) { const h = r2(Math.max(0, Number(hh) || 0));
+  return { ...S, tareas: S.tareas.map(x => x.id === id ? { ...x, estado: 'terminada', avance: 100, proximo: null, hhReal: h, finReal: null, realFin: false, crono: { acum: h, desde: null }, pausada: false, empuje: null, tercerizada: false, sinFecha: true } : x) }; }
 export function setEstado(S, id, e) {
   const t = S.tareas.find(x => x.id === id); if (!t || t.estado === e) return S;
   if (e === 'en proceso') return iniciar(S, id);
+  if (e === 'sinfecha') { const l = llevado(S, t); return finalizarSinFecha(S, id, l > 0 ? l : t.hhReal); }
   if (e === 'terminada') { const l = llevado(S, t); return finalizarYEncadenar(S, id, l > 0 ? l : t.hhReal).S; }
-  return { ...S, tareas: S.tareas.map(x => x.id === id ? { ...x, estado: 'pendiente', finReal: null, crono: null, pausada: false, tercerizada: false } : x) };
+  return { ...S, tareas: S.tareas.map(x => x.id === id ? { ...x, estado: 'pendiente', finReal: null, crono: null, pausada: false, tercerizada: false, sinFecha: false } : x) };
 }
 // ---- Cadena de un operario: cuando una tarea termina antes, las que venían pegadas detrás se adelantan ----
 // Solo mueve pendientes que estaban una detrás de la otra (si había un hueco a propósito o una tarea fijada a mano 📌, la cadena se corta).
@@ -655,7 +660,7 @@ export function fabricaciones(S) {
       c.push(regFab(t, hh, fin, [...new Set(ps.flatMap(x => x.ops || []))]));
       return;
     }
-    if (t.estado !== 'terminada' || t.tercerizada || !(Number(t.hhReal) > 0) || hijos[t.id]) return;   // las tercerizadas no se fabricaron en planta: no entran al promedio ni al costo
+    if (t.estado !== 'terminada' || t.tercerizada || t.sinFecha || !(Number(t.hhReal) > 0) || hijos[t.id]) return;   // las tercerizadas no se fabricaron en planta: no entran al promedio ni al costo
     c.push(regFab(t, Number(t.hhReal), t.finReal || t.inicio || t.creada, t.ops || []));
   });
   // historial importado de la planilla de tiempos: cuenta en el promedio igual que una tarea finalizada
