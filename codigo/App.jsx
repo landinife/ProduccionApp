@@ -809,9 +809,9 @@ function Gantt({ rows, entrega, color, collapsed, toggle, alto, todo, ts }) {
 }
 // Desglose de las métricas del proyecto: avance por pieza principal, horas por pieza principal o por operación
 // Tareas empezadas o finalizadas que todavía no tienen horas reales: se completan acá mismo
-function SinHoras({ ts }) {
+function SinHoras({ ts, prev = 0 }) {
   const { S, V, up, ui } = useApp(); const [ver, setVer] = useState(true);
-  const l = ts.filter(t => !V.D[t.id].parent && !t.tercerizada && !(Number(t.hhReal) > 0) && !(t.crono && Number(t.crono.acum) > 0) && !E.corriendo(t) && (t.estado === 'terminada' || Number(t.avance) > 0 || t.estado === 'en proceso'));
+  const l = ts.filter(t => !V.D[t.id].parent && !t.tercerizada && !(prev > 0 && t.sinFecha) && !(Number(t.hhReal) > 0) && !(t.crono && Number(t.crono.acum) > 0) && !E.corriendo(t) && (t.estado === 'terminada' || Number(t.avance) > 0 || t.estado === 'en proceso'));
   const g = {}; l.forEach(t => { const r = V.rootOf(t); (g[r.id] = g[r.id] || { r, l: [] }).l.push(t); });
   return <div className="sinh"><button className="dgrp-t" onClick={() => setVer(!ver)}><span className="car">{ver ? '▾' : '▸'}</span><b>Tareas sin horas reales cargadas</b><span className={'cnt' + (l.length ? ' warn' : ' ok')}>{l.length}</span><span className="mut">finalizadas o empezadas</span></button>
     {ver && (l.length === 0 ? <p className="mut">Todas las tareas finalizadas o empezadas tienen horas reales.</p> : Object.values(g).map(({ r, l }) => <div key={r.id} className="sinh-g"><b>{r.nombre}</b>
@@ -831,14 +831,14 @@ function HorasReales({ t }) {
     <CalcBtn cant={Number(t.cant) || 0} titulo={t.nombre} onUse={x => { const tm = Math.round(x * 60); setH(String(Math.floor(tm / 60))); setM(String(tm % 60)); }} />
     <button className="btn sm pri-b" onClick={() => guardar()}>Guardar</button>{t.hh > 0 && <button className="btn sm" title="Cargar como reales las horas planificadas" onClick={() => guardar(Number(t.hh))}>= plan ({fN(t.hh)} h)</button>}</span>;
 }
-function Desglose({ roots, ts, vista, hhv, setHhv, color, cerrar }) {
+function Desglose({ roots, ts, vista, hhv, setHhv, color, prev = 0, cerrar }) {
   const { S, V } = useApp();
   const filasPadre = roots.map(t => { const r = V.D[t.id]; return { k: t.id, nom: t.nombre, plan: r.hh, real: r.hhReal, av: r.avance, est: r.estado, sin0: r.sin0 }; });
   const ops = {}; ts.forEach(t => { const r = V.D[t.id]; if (r.parent) return; const k = t.operacionId || '_'; const o = ops[k] = ops[k] || { k, nom: k === '_' ? 'Sin operación' : operName(S, k), plan: 0, real: 0, hecho: 0, n: 0 }; o.plan += r.hh; o.real += r.hhReal; o.hecho += r.hh * r.avance / 100; o.n++; });
   const filasOp = Object.values(ops).map(o => ({ ...o, av: o.plan ? o.hecho / o.plan * 100 : 0 })).sort((a, b) => b.plan - a.plan);
   const filas = vista === 'av' ? filasPadre : hhv === 'padre' ? filasPadre : filasOp;
   const max = Math.max(1, ...filas.map(f => Math.max(f.plan, f.real)));
-  const tot = filas.reduce((a, f) => ({ plan: a.plan + f.plan, real: a.real + f.real }), { plan: 0, real: 0 });
+  const tot = filas.reduce((a, f) => ({ plan: a.plan + f.plan, real: a.real + f.real }), { plan: 0, real: prev });   // el total arranca con las horas previas del proyecto
   return <section className="desg">
     <div className="sec-h"><h3>{vista === 'av' ? 'Avance por pieza principal' : 'Horas-hombre del proyecto'}</h3>
       <div className="row">{vista === 'hh' && <div className="seg"><button className={hhv === 'padre' ? 'on' : ''} onClick={() => setHhv('padre')}>Por pieza principal</button><button className={hhv === 'oper' ? 'on' : ''} onClick={() => setHhv('oper')}>Por operación</button></div>}
@@ -856,9 +856,10 @@ function Desglose({ roots, ts, vista, hhv, setHhv, color, cerrar }) {
           <span className="dtrack" title={`Real ${fN(f.real)} h de ${fN(f.plan)} h planificadas · avance ${Math.round(f.av || 0)}%`}><i className={pasa ? 'over' : ''} style={{ width: pr + '%' }} />{f.plan > 0 && <em style={{ left: Math.min(100, f.av || 0) + '%' }} />}{f.real > f.plan && f.plan > 0 && <b className="dmas">+{fN(f.real - f.plan)}</b>}</span>
           <span className="dnum1"><b>{fN(f.real)}</b> / {fN(f.plan)} h</span>
           <span className="dsub">{f.real > 0 ? <Desvio real={f.real} plan={esp || f.plan} /> : <span className="mut">sin horas reales</span>}</span></div>; })}
+        {prev > 0 && <div className="drow hh1"><span className="dnom" title="Cargadas a mano en Datos del proyecto">Horas previas a la app</span><span /><span className="dnum1"><b>{fN(prev)}</b> h</span><span className="dsub mut">punto de partida</span></div>}
         <div className="drow hh1 tot"><span className="dnom">Total</span><span className="dtrack"><i style={{ width: (tot.plan ? Math.min(100, tot.real / tot.plan * 100) : 0) + '%' }} /></span><span className="dnum1"><b>{fN(tot.real)}</b> / {fN(tot.plan)} h</span><span /></div></div>
       <p className="mut">La barra completa es lo planificado; lo pintado, las horas reales cargadas. La rayita marca lo que debería haberse usado según el avance: si lo real la pasa, se pinta en rojo.</p>
-      <SinHoras ts={ts} /></>}
+      <SinHoras ts={ts} prev={prev} /></>}
   </section>;
 }
 function useTopH() { useEffect(() => { const top = document.querySelector('.top'); if (!top) return; const f = () => document.documentElement.style.setProperty('--toph', top.offsetHeight + 'px'); f(); const ro = new ResizeObserver(f); ro.observe(top); return () => ro.disconnect(); }, []); }
@@ -1010,7 +1011,7 @@ function Proyectos({ pv = false }) {
   useEffect(() => { if (pid) setAltoG(prefG('alto-' + pid, 'completo')); }, [pid]);
   const p = lista.find(x => x.id === pid);
   const info = pr => { const ts = S.tareas.filter(t => t.proyId === pr.id), rs = ts.filter(t => !t.parentId).map(t => V.D[t.id]); const hh = rs.reduce((a, r) => a + r.hh, 0);
-    return { ts, hh, av: hh ? rs.reduce((a, r) => a + r.hh * r.avance, 0) / hh : 0, real: rs.reduce((a, r) => a + r.hhReal, 0), ini: rs.map(r => r.inicio).filter(Boolean).sort()[0], fin: rs.map(r => r.fin).filter(Boolean).sort().pop() }; };
+    return { ts, hh, av: hh ? rs.reduce((a, r) => a + r.hh * r.avance, 0) / hh : 0, prev: Math.max(0, Number(pr.hhPrevias) || 0), real: Math.max(0, Number(pr.hhPrevias) || 0) + rs.reduce((a, r) => a + r.hhReal, 0), ini: rs.map(r => r.inicio).filter(Boolean).sort()[0], fin: rs.map(r => r.fin).filter(Boolean).sort().pop() }; };
   const nuevo = () => { const id = E.uid(); up(s => ({ ...s, proyectos: [...s.proyectos, { id, nombre: pv ? 'Caso nuevo' : 'Proyecto nuevo', ini: pv ? 'PV' : 'NVO', color: ACCENTS[s.proyectos.length % ACCENTS.length], entrega: '', ...(pv ? { pv: true } : {}) }] })); setPid(id); };
   const tabs = <ProyTabs pid={p ? pid : null} setPid={setPid} info={info} lista={lista} />;
   if (!p) return <div className="view">{tabs}<section>
@@ -1056,7 +1057,7 @@ function Proyectos({ pv = false }) {
   const kpis = <div className="kpis">
         <Kpi l="Avance" v={Math.round(i.av) + '%'} s={`${fN(i.hh * i.av / 100)} de ${fN(i.hh)} HH`} onClick={() => setDet(det === 'av' ? null : 'av')} on={det === 'av'} />
         <Kpi l="Inicio proyectado" v={fD(i.ini && i.ini.slice(0, 10))} /><Kpi l="Fin proyectado" v={fD(i.fin && i.fin.slice(0, 10))} tone={late ? 'bad' : ''} s={late ? `${E.diffDays(p.entrega, i.fin.slice(0, 10))} d después de la entrega` : p.entrega ? `entrega ${fD(p.entrega)}` : ''} />
-        <Kpi l="HH reales cargadas" v={fH(i.real)} s={`plan a la fecha ${fN(i.hh * i.av / 100)} h`} onClick={() => setDet(det === 'hh' ? null : 'hh')} on={det === 'hh'} />
+        <Kpi l="HH reales cargadas" v={fH(i.real)} s={`plan a la fecha ${fN(i.hh * i.av / 100)} h${i.prev > 0 ? ` · incluye ${fN(i.prev)} h previas` : ''}`} onClick={() => setDet(det === 'hh' ? null : 'hh')} on={det === 'hh'} />
         <div className="kpi grow"><span>Horas-hombre por mes</span><div className="mbars">{mk.length === 0 && <em>Sin tareas programadas</em>}{mk.map(m => <div key={m} title={`${fN(meses[m])} HH`}><i style={{ height: Math.max(4, meses[m] / mmax * 44), background: p.color }} /><small>{E.MESES[Number(m.slice(5)) - 1]}</small><small className="v">{Math.round(meses[m])}</small></div>)}</div></div>
       </div>;
   const datosForm = <div className="form inline">
@@ -1064,6 +1065,7 @@ function Proyectos({ pv = false }) {
         <label>Iniciales<input id="p-ini" className="w4" maxLength="4" value={p.ini} onChange={e => setP('ini', e.target.value.toUpperCase())} /></label>
         <label>Color<input id="p-col" type="color" value={p.color} onChange={e => setP('color', e.target.value)} /></label>
         <label>{pv ? 'Fecha comprometida de envío' : 'Entrega comprometida'}<input id="p-ent" type="date" value={p.entrega || ''} onChange={e => setP('entrega', e.target.value)} /></label>
+        <label title="Horas-hombre reales que el proyecto ya llevaba antes de cargarlas en la app (punto de partida). Se suman a las HH reales; las que cargues en las piezas se suman encima.">HH reales previas<input id="p-hprev" className="w4" style={{ width: 110 }} type="number" min="0" step="0.5" placeholder="0" value={p.hhPrevias ?? ''} onChange={e => setP('hhPrevias', e.target.value)} onBlur={e => { const n = Math.max(0, Number(e.target.value) || 0); if (typeof p.hhPrevias === 'string' || n !== (p.hhPrevias || 0)) setP('hhPrevias', n); }} /></label>
         {pv && pvForm}
         <label className="chk etp" title="Dentro de cada ensamblaje, cada etapa (corte, lijado, plegado, mecanizado, soldadura…) espera a que terminen las anteriores. El orden de las etapas se define en Configuración → Operaciones."><input type="checkbox" checked={!!p.etapas} onChange={e => setP('etapas', e.target.checked)} /> Desplazar por etapas de fabricación</label>
         {p.etapas && <button className="btn" onClick={() => { let n = 0; up(s => { const r = E.acomodarEtapas(s, p.id); n = r.n; return r.S; }); ui.toast(n ? `${n} ${n === 1 ? 'tarea corrida' : 'tareas corridas'} para respetar el orden de las etapas` : 'Ya estaba todo en orden de etapas'); }}>Acomodar por etapas</button>}
@@ -1086,7 +1088,7 @@ function Proyectos({ pv = false }) {
       </button>
       {masM && <div className="presum-mas">{kpis}<h3>Datos del proyecto</h3>{datosForm}<div className="row"><button className="btn" onClick={() => ui.modal({ k: 'imp', mode: 'proy', proyId: p.id })}>Importar árbol .xlsx</button></div></div>}
     </section>
-    {det && <Desglose roots={roots} ts={i.ts} vista={det} hhv={hhv} setHhv={setHhv} color={p.color} cerrar={() => setDet(null)} />}
+    {det && <Desglose roots={roots} ts={i.ts} vista={det} hhv={hhv} setHhv={setHhv} color={p.color} prev={i.prev} cerrar={() => setDet(null)} />}
     {buscador}
     <div className="seg vistam">{[['lista', 'Lista', 'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01'], ['gantt', 'Gantt', 'M4 6h9M8 12h10M6 18h7'], ['tabla', 'Tabla', 'M4 4h16v16H4zM4 10h16M10 4v16']].map(([k, l, d]) => <button key={k} className={vistaM === k ? 'on' : ''} onClick={() => vistaMov(k)}><svg viewBox="0 0 24 24"><path d={d} /></svg>{l}</button>)}</div>
     {pv && <RegistroPV ts={i.ts} />}
@@ -1102,6 +1104,7 @@ function Proyectos({ pv = false }) {
         <label>Iniciales<input id="p-ini" className="w4" maxLength="4" value={p.ini} onChange={e => setP('ini', e.target.value.toUpperCase())} /></label>
         <label>Color<input id="p-col" type="color" value={p.color} onChange={e => setP('color', e.target.value)} /></label>
         <label>{pv ? 'Fecha comprometida de envío' : 'Entrega comprometida'}<input id="p-ent" type="date" value={p.entrega || ''} onChange={e => setP('entrega', e.target.value)} /></label>
+        <label title="Horas-hombre reales que el proyecto ya llevaba antes de cargarlas en la app (punto de partida). Se suman a las HH reales; las que cargues en las piezas se suman encima.">HH reales previas<input id="p-hprev" className="w4" style={{ width: 110 }} type="number" min="0" step="0.5" placeholder="0" value={p.hhPrevias ?? ''} onChange={e => setP('hhPrevias', e.target.value)} onBlur={e => { const n = Math.max(0, Number(e.target.value) || 0); if (typeof p.hhPrevias === 'string' || n !== (p.hhPrevias || 0)) setP('hhPrevias', n); }} /></label>
         {pv && pvForm}
         <label className="chk etp" title="Dentro de cada ensamblaje, cada etapa (corte, lijado, plegado, mecanizado, soldadura…) espera a que terminen las anteriores. El orden de las etapas se define en Configuración → Operaciones."><input type="checkbox" checked={!!p.etapas} onChange={e => setP('etapas', e.target.checked)} /> Desplazar por etapas de fabricación</label>
         {p.etapas && <button className="btn" onClick={() => { let n = 0; up(s => { const r = E.acomodarEtapas(s, p.id); n = r.n; return r.S; }); ui.toast(n ? `${n} ${n === 1 ? 'tarea corrida' : 'tareas corridas'} para respetar el orden de las etapas` : 'Ya estaba todo en orden de etapas'); }}>Acomodar por etapas</button>}
@@ -1111,13 +1114,13 @@ function Proyectos({ pv = false }) {
       <div className="kpis">
         <Kpi l="Avance" v={Math.round(i.av) + '%'} s={`${fN(i.hh * i.av / 100)} de ${fN(i.hh)} HH`} onClick={() => setDet(det === 'av' ? null : 'av')} on={det === 'av'} />
         <Kpi l="Inicio proyectado" v={fD(i.ini && i.ini.slice(0, 10))} /><Kpi l="Fin proyectado" v={fD(i.fin && i.fin.slice(0, 10))} tone={late ? 'bad' : ''} s={late ? `${E.diffDays(p.entrega, i.fin.slice(0, 10))} d después de la entrega` : p.entrega ? `entrega ${fD(p.entrega)}` : ''} />
-        <Kpi l="HH reales cargadas" v={fH(i.real)} s={`plan a la fecha ${fN(i.hh * i.av / 100)} h`} onClick={() => setDet(det === 'hh' ? null : 'hh')} on={det === 'hh'} />
+        <Kpi l="HH reales cargadas" v={fH(i.real)} s={`plan a la fecha ${fN(i.hh * i.av / 100)} h${i.prev > 0 ? ` · incluye ${fN(i.prev)} h previas` : ''}`} onClick={() => setDet(det === 'hh' ? null : 'hh')} on={det === 'hh'} />
         <div className="kpi grow"><span>Horas-hombre por mes</span><div className="mbars">{mk.length === 0 && <em>Sin tareas programadas</em>}{mk.map(m => <div key={m} title={`${fN(meses[m])} HH`}><i style={{ height: Math.max(4, meses[m] / mmax * 44), background: p.color }} /><small>{E.MESES[Number(m.slice(5)) - 1]}</small><small className="v">{Math.round(meses[m])}</small></div>)}</div></div>
       </div>
     </section>
     <div className="pbusca"><input type="search" placeholder="Buscar pieza por código o descripción" value={q} onChange={e => setQ(e.target.value)} aria-label="Buscar pieza" />{qn && <span className="mut">{nQ ? `${nQ} ${nQ === 1 ? 'pieza encontrada' : 'piezas encontradas'}` : 'Ninguna pieza coincide'}</span>}{qn && <button className="btn sm" onClick={() => setQ('')}>Limpiar</button>}
       {lotes.map(g => <button key={g.k} className="btn sm pri-b" title="Editar a la vez todas las veces que aparece esta pieza en el proyecto" onClick={() => ui.modal({ k: 'lote', ids: g.ids, titulo: g.nom })}>✎ Editar en lote: {g.nom} (×{g.ids.length})</button>)}</div>
-    {det && <Desglose roots={roots} ts={i.ts} vista={det} hhv={hhv} setHhv={setHhv} color={p.color} cerrar={() => setDet(null)} />}
+    {det && <Desglose roots={roots} ts={i.ts} vista={det} hhv={hhv} setHhv={setHhv} color={p.color} prev={i.prev} cerrar={() => setDet(null)} />}
     <section><div className="sec-h"><div className="row"><h2>Árbol de piezas y Gantt</h2><div className="seg">{[['oculto', 'Oculto', 'M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c5 0 9 4.5 10 7a13 13 0 0 1-3 4M6.6 6.6C4.4 8 2.8 10 2 12c1 2.5 5 7 10 7a9.6 9.6 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2'], ['compacto', 'Compacto', 'M4 9h16M4 15h16M12 3v3l-2-2M12 3l2 2M12 21v-3l-2 2M12 21l2-2'], ['completo', 'Completo', 'M4 4h16v16H4zM4 9h16M4 14h16']].map(([k, l, d]) => <button key={k} className={altoG === k ? 'on' : ''} onClick={() => { setAltoG(k); guardaG('alto-' + p.id, k); }}><svg viewBox="0 0 24 24"><path d={d} /></svg>{l}</button>)}</div></div>
         {altoG !== 'oculto' && <span className="mut legend"><i className="lg t" />hoy <i className="lg d" />entrega</span>}</div>
       {altoG === 'oculto' ? <p className="mut">Oculto ({rows.length} {rows.length === 1 ? 'fila' : 'filas'}). Elegí Compacto o Completo para verlo.</p>
