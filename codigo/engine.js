@@ -819,6 +819,9 @@ export function planificarGrupo(S, filtro, horas = {}, opts = {}) {
     const op = t.operacionId || autoCompletar(S, t, false).operacionId || '';
     opDe[t.id] = op;
     elig[t.id] = op ? S.operarios.filter(o => o.activo && (o.op1 === op || o.op2 === op)).map(o => ({ o, nivel: o.op1 === op ? 1 : 2 })) : [];
+    // opts.forzar: { idPieza: idOperario } fija el operario elegido a mano (aunque no tenga esa operación); el resto se recalcula alrededor
+    const fz = opts.forzar && opts.forzar[t.id], of = fz && S.operarios.find(o => o.id === fz && o.activo);
+    if (of) elig[t.id] = [{ o: of, nivel: of.op1 === op ? 1 : of.op2 === op ? 2 : 3 }];
     if (!elig[t.id].length) noPudo.push({ id: t.id, nombre: t.nombre, motivo: op ? `nadie tiene "${nomOp(op)}" como operación` : 'no tiene operación' });
   });
   if (faltan.length) return { ok: false, S, plan: [], faltan, noPudo, fin: null };
@@ -847,7 +850,7 @@ export function planificarGrupo(S, filtro, horas = {}, opts = {}) {
     if (!best) { noPudo.push({ id: t.id, nombre: t.nombre, motivo: 'no entra en el calendario (¿turno extra sin horas?)' }); continue; }
     W = { ...W, tareas: W.tareas.map(x => x.id === t.id ? { ...x, ops: [best.o.id], inicio: best.ini } : x) };
     const ant = S.tareas.find(x => x.id === t.id);
-    plan.push({ id: t.id, nombre: t.nombre, op: best.o.id, opNombre: best.o.nombre, nivel: best.nivel, ini: best.ini, fin: best.fin, hh: h, origen: origen[t.id], antes: ant.inicio ? { ops: ant.ops, inicio: ant.inicio } : null });
+    plan.push({ id: t.id, nombre: t.nombre, opId: opDe[t.id], op: best.o.id, opNombre: best.o.nombre, nivel: best.nivel, ini: best.ini, fin: best.fin, hh: h, origen: origen[t.id], antes: ant.inicio ? { ops: ant.ops, inicio: ant.inicio } : null });
   }
   rest.forEach(id => { const t = S.tareas.find(x => x.id === id); noPudo.push({ id, nombre: t.nombre, motivo: 'depende de una pieza que no se pudo planificar (o hay un ciclo de dependencias)' }); });
   const fin = plan.reduce((a, x) => x.fin > a ? x.fin : a, '') || null;

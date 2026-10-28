@@ -2063,11 +2063,12 @@ const Av = ({ o, i, sm }) => <span className={'av' + (sm ? ' sm' : '')} style={{
 // Planificar un proyecto completo: reparte las piezas pendientes entre los operarios respetando dependencias y promedios
 function PlanificarDlg({ proyId, alcance, onClose }) {
   const { S, up, ui } = useApp(); const p = S.proyectos.find(x => x.id === proyId);
-  const [hs, setHs] = useState({}); const [todas, setTodas] = useState(false); const [op, setOp] = useState('');
-  const run = (s, h) => alcance === 'rep' ? E.planificarRepuestos(s, h, { todas, op }) : alcance === 'pv' ? E.planificarPV(s, h, { todas, op }) : E.planificarProyecto(s, proyId, h, { todas, op });
+  const [hs, setHs] = useState({}); const [todas, setTodas] = useState(false); const [op, setOp] = useState(''); const [forz, setForz] = useState({});
+  const run = (s, h) => alcance === 'rep' ? E.planificarRepuestos(s, h, { todas, op, forzar: forz }) : alcance === 'pv' ? E.planificarPV(s, h, { todas, op, forzar: forz }) : E.planificarProyecto(s, proyId, h, { todas, op, forzar: forz });
   const horas = useMemo(() => { const o = {}; Object.entries(hs).forEach(([k, v]) => { const n = Number(String(v).replace(',', '.')); if (n > 0) o[k] = n; }); return o; }, [hs]);
-  const r = useMemo(() => run(S, horas), [S, proyId, alcance, horas, todas, op]);
+  const r = useMemo(() => run(S, horas), [S, proyId, alcance, horas, todas, op, forz]);
   const aplicar = () => { let n = 0; up(s => { const x = run(s, horas); n = x.plan.length; return n ? x.S : s; }); ui.toast(n ? `Plan aplicado: ${n} ${n === 1 ? 'pieza' : 'piezas'} en el Gantt. Podés deshacerlo.` : 'No había nada para planificar'); onClose(); };
+  const lista = x => S.operarios.filter(o => o.activo).map(o => ({ o, n: o.op1 === x.opId ? 1 : o.op2 === x.opId ? 2 : 3 })).sort((a, b) => a.n - b.n || a.o.nombre.localeCompare(b.o.nombre));
   const orig = { cargada: 'cargada ahora', manual: 'cargada', promedio: 'promedio' };
   return <Modal title={alcance === 'rep' ? 'Planificar repuestos' : alcance === 'pv' ? 'Planificar todos los casos de Post Venta' : 'Planificar proyecto' + (p ? ' · ' + p.nombre : '')} onClose={onClose} wide foot={<><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!r.plan.length || r.faltan.length > 0} onClick={aplicar}>Aplicar plan</button></>}>
     <label className="row">Operación<select value={op} onChange={e => setOp(e.target.value)} aria-label="Operación a planificar"><option value="">Todas las operaciones</option>{S.operaciones.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select></label>
@@ -2077,9 +2078,9 @@ function PlanificarDlg({ proyId, alcance, onClose }) {
       <p className="mut">No hay historial de estas piezas. Poné las horas-hombre (h) de cada una.</p>
       {r.faltan.map(f => <label key={f.id} className="row">{f.nombre}{f.cant > 1 ? ` (x${f.cant})` : ''}<input inputMode="decimal" style={{ width: 80 }} placeholder="horas" value={hs[f.id] || ''} onChange={e => setHs({ ...hs, [f.id]: e.target.value })} /></label>)}</div>}
     {r.noPudo.length > 0 && <div className="aviso-b"><b>{r.plan.length ? 'No se planificaron (el resto sí se puede aplicar):' : 'No se pueden planificar:'}</b>{r.noPudo.map(x => <p key={x.id} className="mut">• {x.nombre}: {x.motivo}</p>)}</div>}
-    {r.plan.length > 0 && <><p className="mut">Cada pieza va al operario que la termine antes (operación principal o secundaria), detrás de lo que ya tiene en marcha. Termina el {fDT(r.fin)}.</p>
+    {r.plan.length > 0 && <><p className="mut">Cada pieza va al operario que la termine antes (operación principal o secundaria), detrás de lo que ya tiene en marcha. Termina el {fDT(r.fin)}. Podés cambiar el operario de una pieza y el resto se recalcula.</p>{Object.keys(forz).length > 0 && <p><button className="btn" onClick={() => setForz({})}>Volver a lo que sugiere el plan</button></p>}
       <div className="tbl-w"><table className="tbl"><thead><tr><th>Pieza</th><th>Operario</th><th>Inicio</th><th>Fin</th><th>Horas</th></tr></thead>
-        <tbody>{r.plan.map(x => <tr key={x.id}><td>{x.nombre}</td><td>{x.opNombre}{x.nivel === 2 ? ' (sec.)' : ''}</td><td>{fDT(x.ini)}</td><td>{fDT(x.fin)}</td><td>{fN(x.hh)} <small className="mut">{orig[x.origen]}</small></td></tr>)}</tbody></table></div></>}
+        <tbody>{r.plan.map(x => <tr key={x.id}><td>{x.nombre}</td><td><select value={x.op} onChange={e => setForz({ ...forz, [x.id]: e.target.value })} aria-label={'Operario de ' + x.nombre}>{lista(x).map(({ o, n }) => <option key={o.id} value={o.id}>{o.nombre}{n === 2 ? ' (sec.)' : n === 3 ? ' · sin esa operación' : ''}</option>)}</select>{forz[x.id] && <small className="mut"> a mano</small>}</td><td>{fDT(x.ini)}</td><td>{fDT(x.fin)}</td><td>{fN(x.hh)} <small className="mut">{orig[x.origen]}</small></td></tr>)}</tbody></table></div></>}
     {!r.plan.length && !r.faltan.length && !r.noPudo.length && <p className="mut">No hay piezas pendientes sin planificar{op ? ' de esa operación' : ''}{todas ? '' : ' (las que ya tienen día y operario no se tocan)'}.</p>}
   </Modal>;
 }
