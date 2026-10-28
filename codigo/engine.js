@@ -806,7 +806,9 @@ export const planificarRepuestos = (S, horas, opts) => planificarGrupo(S, t => t
 export const planificarPV = (S, horas, opts) => { const ids = new Set((S.proyectos || []).filter(p => p.pv).map(p => p.id)); return planificarGrupo(S, t => t.tipo === 'proy' && ids.has(t.proyId), horas, opts); };
 export function planificarGrupo(S, filtro, horas = {}, opts = {}) {
   const c = idx(S), nomOp = id => (S.operaciones.find(o => o.id === id) || {}).nombre || '?';
-  const pend = S.tareas.filter(t => filtro(t) && isLeaf(S, t.id) && t.estado === 'pendiente' && !t.tercerizada && !estaFrenada(t) && !t.sinFecha && (opts.todas || !t.inicio || !t.ops.length));
+  const opDeT = t => t.operacionId || autoCompletar(S, t, false).operacionId || '';
+  // opts.op: si viene una operación, solo se planifican las piezas de esa operación (las demás no estorban)
+  const pend = S.tareas.filter(t => filtro(t) && isLeaf(S, t.id) && t.estado === 'pendiente' && !t.tercerizada && !estaFrenada(t) && !t.sinFecha && (opts.todas || !t.inicio || !t.ops.length) && (!opts.op || opDeT(t) === opts.op));
   const faltan = [], noPudo = [], hhDe = {}, opDe = {}, origen = {}, elig = {};
   pend.forEach(t => {
     let h = Number(horas[t.id]); origen[t.id] = 'cargada';
@@ -819,14 +821,16 @@ export function planificarGrupo(S, filtro, horas = {}, opts = {}) {
     elig[t.id] = op ? S.operarios.filter(o => o.activo && (o.op1 === op || o.op2 === op)).map(o => ({ o, nivel: o.op1 === op ? 1 : 2 })) : [];
     if (!elig[t.id].length) noPudo.push({ id: t.id, nombre: t.nombre, motivo: op ? `nadie tiene "${nomOp(op)}" como operación` : 'no tiene operación' });
   });
-  if (faltan.length || noPudo.length) return { ok: false, S, plan: [], faltan, noPudo, fin: null };
-  const ids = new Set(pend.map(t => t.id));
+  if (faltan.length) return { ok: false, S, plan: [], faltan, noPudo, fin: null };
+  // las piezas sin operación (o sin operario que la tenga) ya no bloquean el resto: quedan avisadas y no se planifican
+  const bloq = new Set(noPudo.map(x => x.id));
+  const ids = new Set(pend.filter(t => !bloq.has(t.id)).map(t => t.id));
   let W = { ...S, tareas: S.tareas.map(t => ids.has(t.id) ? { ...t, ops: [], inicio: null, empuje: null, hh: hhDe[t.id], operacionId: opDe[t.id] } : t) };
-  const PR = {}; pend.forEach(t => { PR[t.id] = predsDe(W, W.tareas.find(x => x.id === t.id)); });
-  const rest = new Set(ids), plan = [];
+  const PR = {}; pend.filter(t => ids.has(t.id)).forEach(t => { PR[t.id] = predsDe(W, W.tareas.find(x => x.id === t.id)); });
+  const rest = new Set(ids), plan = [], avisos = [];
   const clave = t => `${c.root(t).entrega || '9999-99-99'}|${String(c.et[opDe[t.id]] || 0).padStart(3, '0')}|${t.nombre}`;
   while (rest.size) {
-    const listos = [...rest].filter(id => PR[id].every(p => !rest.has(p))).map(id => W.tareas.find(x => x.id === id)).sort((a, b) => clave(a) < clave(b) ? -1 : 1);
+    const listos = [...rest].filter(id => PR[id].every(p => !rest.has(p) && !bloq.has(p))).map(id => W.tareas.find(x => x.id === id)).sort((a, b) => clave(a) < clave(b) ? -1 : 1);
     if (!listos.length) break;
     const t = listos[0], tu = t.turno || 'normal', h = hhDe[t.id];
     let minIni = nowDT();
@@ -838,6 +842,8 @@ export function planificarGrupo(S, filtro, horas = {}, opts = {}) {
       if (!best || w.end < best.fin || (w.end === best.fin && nivel < best.nivel)) best = { o, nivel, ini, fin: w.end };
     });
     rest.delete(t.id);
+    // predecesora pendiente que no se está planificando ahora (otra operación): el plan no la espera, se avisa
+    PR[t.id].forEach(p => { const pt = W.tareas.find(x => x.id === p); if (pt && pt.estado !== 'terminada' && !pt.tercerizada && !pt.inicio && !ids.has(p) && !bloq.has(p)) avisos.push({ id: t.id, nombre: t.nombre, pred: pt.nombre }); });
     if (!best) { noPudo.push({ id: t.id, nombre: t.nombre, motivo: 'no entra en el calendario (¿turno extra sin horas?)' }); continue; }
     W = { ...W, tareas: W.tareas.map(x => x.id === t.id ? { ...x, ops: [best.o.id], inicio: best.ini } : x) };
     const ant = S.tareas.find(x => x.id === t.id);
@@ -845,7 +851,7 @@ export function planificarGrupo(S, filtro, horas = {}, opts = {}) {
   }
   rest.forEach(id => { const t = S.tareas.find(x => x.id === id); noPudo.push({ id, nombre: t.nombre, motivo: 'depende de una pieza que no se pudo planificar (o hay un ciclo de dependencias)' }); });
   const fin = plan.reduce((a, x) => x.fin > a ? x.fin : a, '') || null;
-  return { ok: !noPudo.length, S: W, plan, faltan: [], noPudo, fin };
+  return { ok: !noPudo.length, S: W, plan, faltan: [], noPudo, avisos, fin };
 }
 
 // ---- Métricas ----
