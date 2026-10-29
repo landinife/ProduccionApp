@@ -1013,3 +1013,13 @@ label.chk.cadena { font-size: 13px !important; color: var(--mut) !important; }
 /* pieza en proceso que se pasó de hora: sigue ocupando el día */
 .g-bar.sigue { background-image: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--warn) 45%, transparent) 6px 9px); outline: 1px solid var(--warn); }
 .aviso-b { border: 1px solid var(--warn); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+
+/* ================= Estadísticas ================= */
+.est-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 7px; vertical-align: -1px; }
+.est-stack { position: relative; width: min(46px, 70%); display: flex; flex-direction: column; justify-content: flex-end; border-radius: 5px 5px 0 0; }
+.est-stack > div { width: 100%; min-height: 1px; } .est-stack > div:first-of-type { border-radius: 5px 5px 0 0; }
+.est-tot { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); font: 600 12px var(--f-b); padding-bottom: 2px; white-space: nowrap; }
+.est-bar { display: grid; grid-template-columns: minmax(90px, 34%) 1fr 70px; gap: 10px; align-items: center; padding: 4px 0; }
+.est-bn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .est-bar b { text-align: right; font-variant-numeric: tabular-nums; }
+.est-pc { display: flex; align-items: center; gap: 8px; min-width: 190px; } .est-pc .pbar { flex: 1; } .est-pc b { min-width: 52px; text-align: right; }
+@media (max-width: 760px) { .est-bar { grid-template-columns: 1fr 70px; } .est-bar .pbar { grid-column: 1 / -1; order: 3; } }

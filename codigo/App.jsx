@@ -2079,7 +2079,7 @@ function CotEditor({ r, onClose }) {
 }
 
 /* ================= APP ================= */
-const TABS = [['resumen', 'Producción', 'M4 5h16v15H4zM4 10h16M9 5v15M15 5v15'], ['repuestos', 'Repuestos', 'M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9zM12 9a3 3 0 100 6 3 3 0 000-6z'], ['proyectos', 'Proyectos', 'M4 6h9M8 12h11M5 18h8'], ['postventa', 'Post Venta', 'M3 7l9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10'], ['taller', 'Taller', 'M14.5 5.5a4 4 0 00-5.2 5.2L4 16l4 4 5.3-5.3a4 4 0 005.2-5.2l-2.7 2.7-2.3-.7-.7-2.3z'], ['tiempos', 'Tiempos', 'M12 7v5l3 2M12 3a9 9 0 100 18 9 9 0 000-18z'], ['config', 'Configuración', 'M4 7h10M18 7h2M4 17h2M10 17h10M16 5v4M8 15v4', 'Config.']];
+const TABS = [['resumen', 'Producción', 'M4 5h16v15H4zM4 10h16M9 5v15M15 5v15'], ['repuestos', 'Repuestos', 'M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9zM12 9a3 3 0 100 6 3 3 0 000-6z'], ['proyectos', 'Proyectos', 'M4 6h9M8 12h11M5 18h8'], ['postventa', 'Post Venta', 'M3 7l9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10'], ['taller', 'Taller', 'M14.5 5.5a4 4 0 00-5.2 5.2L4 16l4 4 5.3-5.3a4 4 0 005.2-5.2l-2.7 2.7-2.3-.7-.7-2.3z'], ['tiempos', 'Tiempos', 'M12 7v5l3 2M12 3a9 9 0 100 18 9 9 0 000-18z'], ['estadisticas', 'Estadísticas', 'M4 20V10M10 20V4M16 20v-8M22 20H2', 'Estad.'], ['config', 'Configuración', 'M4 7h10M18 7h2M4 17h2M10 17h10M16 5v4M8 15v4', 'Config.']];
 const AVC = ['#5cc8c0', '#e59a57', '#b08cf0', '#e37fa7', '#8fbf5a', '#6f9df5', '#d9c15a', '#d98a8a', '#58b7e8', '#c9a0dc'];
 const Av = ({ o, i, sm }) => <span className={'av' + (sm ? ' sm' : '')} style={{ '--c': AVC[i % AVC.length] }}>{(o.nombre || '?').trim().slice(0, 2).toUpperCase()}</span>;
 // Planificar un proyecto completo: reparte las piezas pendientes entre los operarios respetando dependencias y promedios
@@ -2105,6 +2105,70 @@ function PlanificarDlg({ proyId, alcance, onClose }) {
         <tbody>{r.plan.map(x => <tr key={x.id}><td>{x.nombre}</td><td><select value={x.op} onChange={e => setForz({ ...forz, [x.id]: e.target.value })} aria-label={'Operario de ' + x.nombre}>{lista(x).map(({ o, n }) => <option key={o.id} value={o.id}>{o.nombre}{n === 2 ? ' (sec.)' : n === 3 ? ' · sin esa operación' : ''}</option>)}</select>{forz[x.id] && <small className="mut"> a mano</small>}</td><td>{fDT(x.ini)}</td><td>{fDT(x.fin)}</td><td>{fN(x.hh)} <small className="mut">{orig[x.origen]}</small></td></tr>)}</tbody></table></div></>}
     {!r.plan.length && !r.faltan.length && !r.noPudo.length && <p className="mut">No hay piezas pendientes sin planificar{op ? ' de esa operación' : ''}{todas ? '' : ' (las que ya tienen día y operario no se tocan)'}.</p>}
   </Modal>;
+}
+/* ================= ESTADÍSTICAS ================= */
+const COL_EST = { rep: 'var(--s1)', proy: 'var(--s2)', pv: 'var(--ext)' };
+const NOM_EST = { rep: 'Repuestos', proy: 'Proyectos', pv: 'Post Venta' };
+const pcE = v => v == null || isNaN(v) ? '—' : (Math.round(v * 10) / 10).toLocaleString('es-AR') + ' %';
+const usdE = v => 'US$ ' + Math.round(v || 0).toLocaleString('es-AR');
+const labMes = k => `${E.MESES[Number(k.slice(5)) - 1]} ${k.slice(2, 4)}`;
+function Estadisticas() {
+  const { S, V } = useApp(); const [n, setN] = useState(6); const [tabla, setTabla] = useState(false); const [hov, setHov] = useState(null); const [ft, setFt] = useState('');
+  const R = useMemo(() => E.estadisticas(S, V), [S, V]);
+  // meses seguidos (aunque alguno no tenga horas), los últimos n o todos
+  const todos = []; if (R.meses.length) { let [y, m] = R.meses[0].split('-').map(Number); const fin = R.meses[R.meses.length - 1]; for (let g = 0; g < 120; g++) { const k = `${y}-${E.pad(m)}`; todos.push(k); if (k >= fin) break; m++; if (m > 12) { m = 1; y++; } } }
+  const ms = n ? todos.slice(-n) : todos;
+  const dm = ms.map(k => ({ k, ...({ rep: 0, proy: 0, pv: 0, total: 0, costo: 0, disp: 0, ...R.mes[k] }) }));
+  const per = dm.reduce((a, d) => ({ rep: a.rep + d.rep, proy: a.proy + d.proy, pv: a.pv + d.pv, total: a.total + d.total, costo: a.costo + d.costo, disp: a.disp + d.disp }), { rep: 0, proy: 0, pv: 0, total: 0, costo: 0, disp: 0 });
+  const pct = (v, t) => t > 0 ? v / t * 100 : null;
+  const top = Math.max(10, Math.ceil(Math.max(0, ...dm.map(d => d.total)) / 20) * 20), H = 170;
+  const opNom = k => k === '_' ? 'Sin operación' : operName(S, k);
+  const oper = k => (S.operarios.find(o => o.id === k) || {}).nombre || '—';
+  const lista = (obj, nom) => { const l = Object.entries(obj).map(([k, h]) => ({ k, nom: nom(k), h })).sort((a, b) => b.h - a.h); const mx = Math.max(1, ...l.map(x => x.h)); return l.length ? l.map(x => <div key={x.k} className="est-bar"><span className="est-bn" title={x.nom}>{x.nom}</span><span className="pbar big"><i style={{ width: x.h / mx * 100 + '%', background: 'var(--accent)' }} /></span><b>{fN(x.h)} h</b></div>) : <p className="mut">Todavía no hay horas reales cargadas.</p>; };
+  const gr = R.grupos.filter(g => !ft || g.tipo === ft);
+  const totPl = R.totales.rep + R.totales.proy + R.totales.pv;
+  if (!R.grupos.length) return <div className="view"><section><h2>Estadísticas</h2><p className="mut">Todavía no hay horas reales cargadas en las piezas. Las estadísticas se arman con las HH reales (Taller, editor de la pieza o HH reales previas).</p></section></div>;
+  return <div className="view">
+    <section><div className="sec-h"><h2>Estadísticas de horas-hombre</h2>
+      <div className="seg">{[[3, '3 meses'], [6, '6 meses'], [12, '12 meses'], [0, 'Todo']].map(([k, l]) => <button key={k} className={n === k ? 'on' : ''} onClick={() => setN(k)}>{l}</button>)}</div></div>
+      <div className="kpis">
+        <div className="kpi grow"><span>Total del período</span><b>{fN(per.total)} h</b><em>{ms.length ? `${labMes(ms[0])} a ${labMes(ms[ms.length - 1])}` : ''}{per.disp > 0 ? ` · ${pcE(pct(per.total, per.disp))} de las horas disponibles` : ''}</em></div>
+        {['rep', 'proy', 'pv'].map(k => <div key={k} className="kpi"><span><i className="est-dot" style={{ background: COL_EST[k] }} />{NOM_EST[k]}</span><b>{fN(per[k])} h</b><em>{pcE(pct(per[k], per.total))} del período · Total histórico {fN(R.totales[k])} h</em></div>)}
+      </div>
+      {R.sinFecha > 0 && <p className="note">{fN(R.sinFecha)} h no entran en los meses porque no tienen día: HH reales previas de proyectos viejos y piezas finalizadas sin día puntual. Sí suman en los totales de cada proyecto.</p>}</section>
+
+    <section className="chart"><div className="sec-h"><h3>Horas-hombre por mes</h3><button className="btn sm" onClick={() => setTabla(!tabla)}>{tabla ? 'Ver gráfico' : 'Ver tabla'}</button></div>
+      <div className="lgd">{['rep', 'proy', 'pv'].map(k => <span key={k}><i style={{ background: COL_EST[k] }} />{NOM_EST[k]}</span>)}</div>
+      {tabla ? <div className="scroll"><table className="tt"><thead><tr><th>Mes</th><th className="num">Repuestos</th><th className="num">% Rep.</th><th className="num">Proyectos</th><th className="num">% Proy.</th><th className="num">Post Venta</th><th className="num">% PV</th><th className="num">Total HH</th><th className="num">Disponibles</th><th className="num">Uso</th><th className="num">Mano de obra</th></tr></thead>
+        <tbody>{dm.map(d => <tr key={d.k}><td>{labMes(d.k)}</td><td className="num">{fN(d.rep)}</td><td className="num">{pcE(pct(d.rep, d.total))}</td><td className="num">{fN(d.proy)}</td><td className="num">{pcE(pct(d.proy, d.total))}</td><td className="num">{fN(d.pv)}</td><td className="num">{pcE(pct(d.pv, d.total))}</td><td className="num"><b>{fN(d.total)}</b></td><td className="num">{d.disp > 0 ? fN(d.disp) : '—'}</td><td className="num">{pcE(pct(d.total, d.disp))}</td><td className="num">{usdE(d.costo)}</td></tr>)}
+          <tr className="par"><td><b>Período</b></td><td className="num">{fN(per.rep)}</td><td className="num">{pcE(pct(per.rep, per.total))}</td><td className="num">{fN(per.proy)}</td><td className="num">{pcE(pct(per.proy, per.total))}</td><td className="num">{fN(per.pv)}</td><td className="num">{pcE(pct(per.pv, per.total))}</td><td className="num"><b>{fN(per.total)}</b></td><td className="num">{per.disp > 0 ? fN(per.disp) : '—'}</td><td className="num">{pcE(pct(per.total, per.disp))}</td><td className="num">{usdE(per.costo)}</td></tr></tbody></table></div>
+        : <div className="bc"><div className="bc-y" style={{ height: H }}>{[top, top / 2, 0].map(v => <span key={v} style={{ bottom: v / top * H }}>{v}</span>)}</div>
+          <div className="bc-main"><div className="bc-plot" style={{ height: H }}>
+            {[top, top / 2].map(v => <i key={v} className="bc-grid" style={{ bottom: v / top * H }} />)}
+            {dm.map(d => <div key={d.k} className={'bc-g' + (hov === d.k ? ' on' : '')} onMouseEnter={() => setHov(d.k)} onMouseLeave={() => setHov(null)} onFocus={() => setHov(d.k)} onBlur={() => setHov(null)} tabIndex="0" aria-label={`${labMes(d.k)}: ${fN(d.total)} horas-hombre`}>
+              <div className="est-stack" style={{ height: d.total / top * H }}><b className="est-tot">{d.total > 0 ? fN(d.total) : ''}</b>{['pv', 'proy', 'rep'].map(k => d[k] > 0 && <div key={k} style={{ height: d[k] / d.total * 100 + '%', background: COL_EST[k] }} />)}</div>
+              {hov === d.k && <div className="bc-tip"><b>{labMes(d.k)}</b>{['rep', 'proy', 'pv'].map(k => <span key={k}><i style={{ background: COL_EST[k] }} />{NOM_EST[k]} <em>{fN(d[k])} h · {pcE(pct(d[k], d.total))}</em></span>)}{d.disp > 0 && <span className="mut">Usó {pcE(pct(d.total, d.disp))} de {fN(d.disp)} h disponibles</span>}</div>}
+            </div>)}</div>
+            <div className="bc-x">{dm.map(d => <span key={d.k}>{labMes(d.k)}</span>)}</div></div></div>}
+    </section>
+
+    <section><div className="sec-h"><h2>Repuestos, proyectos y post venta</h2>
+      <div className="seg">{[['', 'Todos'], ['rep', 'Repuestos'], ['proy', 'Proyectos'], ['pv', 'Post Venta']].map(([k, l]) => <button key={k} className={ft === k ? 'on' : ''} onClick={() => setFt(k)}>{l}</button>)}</div></div>
+      <p className="mut">El % es la parte de todas las horas de la planta que se llevó cada proyecto entre su primer inicio y su último fin. El desvío compara lo real contra lo proyectado, solo en piezas ya finalizadas.</p>
+      <div className="scroll"><table className="tt"><thead><tr><th>Nombre</th><th>Período</th><th className="num">HH reales</th><th>% de la planta en su período</th><th className="num">Proyectado</th><th className="num">Desvío</th><th className="num">Mano de obra</th></tr></thead>
+        <tbody>{gr.map(g => <tr key={g.k}><td><i className="est-dot" style={{ background: COL_EST[g.tipo] }} />{g.nombre}{g.previas > 0 && <small className="mut"> · incluye {fN(g.previas)} h previas</small>}</td>
+          <td>{g.ini ? `${E.fD(g.ini)} → ${E.fD(g.fin)}` : '—'}</td><td className="num"><b>{fN(g.total)}</b></td>
+          <td>{g.pct == null ? <span className="mut">{g.tipo === 'rep' ? `${pcE(pct(g.total, totPl))} del total histórico` : '—'}</span> : <span className="est-pc"><span className="pbar big"><i style={{ width: Math.min(100, g.pct) + '%', background: COL_EST[g.tipo] }} /></span><b>{pcE(g.pct)}</b></span>}</td>
+          <td className="num">{g.plan > 0 ? fN(g.plan) : '—'}</td><td className={'num ' + (g.desvio == null ? '' : g.desvio > 2 ? 'c-bad' : g.desvio < -2 ? 'c-ok' : '')}>{g.desvio == null ? '—' : (g.desvio > 0 ? '+' : '') + pcE(g.desvio)}</td>
+          <td className="num">{usdE(g.costo)}{g.sinTarifa > 0 && <small className="mut" title="Horas de piezas sin operación o sin tarifa cargada"> *</small>}</td></tr>)}</tbody></table></div>
+      {gr.some(g => g.sinTarifa > 0) && <p className="note">* Hay horas de piezas sin operación o sin tarifa cargada: no suman a la mano de obra. Se corrigen en Configuración → Tarifas y Operaciones.</p>}
+    </section>
+
+    <section className="cfg">
+      <div className="card"><h3>HH por operación</h3>{lista(R.ops, opNom)}</div>
+      <div className="card"><h3>HH por operario</h3><p className="mut">Cuando una pieza la hacen varios, sus horas se reparten en partes iguales.</p>{lista(R.opers, oper)}</div>
+    </section>
+  </div>;
 }
 export function App({ db, ses, S0 }) {
   const [S, setS] = useState(() => S0 || db.inicial()); const ref = useRef(S); const hist = useRef([]); const fut = useRef([]); const local = useRef(false); const malas = useRef(null); const prevT = useRef(null); const [nh, setNh] = useState(0); const [nf, setNf] = useState(0);
@@ -2144,7 +2208,7 @@ export function App({ db, ses, S0 }) {
   const [tema, setTema] = useState(leerTema); useEffect(() => { ponerTema(tema); }, [tema]);
   const act = E.seasonNow(S), h = S.cfg.horarios[act];
   const verT = pm.admin || pm.rep || pm.proy;   // Tiempos: solo quienes planifican (no los de solo consulta)
-  const tabs = TABS.filter(t => t[0] !== 'tiempos' || verT); const tabV = tab === 'tiempos' && !verT ? 'resumen' : tab;
+  const soloT = k => k === 'tiempos' || k === 'estadisticas'; const tabs = TABS.filter(t => !soloT(t[0]) || verT); const tabV = soloT(tab) && !verT ? 'resumen' : tab;
   return <Ctx.Provider value={{ S, V, up, ui, ses, pm }}>
     <div className="app" style={{ '--accent': S.cfg.accent }}>
       <header className="top">
@@ -2156,7 +2220,7 @@ export function App({ db, ses, S0 }) {
           <button className="btn tema" onClick={() => { const n = tema === 'claro' ? 'oscuro' : 'claro'; setTema(n); try { localStorage.setItem(TEMA_K, n); } catch (e) { } }} title={tema === 'claro' ? 'Pasar al tema oscuro' : 'Pasar al tema claro (mejor con mucha luz en el taller)'} aria-label={tema === 'claro' ? 'Tema oscuro' : 'Tema claro'}>{tema === 'claro' ? '☾' : '☀'}<span className="tl">{tema === 'claro' ? ' Oscuro' : ' Claro'}</span></button>
           <span className="undo"><button className="btn" onClick={undo} disabled={!nh} title={nh ? 'Deshacer (Ctrl+Z): ' + hist.current[hist.current.length - 1].txt : 'Nada para deshacer'}>↶ Deshacer</button><button className="btn" onClick={redo} disabled={!nf} title={nf ? 'Rehacer (Ctrl+Y): ' + fut.current[fut.current.length - 1].txt : 'Nada para rehacer'} aria-label="Rehacer">↷</button></span></div>
       </header>
-      <main>{tabV === 'resumen' ? <Resumen /> : tabV === 'repuestos' ? <Repuestos /> : tabV === 'proyectos' ? <Proyectos key="proy" /> : tabV === 'postventa' ? <Proyectos key="pv" pv /> : tabV === 'taller' ? <Taller /> : tabV === 'tiempos' ? <Tiempos /> : <Config />}</main>
+      <main>{tabV === 'resumen' ? <Resumen /> : tabV === 'repuestos' ? <Repuestos /> : tabV === 'proyectos' ? <Proyectos key="proy" /> : tabV === 'postventa' ? <Proyectos key="pv" pv /> : tabV === 'taller' ? <Taller /> : tabV === 'tiempos' ? <Tiempos /> : tabV === 'estadisticas' ? <Estadisticas /> : <Config />}</main>
       {modal && modal.k === 'task' && <TaskEditor key={modal.id || modal.draft.id} id={modal.id} draft={modal.draft} onClose={close} />}
       {modal && modal.k === 'op' && <OperarioPanel id={modal.id} onClose={close} />}
       {modal && modal.k === 'pick' && <Picker {...modal} onClose={close} />}

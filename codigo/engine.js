@@ -973,3 +973,59 @@ export function sample() {
   S.tareas = S.tareas.map(t => t.estado === 'en proceso' ? { ...t, crono: { acum: Number(t.hhReal) || 0, desde: nowDT() } } : t);
   return S;
 }
+
+// ---- Estadísticas de horas-hombre (pestaña Estadísticas) ----
+// Reparte las HH reales de cada pieza entre los días hábiles que duró (inicio → fin real, o fin planificado) y de ahí saca meses, % y totales.
+// Quedan aparte, sin mes: las "HH reales previas" de los proyectos y las piezas finalizadas sin día puntual. Las tercerizadas no cuentan.
+export function estadisticas(S, V, hoy = today()) {
+  const G = {}, dia = {}, ops = {}, opers = {}, cerr = {};
+  const grupo = t => {
+    if (t.tipo !== 'proy') return { k: 'rep', nombre: 'Repuestos', tipo: 'rep' };
+    const p = (S.proyectos || []).find(x => x.id === t.proyId);
+    return { k: t.proyId || '?', nombre: p ? p.nombre : 'Sin proyecto', tipo: p && p.pv ? 'pv' : 'proy' };
+  };
+  const nuevo = g => ({ ...g, hh: 0, plan: 0, previas: 0, sinFecha: 0, ini: null, fin: null, costo: 0, sinTarifa: 0, planCerr: 0, realCerr: 0, ops: {}, opers: {}, dias: {} });
+  (S.proyectos || []).forEach(p => { { const g = { k: p.id, nombre: p.nombre, tipo: p.pv ? 'pv' : 'proy' }; G[p.id] = nuevo(g); G[p.id].previas = Math.max(0, Number(p.hhPrevias) || 0); } });
+  S.tareas.forEach(t => {
+    const r = V.D[t.id]; if (!r || r.parent || t.tercerizada) return;
+    const g0 = grupo(t); const g = G[g0.k] = G[g0.k] || nuevo(g0);
+    const real = Math.max(0, Number(t.hhReal) || 0), plan = Math.max(0, Number(t.hh) || 0);
+    g.plan += plan;
+    if (t.estado === 'terminada' && !t.sinFecha && real > 0 && plan > 0) { g.planCerr += plan; g.realCerr += real; }
+    const ini = t.inicio && t.inicio.slice(0, 10), fin = (t.finReal || r.fin || t.inicio || '').slice(0, 10);
+    if (ini && (!g.ini || ini < g.ini)) g.ini = ini;
+    if (fin && (!g.fin || fin > g.fin)) g.fin = fin;
+    if (!(real > 0)) return;
+    g.hh += real;
+    const vh = valorHora(S, t.nombre, t.operacionId);
+    if (vh) g.costo += real * vh.valor; else g.sinTarifa += real;
+    const ok = t.operacionId || '_'; g.ops[ok] = (g.ops[ok] || 0) + real; ops[ok] = (ops[ok] || 0) + real;
+    const os = (t.ops || []); os.forEach(o => { g.opers[o] = (g.opers[o] || 0) + real / os.length; opers[o] = (opers[o] || 0) + real / os.length; });
+    if (t.sinFecha || !ini) { g.sinFecha += real; return; }
+    // días hábiles de la pieza (si no hay ninguno, cuenta el día de inicio)
+    const ds_ = []; let d = ini; for (let i = 0; i < 400 && d <= (fin >= ini ? fin : ini); i++, d = addDays(d, 1)) if (isWork(S, d)) ds_.push(d);
+    if (!ds_.length) ds_.push(ini);
+    ds_.forEach(x => { const h = real / ds_.length; g.dias[x] = (g.dias[x] || 0) + h; });
+  });
+  // meses y totales de planta
+  const mes = {}; const M = (k) => mes[k] = mes[k] || { rep: 0, proy: 0, pv: 0, total: 0, costo: 0, disp: 0 };
+  Object.values(G).forEach(g => {
+    const vhMed = g.hh > 0 ? g.costo / Math.max(0.0001, g.hh - g.sinTarifa) : 0;   // costo medio por HH de este grupo, para repartir por mes
+    Object.entries(g.dias).forEach(([d, h]) => { const m = M(d.slice(0, 7)); m[g.tipo] += h; m.total += h; m.costo += h * vhMed; dia[d] = (dia[d] || 0) + h; });
+  });
+  // horas disponibles (operarios activos: jornada normal + extras), solo hasta hoy
+  const meses = Object.keys(mes).sort();
+  if (meses.length) {
+    const ult = hoy.slice(0, 7); const act = (S.operarios || []).filter(o => o.activo !== false);
+    meses.forEach(k => { if (k > ult) return; const [y, mm] = k.split('-').map(Number); const tope = k === ult ? hoy : null;
+      for (let d = `${k}-01`; d.slice(0, 7) === k && (!tope || d <= tope); d = addDays(d, 1)) act.forEach(o => { mes[k].disp += capN(S, o.id, d) + (isWork(S, d) && !ausenciaDe(S, o.id, d) ? extraDe(S, o.id, d) : 0); }); });
+  }
+  // ventana de cada proyecto: del primer inicio al último fin, qué % de las HH de toda la planta fue para él
+  const grupos = Object.values(G).filter(g => g.hh > 0 || g.previas > 0 || g.plan > 0).map(g => {
+    let vent = 0, propio = 0;
+    if (g.tipo !== 'rep' && g.ini && g.fin) { Object.entries(dia).forEach(([d, h]) => { if (d >= g.ini && d <= g.fin) vent += h; }); Object.entries(g.dias).forEach(([d, h]) => { if (d >= g.ini && d <= g.fin) propio += h; }); }
+    const { dias, ...r } = g; return { ...r, total: g.hh + g.previas, ventana: vent, propio, pct: vent > 0 ? propio / vent * 100 : null, desvio: g.planCerr > 0 ? (g.realCerr - g.planCerr) / g.planCerr * 100 : null };
+  }).sort((a, b) => b.total - a.total);
+  const sumT = k => grupos.filter(g => g.tipo === k).reduce((a, g) => a + g.total, 0);
+  return { meses, mes, grupos, ops, opers, totales: { rep: sumT('rep'), proy: sumT('proy'), pv: sumT('pv') }, sinFecha: grupos.reduce((a, g) => a + g.sinFecha + g.previas, 0) };
+}
