@@ -147,15 +147,19 @@ export const conFinReal = t => !!(t.realFin && t.estado === 'terminada' && t.fin
 export const durReal = (S, t) => workBetween(S, t.inicio, t.finReal, t.turno, t.ops);
 // Fin según lo planificado (sin extender las que se pasaron de hora)
 export const finPlan = (S, t) => t.inicio ? addWork(S, t.inicio, calDur(t), t.turno, t.ops).end : null;
-// Pieza "en proceso" que ya pasó su hora de fin pero no se finalizó: sigue ocupando el día hasta el cierre de la jornada
+// Pieza "en proceso" que ya pasó su hora de fin pero no se finalizó: sigue ocupando el día hasta la próxima hora en punto
 // (y de las siguientes, mientras no se finalice). Devuelve ese fin extendido, o null si no corresponde.
 // No cuenta si está pausada o frenada (esas no ocupan el día).
 export function finSigue(S, t) {
   if (!t || t.estado !== 'en proceso' || !t.inicio || !t.ops.length || t.pausada || t.frenada || conFinReal(t) || esGrupo(S, t)) return null;
   const now = nowDT(), base = finPlan(S, t);
   if (!base || base >= now) return null;
-  let d = now.slice(0, 10);
-  for (let i = 0; i < 60; i++, d = addDays(d, 1)) { const iv = dayIv(S, d, t.turno, t.ops); if (!iv.length) continue; const e = join(d, iv[iv.length - 1][1]); if (e > now) return e; }
+  // se estira solo hasta la próxima hora en punto (sin pasar el fin del tramo de trabajo): cada hora se corre lo de atrás
+  const [d0, m0] = split(now); let d = d0;
+  for (let i = 0; i < 60; i++, d = addDays(d, 1)) for (const [a, b] of dayIv(S, d, t.turno, t.ops)) {
+    if (d === d0 && b <= m0) continue;
+    const s = d === d0 ? Math.max(a, m0) : a;
+    return join(d, Math.min(b, Math.floor(s / 60) * 60 + 60)); }
   return null;
 }
 export const durDe = (S, t) => {
