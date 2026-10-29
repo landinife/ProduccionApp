@@ -36,7 +36,16 @@ export const netOf = h => (hm(h.salida) - hm(h.entrada) - (Number(h.descansoMin)
 export const feriadoDe = (S, d) => S.feriados.find(f => f.fecha === d);
 export const choque = (a, b) => (a || 'normal') === (b || 'normal') || a === 'ambos' || b === 'ambos';   // dos turnos que se pisan
 export const isWork = (S, d) => { const g = dow(d); return g >= 1 && g <= 5 && !feriadoDe(S, d); };
-export const ausenciaDe = (S, op, d) => (S.ausencias || []).find(a => a.opId === op && a.desde <= d && d <= a.hasta);
+// Disponibilidad del operario: nuevo = cuenta desde su fecha "desde"; ocasional = solo los días que se marcaron en "dias" (de lunes a viernes no feriados)
+export const noDispDe = (S, op, d) => {
+  const o = (S.operarios || []).find(x => x.id === op); if (!o) return null;
+  if (o.desde && d < o.desde) return 'Aún no ingresó';
+  if (o.ocasional && isWork(S, d) && !(o.dias || []).includes(d)) return 'No viene';
+  return null;
+};
+export const ausenciaReal = (S, op, d) => (S.ausencias || []).find(a => a.opId === op && a.desde <= d && d <= a.hasta);
+// Para todo el motor, "no está" = ausencia cargada o no disponible (aún no ingresó / ocasional que no viene ese día)
+export const ausenciaDe = (S, op, d) => ausenciaReal(S, op, d) || (m => m ? { id: '_nd', opId: op, desde: d, hasta: d, motivo: m, auto: true } : null)(noDispDe(S, op, d));
 export const extraDe = (S, op, d) => Number(S.extras[op + '|' + d]) || 0;
 export function capN(S, op, d) {
   if (!isWork(S, d) || ausenciaDe(S, op, d)) return 0;
@@ -49,7 +58,7 @@ export const sigueDe = (S, op, d) => modoExtra(S, op, d) === 'sigue' ? extraDe(S
 // horas equivalentes de calendario que suma la extra "sigue" a una tarea de turno normal ese día
 export const eqSigue = (S, d, ops) => ops.length ? ops.reduce((a, o) => a + sigueDe(S, o, d), 0) / ops.length : 0;
 export function dayIv(S, d, turno, ops) {
-  if (ops && ops.length && (S.ausencias || []).length && ops.some(o => ausenciaDe(S, o, d))) return [];   // si falta alguno de sus operarios, ese día la tarea no avanza
+  if (ops && ops.length && ops.some(o => ausenciaDe(S, o, d))) return [];   // si falta alguno de sus operarios, ese día la tarea no avanza
   const s = schedAt(S, d), wd = isWork(S, d);
   if (turno === 'ambos') {   // normal + extra: el turno normal y después todas las horas extra de ese día
     const iv = !wd ? [] : s.bm > 0 && s.bi > s.in && s.bi + s.bm < s.out ? [[s.in, s.bi], [s.bi + s.bm, s.out]] : [[s.in, s.out - s.bm]];
@@ -357,6 +366,14 @@ export function setAusencias(S, ausencias) {
   let S2 = arrastrarCola(S, { ...S, ausencias });
   const cambio = new Set((S.ausencias || []).concat(ausencias).map(a => a.opId));
   S2.tareas.filter(t => t.inicio && t.ops.length && t.estado === 'pendiente' && t.ops.some(o => cambio.has(o)) && isLeaf(S2, t.id)).forEach(t => {
+    const ni = normStart(S2, t.inicio, t.turno, t.ops); if (ni !== t.inicio) S2 = patchTask(S2, t.id, { inicio: ni }, true); });
+  return S2;
+}
+// Cambia cuándo está disponible un operario (activo desde / ocasional / días que viene): igual que con una ausencia,
+// las pendientes que caían en días sin él pasan al primer momento libre y la cola de detrás se corre con ellas.
+export function setDispOp(S, opId, patch) {
+  let S2 = arrastrarCola(S, { ...S, operarios: S.operarios.map(o => o.id === opId ? { ...o, ...patch } : o) });
+  S2.tareas.filter(t => t.inicio && t.ops.includes(opId) && t.estado === 'pendiente' && isLeaf(S2, t.id)).forEach(t => {
     const ni = normStart(S2, t.inicio, t.turno, t.ops); if (ni !== t.inicio) S2 = patchTask(S2, t.id, { inicio: ni }, true); });
   return S2;
 }
