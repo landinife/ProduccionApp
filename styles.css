@@ -295,9 +295,7 @@ input[type=search] { min-width: 210px; }
 /* ================= Piel v2: más vistosa =================
    Fondo con grilla de plano técnico, barra con logo e íconos, operarios con avatar, tarjetas con relieve */
 body {
-  background: linear-gradient(rgba(130,170,210,.05) 1px, transparent 1px) 0 0 / 28px 28px,
-  linear-gradient(90deg, rgba(130,170,210,.05) 1px, transparent 1px) 0 0 / 28px 28px,
-  radial-gradient(1100px 460px at 12% -8%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 70%),
+  background: radial-gradient(1100px 460px at 12% -8%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 70%),
   var(--bg);
   background-attachment: fixed;
 }
@@ -812,7 +810,7 @@ select.ci.est.e-pendiente { background: transparent; }
   --ok: #17935b; --warn: #b88207; --bad: #d4382a;
   --sh: 0 4px 16px rgba(20,40,60,.10);
 }
-:root[data-theme="light"] body { background: linear-gradient(rgba(40,80,120,.05) 1px, transparent 1px) 0 0 / 28px 28px, linear-gradient(90deg, rgba(40,80,120,.05) 1px, transparent 1px) 0 0 / 28px 28px, var(--bg); }
+:root[data-theme="light"] body { background: var(--bg); }
 @media (max-width: 760px), (pointer: coarse) { :root[data-theme="light"] body { background: var(--bg); } }
 :root[data-theme="light"] select { color-scheme: light; }
 :root[data-theme="light"] .top { box-shadow: 0 1px 0 var(--line), 0 6px 18px rgba(20,40,60,.08); }
@@ -1031,3 +1029,13 @@ label.chk.cadena { font-size: 13px !important; color: var(--mut) !important; }
 .est-pl>div span{margin-left:auto}
 .est-pl>div em{min-width:64px;text-align:right;font-style:normal;opacity:.8}
 .est-line{width:100%;height:auto;max-height:240px}
+
+/* ===== Tarjetas y KPIs centrados (29/10) ===== */
+.kpi, button.kpi { text-align: center; align-items: center; }
+.mcard { text-align: center; align-items: center; }
+.mcard .mpair, .mcard .pbar.big { align-self: stretch; }
+.mpair > div { align-items: center; }
+.mpair > div + div { padding-left: 0; }
+.pcard { text-align: center; align-items: center; }
+.presum { text-align: center; }
+.presum > span { align-items: center; }
