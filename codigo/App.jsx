@@ -2113,7 +2113,7 @@ const pcE = v => v == null || isNaN(v) ? '—' : (Math.round(v * 10) / 10).toLoc
 const usdE = v => 'US$ ' + Math.round(v || 0).toLocaleString('es-AR');
 const labMes = k => `${E.MESES[Number(k.slice(5)) - 1]} ${k.slice(2, 4)}`;
 function Estadisticas() {
-  const { S, V } = useApp(); const [n, setN] = useState(6); const [tabla, setTabla] = useState(false); const [hov, setHov] = useState(null); const [ft, setFt] = useState('');
+  const { S, V } = useApp(); const [n, setN] = useState(6); const [tabla, setTabla] = useState(false); const [hov, setHov] = useState(null); const [ft, setFt] = useState(''); const [mt, setMt] = useState(''); const [modo, setModo] = useState('pct');
   const R = useMemo(() => E.estadisticas(S, V), [S, V]);
   // meses seguidos (aunque alguno no tenga horas), los últimos n o todos
   const todos = []; if (R.meses.length) { let [y, m] = R.meses[0].split('-').map(Number); const fin = R.meses[R.meses.length - 1]; for (let g = 0; g < 120; g++) { const k = `${y}-${E.pad(m)}`; todos.push(k); if (k >= fin) break; m++; if (m > 12) { m = 1; y++; } } }
@@ -2150,6 +2150,37 @@ function Estadisticas() {
               {hov === d.k && <div className="bc-tip"><b>{labMes(d.k)}</b>{['rep', 'proy', 'pv'].map(k => <span key={k}><i style={{ background: COL_EST[k] }} />{NOM_EST[k]} <em>{fN(d[k])} h · {pcE(pct(d[k], d.total))}</em></span>)}{d.disp > 0 && <span className="mut">Usó {pcE(pct(d.total, d.disp))} de {fN(d.disp)} h disponibles</span>}</div>}
             </div>)}</div>
             <div className="bc-x">{dm.map(d => <span key={d.k}>{labMes(d.k)}</span>)}</div></div></div>}
+    </section>
+
+    <section className="chart"><div className="sec-h"><h3>Reparto de las horas</h3>
+      <select value={mt} onChange={e => setMt(e.target.value)} aria-label="Período de la torta"><option value="">Todo el período elegido</option>{dm.map(d => <option key={d.k} value={d.k}>{labMes(d.k)}</option>)}</select></div>
+      {(() => { const b = mt ? dm.find(d => d.k === mt) || per : per; let acc = 0; const arcs = ['rep', 'proy', 'pv'].map(k => { const v = b.total > 0 ? b[k] / b.total * 100 : 0; const a = { k, v, off: 25 - acc }; acc += v; return a; });
+        return <div className="est-pie"><svg viewBox="-1 -1 38 38" role="img" aria-label="Torta de horas por tipo"><circle cx="18" cy="18" r="15.9155" fill="none" stroke="var(--line, #8883)" strokeWidth="5" />
+          {arcs.map(a => a.v > 0 && <circle key={a.k} cx="18" cy="18" r="15.9155" fill="none" stroke={COL_EST[a.k]} strokeWidth="5" strokeDasharray={`${a.v} ${100 - a.v}`} strokeDashoffset={a.off}><title>{NOM_EST[a.k]}: {fN(b[a.k])} h · {pcE(a.v)}</title></circle>)}
+          <text x="18" y="18.6" textAnchor="middle" fontSize="4.6" fontWeight="700" fill="currentColor">{fN(b.total)} h</text></svg>
+          <div className="est-pl">{arcs.map(a => <div key={a.k}><i className="est-dot" style={{ background: COL_EST[a.k] }} /><b>{NOM_EST[a.k]}</b><span>{fN(b[a.k])} h</span><em>{pcE(a.v)}</em></div>)}
+            {b.disp > 0 && <p className="mut">Usó {pcE(pct(b.total, b.disp))} de las {fN(b.disp)} h disponibles.</p>}</div></div>; })()}
+    </section>
+
+    <section className="chart"><div className="sec-h"><h3>Mes a mes: cómo cambia cada tipo</h3>
+      <div className="seg">{[['pct', '% del mes'], ['h', 'Horas']].map(([k, l]) => <button key={k} className={modo === k ? 'on' : ''} onClick={() => setModo(k)}>{l}</button>)}</div></div>
+      <div className="lgd">{['rep', 'proy', 'pv'].map(k => <span key={k}><i style={{ background: COL_EST[k] }} />{NOM_EST[k]}</span>)}</div>
+      {(() => { const W = 600, Hh = 190, L = 34, Rr = 12, T = 12, B = 24; const val = (d, k) => modo === 'pct' ? (d.total > 0 ? d[k] / d.total * 100 : 0) : d[k];
+        const mx = modo === 'pct' ? 100 : Math.max(10, Math.ceil(Math.max(0, ...dm.flatMap(d => ['rep', 'proy', 'pv'].map(k => d[k]))) / 10) * 10);
+        const x = i => dm.length > 1 ? L + i * (W - L - Rr) / (dm.length - 1) : (W + L) / 2, y = v => T + (Hh - T - B) * (1 - v / mx);
+        return <svg className="est-line" viewBox={`0 0 ${W} ${Hh}`} role="img" aria-label="Evolución mensual">
+          {[0, .5, 1].map(f => <g key={f}><line x1={L} x2={W - Rr} y1={y(mx * f)} y2={y(mx * f)} stroke="currentColor" strokeOpacity=".15" /><text x={L - 4} y={y(mx * f) + 3} textAnchor="end" fontSize="10" fill="currentColor" opacity=".7">{Math.round(mx * f)}{modo === 'pct' ? '%' : ''}</text></g>)}
+          {['rep', 'proy', 'pv'].map(k => <g key={k}><polyline fill="none" stroke={COL_EST[k]} strokeWidth="2.5" points={dm.map((d, i) => `${x(i)},${y(val(d, k))}`).join(' ')} />
+            {dm.map((d, i) => <circle key={d.k} cx={x(i)} cy={y(val(d, k))} r="3.5" fill={COL_EST[k]}><title>{labMes(d.k)} · {NOM_EST[k]}: {fN(d[k])} h ({pcE(pct(d[k], d.total))})</title></circle>)}</g>)}
+          {dm.map((d, i) => <text key={d.k} x={x(i)} y={Hh - 8} textAnchor="middle" fontSize="10" fill="currentColor" opacity=".8">{labMes(d.k)}</text>)}</svg>; })()}
+      <p className="mut">Pasá el dedo o el mouse sobre un punto para ver las horas y el %.</p>
+    </section>
+
+    <section><h3>Cómo leer estos gráficos</h3>
+      <p className="mut"><b>Barras por mes:</b> cada barra es un mes y su altura son las horas-hombre (HH) de ese mes. Los colores muestran cuánto fue de cada tipo; el número de arriba es el total del mes. Si una barra es más alta que otra, se trabajó más ese mes; si cambian los colores, cambió el reparto.</p>
+      <p className="mut"><b>Torta:</b> reparte el 100 % de las horas del período (o del mes que elijas) entre Repuestos, Proyectos y Post Venta.</p>
+      <p className="mut"><b>Líneas:</b> siguen cada tipo mes a mes. En «% del mes» suben o bajan según su parte del total (las tres suman 100 % en cada mes); en «Horas» muestran las horas absolutas.</p>
+      <p className="mut"><b>Horas disponibles:</b> lo que los operarios activos podían trabajar en el mes (jornada normal más extras habilitadas, menos ausencias, feriados y días en que no vienen), hasta hoy. <b>Uso</b> = HH reales ÷ horas disponibles. Ojo: las HH reales son horas-hombre, así que si dos operarios hacen una pieza juntos cuentan las dos.</p>
     </section>
 
     <section><div className="sec-h"><h2>Repuestos, proyectos y post venta</h2>

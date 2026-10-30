@@ -1023,3 +1023,11 @@ label.chk.cadena { font-size: 13px !important; color: var(--mut) !important; }
 .est-bn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .est-bar b { text-align: right; font-variant-numeric: tabular-nums; }
 .est-pc { display: flex; align-items: center; gap: 8px; min-width: 190px; } .est-pc .pbar { flex: 1; } .est-pc b { min-width: 52px; text-align: right; }
 @media (max-width: 760px) { .est-bar { grid-template-columns: 1fr 70px; } .est-bar .pbar { grid-column: 1 / -1; order: 3; } }
+
+.est-pie{display:flex;gap:24px;align-items:center;flex-wrap:wrap}
+.est-pie svg{width:190px;height:190px;flex:none}
+.est-pl{display:grid;gap:8px;flex:1;min-width:200px}
+.est-pl>div{display:flex;gap:8px;align-items:center}
+.est-pl>div span{margin-left:auto}
+.est-pl>div em{min-width:64px;text-align:right;font-style:normal;opacity:.8}
+.est-line{width:100%;height:auto;max-height:240px}
