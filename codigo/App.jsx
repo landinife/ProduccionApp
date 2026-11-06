@@ -581,6 +581,19 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden }) {
         else if (que === 'turno') s2 = E.patchTask(s2, id, { turno: val }, true); });
       return s2; });
     ui.toast(n ? `Cambiadas ${n} ${n === 1 ? 'tarea' : 'tareas'}` : 'Nada para cambiar: las seleccionadas están finalizadas'); };
+  // Estado en bloque: sobre las piezas con trabajo propio de lo seleccionado (igual que operario, operación y turno).
+  // "En proceso" no está: iniciar corta lo que ese operario tenga corriendo, así que se sigue haciendo de a una (Taller o fila).
+  const estadoEnBloque = val => { if (!val) return;
+    const cambia = t => !esTerc(t) && (val === 'pendiente' ? t.estado !== 'pendiente' : val === 'terminada' ? (t.estado !== 'terminada' || t.sinFecha) : !sinF(t));
+    const ids = hojasSel().filter(id => { const t = S.tareas.find(x => x.id === id); return t && cambia(t); });
+    if (!ids.length) { ui.toast('Nada para cambiar: las piezas elegidas ya están en ese estado (las tercerizadas se vuelven a planta desde su editor)'); return; }
+    const txt = val === 'pendiente' ? 'pendiente' : val === 'terminada' ? 'finalizada' : 'finalizada, sin día puntual';
+    const aplicar = () => { up(s => ids.reduce((a, id) => { const t = a.tareas.find(x => x.id === id); if (!t) return a;
+        if (val === 'terminada' && t.estado === 'terminada') { const l = E.llevado(a, t); return E.finalizarYEncadenar(a, id, l > 0 ? l : t.hhReal).S; }   // era "sin día puntual": ahora con fin real
+        return E.setEstado(a, id, val); }, s));
+      ui.toast(`${ids.length} ${ids.length === 1 ? 'pieza pasó' : 'piezas pasaron'} a ${txt}. Podés deshacerlo arriba.`); };
+    if (val === 'pendiente') aplicar();
+    else ui.confirmar({ titulo: `¿Pasar ${ids.length} ${ids.length === 1 ? 'pieza' : 'piezas'} a ${txt}?`, texto: 'Las horas reales quedan como están (o las que lleva el cronómetro). Podés deshacerlo arriba.', si: 'Sí, cambiar', onSi: aplicar }); };
   const borrarSel = () => { const ids = vivos; up(s => ids.reduce((a, id) => a.tareas.some(t => t.id === id) ? E.delTask(a, id) : a, s)); setSel(new Set()); ui.toast(`Borradas ${ids.length}. Podés deshacerlo arriba.`); };
   const set = (t, patch, mover) => up(s => E.patchTask(s, t.id, patch, !!mover));
   const mover = (t, dir) => { const sib = orden(S.tareas.filter(x => x.parentId === t.parentId && x.tipo === t.tipo && x.proyId === t.proyId)); const i = sib.findIndex(x => x.id === t.id), j = i + dir;
@@ -647,6 +660,7 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden }) {
       <select value="" onChange={e => enBloque('operacion', e.target.value)} aria-label="Operación"><option value="">Operación…</option>{S.operaciones.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select>
       <select value="" onChange={e => enBloque('prioridad', e.target.value)} aria-label="Prioridad"><option value="">Prioridad…</option><option>alta</option><option>media</option><option>baja</option></select>
       <select value="" onChange={e => enBloque('turno', e.target.value)} aria-label="Turno"><option value="">Turno…</option><option value="normal">Normal</option><option value="extra">Extra</option><option value="ambos">Normal + extra</option></select>
+      <select value="" onChange={e => estadoEnBloque(e.target.value)} aria-label="Estado"><option value="">Estado…</option><option value="pendiente">Pendiente</option><option value="terminada">Finalizada</option><option value="sinfecha">Finalizada, sin día puntual</option></select>
       <button className="btn sm pri-b" onClick={() => { const ids = vivos.filter(id => !V.D[id].parent); if (!ids.length) { ui.toast('Elegí piezas con trabajo propio (no ensamblajes generales)'); return; } ui.modal({ k: 'lote', ids }); }}>✎ Editar en lote</button>
       <button className="btn sm terc-b" title="Las piezas elegidas las hace un proveedor: quedan finalizadas y tercerizadas" onClick={() => { const ids = vivos.filter(i => !V.D[i].parent && V.D[i].estado !== 'terminada'); if (!ids.length) { ui.toast('Elegí piezas sin finalizar y sin piezas hijas'); return; } ui.modal({ k: 'tercerizar', ids }); }}>↗ Tercerizar</button>
       <span className="sp" /><button className="btn sm danger" onClick={() => ui.confirmar({ titulo: '¿Borrar las tareas seleccionadas?', texto: `Se borran ${vivos.length} tarea${vivos.length === 1 ? '' : 's'}. Podés deshacerlo arriba.`, si: 'Sí, borrar', peligro: true, onSi: borrarSel })}>Borrar</button><button className="btn sm" onClick={() => setSel(new Set())}>Quitar selección</button></div>}
