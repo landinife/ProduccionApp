@@ -63,6 +63,16 @@ function Modal({ title, onClose, children, wide, foot }) {
     </div>
   </div>;
 }
+function ConfirmarDlg({ titulo, texto, si = 'Sí', peligro, onSi, onClose }) {
+  useEffect(() => { const k = e => { if (e.key === 'Escape') { e.stopImmediatePropagation(); onClose(); } }; window.addEventListener('keydown', k, true); return () => window.removeEventListener('keydown', k, true); }, [onClose]);
+  return <div className="ovl ovl-conf" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="modal conf" role="alertdialog" aria-label={titulo}>
+      <header><h2>{titulo}</h2></header>
+      <div className="modal-b"><p>{texto}</p></div>
+      <footer><button className="btn" autoFocus={!!peligro} onClick={onClose}>Cancelar</button><button className={'btn ' + (peligro ? 'danger' : 'ok-b')} autoFocus={!peligro} onClick={() => { onClose(); onSi(); }}>{si}</button></footer>
+    </div>
+  </div>;
+}
 function Bar({ v, color }) { return <span className="pbar"><i style={{ width: Math.min(100, Math.max(0, v)) + '%', background: color || 'var(--accent)' }} /></span>; }
 const fHM = h => { const tm = Math.round((Number(h) || 0) * 60); return tm < 60 ? `${tm} min` : `${Math.floor(tm / 60)} h${tm % 60 ? ` ${tm % 60} min` : ''}`; };
 // importes en dólares (USD), con 2 decimales
@@ -639,7 +649,7 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden }) {
       <select value="" onChange={e => enBloque('turno', e.target.value)} aria-label="Turno"><option value="">Turno…</option><option value="normal">Normal</option><option value="extra">Extra</option><option value="ambos">Normal + extra</option></select>
       <button className="btn sm pri-b" onClick={() => { const ids = vivos.filter(id => !V.D[id].parent); if (!ids.length) { ui.toast('Elegí piezas con trabajo propio (no ensamblajes generales)'); return; } ui.modal({ k: 'lote', ids }); }}>✎ Editar en lote</button>
       <button className="btn sm terc-b" title="Las piezas elegidas las hace un proveedor: quedan finalizadas y tercerizadas" onClick={() => { const ids = vivos.filter(i => !V.D[i].parent && V.D[i].estado !== 'terminada'); if (!ids.length) { ui.toast('Elegí piezas sin finalizar y sin piezas hijas'); return; } ui.modal({ k: 'tercerizar', ids }); }}>↗ Tercerizar</button>
-      <span className="sp" /><button className="btn sm danger" onClick={borrarSel}>Borrar</button><button className="btn sm" onClick={() => setSel(new Set())}>Quitar selección</button></div>}
+      <span className="sp" /><button className="btn sm danger" onClick={() => ui.confirmar({ titulo: '¿Borrar las tareas seleccionadas?', texto: `Se borran ${vivos.length} tarea${vivos.length === 1 ? '' : 's'}. Podés deshacerlo arriba.`, si: 'Sí, borrar', peligro: true, onSi: borrarSel })}>Borrar</button><button className="btn sm" onClick={() => setSel(new Set())}>Quitar selección</button></div>}
     <div className="scroll xlw"><table className="tt xl" onKeyDown={nav} style={{ width: cols.reduce((a, c) => a + W[c[0]], 0) }}>
     <colgroup>{cols.map(c => <col key={c[0]} style={{ width: W[c[0]] }} />)}</colgroup>
     <thead><tr>{cols.map((c, i) => <th key={c[0]}>{i === 0 && <input type="checkbox" className="selc" aria-label="Seleccionar todas" checked={todos} onChange={() => setSel(todos ? new Set() : new Set(rows.map(r => r.t.id)))} />}<span>{c[1]}</span><i className="rz" title="Arrastrá para ajustar el ancho. Doble clic para volver al ancho original." onPointerDown={e => resize(e, c[0])} onDoubleClick={() => setW(p => ({ ...p, [c[0]]: c[2] }))} /></th>)}</tr></thead>
@@ -865,16 +875,20 @@ function Desglose({ roots, ts, vista, hhv, setHhv, color, prev = 0, cerrar }) {
 function useTopH() { useEffect(() => { const top = document.querySelector('.top'); if (!top) return; const f = () => document.documentElement.style.setProperty('--toph', top.offsetHeight + 'px'); f(); const ro = new ResizeObserver(f); ro.observe(top); return () => ro.disconnect(); }, []); }
 function ProyTabs({ pid, setPid, info, lista }) {
   const { S } = useApp(); const L = lista || S.proyectos; const ref = useRef(null);
+  const act = L.filter(x => !x.terminado), term = L.filter(x => x.terminado); const [verT, setVerT] = useState(false); const abierto = verT || term.some(x => x.id === pid);
   useTopH();
   useEffect(() => { const b = ref.current && ref.current.querySelector('.ptab.on'); if (b && b.scrollIntoView) b.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }, [pid]);
   if (!L.length) return null;
+  const tab = (pr, k) => { const i = info(pr); const late = !pr.terminado && pr.entrega && i.fin && i.fin.slice(0, 10) > pr.entrega;
+    return <button key={pr.id} className={'ptab' + (pr.id === pid ? ' on' : '') + (pr.terminado ? ' term' : '')} style={{ '--c': pr.color }} onClick={() => setPid(pr.id)} title={`${pr.nombre} · ${Math.round(i.av)}%${k >= 0 && k < 9 ? ` · Alt+${k + 1}` : ''}${pr.terminado ? ' · terminado' : ''}`}>
+      <span className="chip">{pr.ini}</span><span className="pt-n">{pr.nombre}</span>
+      <span className="pt-av"><i style={{ width: Math.round(i.av) + '%' }} /></span><small>{Math.round(i.av)}%</small>{late && <em className="pt-late" title="Se pasa de la entrega">!</em>}
+    </button>; };
   return <div className="ptabs" ref={ref}>
     <button className={'ptab todos' + (!pid ? ' on' : '')} onClick={() => setPid(null)} title="Ver todos los proyectos">▦ Todos</button>
-    {L.map((pr, k) => { const i = info(pr); const late = pr.entrega && i.fin && i.fin.slice(0, 10) > pr.entrega;
-      return <button key={pr.id} className={'ptab' + (pr.id === pid ? ' on' : '')} style={{ '--c': pr.color }} onClick={() => setPid(pr.id)} title={`${pr.nombre} · ${Math.round(i.av)}%${k < 9 ? ` · Alt+${k + 1}` : ''}`}>
-        <span className="chip">{pr.ini}</span><span className="pt-n">{pr.nombre}</span>
-        <span className="pt-av"><i style={{ width: Math.round(i.av) + '%' }} /></span><small>{Math.round(i.av)}%</small>{late && <em className="pt-late" title="Se pasa de la entrega">!</em>}
-      </button>; })}
+    {act.map((pr, k) => tab(pr, k))}
+    {term.length > 0 && <button className={'ptab terminados' + (abierto ? ' abierto' : '')} onClick={() => setVerT(!abierto)} title={abierto ? 'Ocultar los terminados' : 'Mostrar los terminados'}>✓ Terminados <small>{term.length}</small><i className="kar">{abierto ? '◂' : '▸'}</i></button>}
+    {abierto && term.map(pr => tab(pr, -1))}
   </div>;
 }
 /* ================= PROYECTOS EN EL TELÉFONO (21/10) ================= */
@@ -1005,24 +1019,28 @@ function RegistroPV({ ts, conCaso }) {
 }
 
 function Proyectos({ pv = false }) {
-  const { S, V, up, ui } = useApp(); const lista = S.proyectos.filter(x => !!x.pv === !!pv), LK = pv ? 'produccionapp-pv-actual' : 'produccionapp-proy-actual'; const movil = useMovil(); const [vistaM, setVistaM] = useState(() => prefG('movil-vista', 'lista')); const [masM, setMasM] = useState(false); const [pid, setPid0] = useState(() => { try { return localStorage.getItem(LK) || null; } catch (e) { return null; } });
+  const { S, V, up, ui } = useApp(); const lista = S.proyectos.filter(x => !!x.pv === !!pv), activos = lista.filter(x => !x.terminado), terminados = lista.filter(x => x.terminado), LK =pv ? 'produccionapp-pv-actual' : 'produccionapp-proy-actual'; const movil = useMovil(); const [vistaM, setVistaM] = useState(() => prefG('movil-vista', 'lista')); const [masM, setMasM] = useState(false); const [pid, setPid0] = useState(() => { try { return localStorage.getItem(LK) || null; } catch (e) { return null; } });
   const setPid = id => { setPid0(id); try { id ? localStorage.setItem(LK, id) : localStorage.removeItem(LK); } catch (e) { } if (typeof window.scrollTo === 'function') window.scrollTo({ top: 0 }); };
-  useEffect(() => { const k = e => { if (!e.altKey || e.ctrlKey || e.metaKey) return; const n = Number(e.key); if (n >= 1 && n <= 9 && lista[n - 1]) { e.preventDefault(); setPid(lista[n - 1].id); } else if (e.key === '0') { e.preventDefault(); setPid(null); } }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [S.proyectos, pv]); const [col, tog, setCol] = useSet(); const [det, setDet] = useState(null); const [hhv, setHhv] = useState('padre'); const [altoG, setAltoG] = useState('completo'); const [q, setQ] = useState(''); const [verFin, setVerFin] = useState(() => prefG('verfin', false));
+  useEffect(() => { const k = e => { if (!e.altKey || e.ctrlKey || e.metaKey) return; const n = Number(e.key); if (n >= 1 && n <= 9 && activos[n - 1]) { e.preventDefault(); setPid(activos[n - 1].id); } else if (e.key === '0') { e.preventDefault(); setPid(null); } }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [S.proyectos, pv]); const [col, tog, setCol] = useSet(); const [det, setDet] = useState(null); const [hhv, setHhv] = useState('padre'); const [altoG, setAltoG] = useState('completo'); const [q, setQ] = useState(''); const [verFin, setVerFin] = useState(() => prefG('verfin', false)); const [verTerm, setVerTerm] = useState(() => prefG(pv ? 'verterm-pv' : 'verterm', false));
   useEffect(() => { if (pid) setAltoG(prefG('alto-' + pid, 'completo')); }, [pid]);
   const p = lista.find(x => x.id === pid);
   const info = pr => { const ts = S.tareas.filter(t => t.proyId === pr.id), rs = ts.filter(t => !t.parentId).map(t => V.D[t.id]); const hh = rs.reduce((a, r) => a + r.hh, 0);
     return { ts, hh, av: hh ? rs.reduce((a, r) => a + r.hh * r.avance, 0) / hh : 0, prev: Math.max(0, Number(pr.hhPrevias) || 0), real: Math.max(0, Number(pr.hhPrevias) || 0) + rs.reduce((a, r) => a + r.hhReal, 0), ini: rs.map(r => r.inicio).filter(Boolean).sort()[0], fin: rs.map(r => r.fin).filter(Boolean).sort().pop() }; };
   const nuevo = () => { const id = E.uid(); up(s => ({ ...s, proyectos: [...s.proyectos, { id, nombre: pv ? 'Caso nuevo' : 'Proyecto nuevo', ini: pv ? 'PV' : 'NVO', color: ACCENTS[s.proyectos.length % ACCENTS.length], entrega: '', ...(pv ? { pv: true } : {}) }] })); setPid(id); };
   const tabs = <ProyTabs pid={p ? pid : null} setPid={setPid} info={info} lista={lista} />;
+  const tarjeta = pr => { const i = info(pr); const late = !pr.terminado && pr.entrega && i.fin && i.fin.slice(0, 10) > pr.entrega; return <button key={pr.id} className={'pcard' + (pr.terminado ? ' term' : '')} style={{ '--c': pr.color }} onClick={() => setPid(pr.id)}>
+    <span className="chip">{pr.ini}</span><b>{pr.nombre}</b>
+    <span className="pline"><Bar v={i.av} color={pr.color} /> {Math.round(i.av)}%</span>
+    <span className="mut">{fD(i.ini && i.ini.slice(0, 10))} → {fD(i.fin && i.fin.slice(0, 10))} · {fN(i.hh)} HH</span>
+    {pr.terminado ? <span className="tag ok">✓ terminado{pr.terminadoEl ? ` el ${fD(pr.terminadoEl)}` : ''}</span> : pr.entrega && <span className={'tag ' + (late ? 'bad' : '')}>{late ? `se pasa ${E.diffDays(pr.entrega, i.fin.slice(0, 10))} d de la entrega` : `entrega ${fD(pr.entrega)}`}</span>}
+  </button>; };
   if (!p) return <div className="view">{tabs}<section>
     <div className="sec-h"><h2>{pv ? 'Post Venta' : 'Proyectos'}</h2><div className="row">{pv && <button className="btn" onClick={() => ui.modal({ k: 'plan', alcance: 'pv' })}>Planificar todos los casos</button>}<button className="btn pri-b" onClick={nuevo}>{pv ? '+ Caso' : '+ Proyecto'}</button></div></div>
-    <div className="pcards">{lista.map(pr => { const i = info(pr); const late = pr.entrega && i.fin && i.fin.slice(0, 10) > pr.entrega; return <button key={pr.id} className="pcard" style={{ '--c': pr.color }} onClick={() => setPid(pr.id)}>
-      <span className="chip">{pr.ini}</span><b>{pr.nombre}</b>
-      <span className="pline"><Bar v={i.av} color={pr.color} /> {Math.round(i.av)}%</span>
-      <span className="mut">{fD(i.ini && i.ini.slice(0, 10))} → {fD(i.fin && i.fin.slice(0, 10))} · {fN(i.hh)} HH</span>
-      {pr.entrega && <span className={'tag ' + (late ? 'bad' : '')}>{late ? `se pasa ${E.diffDays(pr.entrega, i.fin.slice(0, 10))} d de la entrega` : `entrega ${fD(pr.entrega)}`}</span>}
-    </button>; })}
-      {lista.length === 0 && <Vacio ic="caja" t={pv ? 'Todavía no hay casos de post venta' : 'Todavía no hay proyectos'}>{pv ? 'Creá el primero con "+ Caso": puede ser un cliente, un equipo o un reclamo.' : 'Creá el primero con el botón de arriba.'}</Vacio>}</div>
+    <div className="pcards">{activos.map(tarjeta)}
+      {lista.length === 0 && <Vacio ic="caja" t={pv ? 'Todavía no hay casos de post venta' : 'Todavía no hay proyectos'}>{pv ? 'Creá el primero con "+ Caso": puede ser un cliente, un equipo o un reclamo.' : 'Creá el primero con el botón de arriba.'}</Vacio>}
+      {lista.length > 0 && activos.length === 0 && <Vacio ic="caja" chico t={pv ? 'Todos los casos están terminados' : 'Todos los proyectos están terminados'} />}</div>
+    {terminados.length > 0 && <div className="termsec"><div className="sec-h"><button className="dgrp-t fin-t" onClick={() => { setVerTerm(!verTerm); guardaG(pv ? 'verterm-pv' : 'verterm', !verTerm); }}><span className="car">{verTerm ? '▾' : '▸'}</span><h2>Terminados <span className="cnt ok">{terminados.length}</span></h2></button></div>
+      {verTerm && <div className="pcards">{terminados.map(tarjeta)}</div>}</div>}
   </section>{pv && <RegistroPV ts={S.tareas.filter(t => t.tipo === 'proy' && lista.some(x => x.id === t.proyId))} conCaso />}<Proximas filtro={t => t.tipo === 'proy' && lista.some(x => x.id === t.proyId)} donde={pv ? 'en post venta' : 'en proyectos'} /></div>;
   const i = info(p); const setP = (k, v) => up(s => ({ ...s, proyectos: s.proyectos.map(x => x.id === p.id ? { ...x, [k]: v } : x) }));
   const roots = i.ts.filter(t => !t.parentId);
@@ -1070,14 +1088,15 @@ function Proyectos({ pv = false }) {
         <label className="chk etp" title="Dentro de cada ensamblaje, cada etapa (corte, lijado, plegado, mecanizado, soldadura…) espera a que terminen las anteriores. El orden de las etapas se define en Configuración → Operaciones."><input type="checkbox" checked={!!p.etapas} onChange={e => setP('etapas', e.target.checked)} /> Desplazar por etapas de fabricación</label>
         {p.etapas && <button className="btn" onClick={() => { let n = 0; up(s => { const r = E.acomodarEtapas(s, p.id); n = r.n; return r.S; }); ui.toast(n ? `${n} ${n === 1 ? 'tarea corrida' : 'tareas corridas'} para respetar el orden de las etapas` : 'Ya estaba todo en orden de etapas'); }}>Acomodar por etapas</button>}
         {i.ts.some(t => t.pos !== undefined && t.pos !== null) && <button className="btn" title="Borra el orden manual (▲▼) y vuelve a ordenar por etapa" onClick={() => up(s => ({ ...s, tareas: s.tareas.map(t => t.proyId === p.id && t.pos !== undefined && t.pos !== null ? { ...t, pos: null } : t) }))}>Ordenar por etapa</button>}
-        <button className="btn danger" onClick={() => { up(s => ({ ...s, proyectos: s.proyectos.filter(x => x.id !== p.id), tareas: s.tareas.filter(t => t.proyId !== p.id) })); setPid(null); ui.toast('Proyecto borrado. Podés deshacerlo arriba.'); }}>Borrar proyecto</button>
+        <button className={'btn ' + (p.terminado ? 'warn-b' : 'ok-b')} title={p.terminado ? 'Vuelve a mostrarlo en las pestañas' : 'Lo saca de las pestañas y lo guarda en Terminados; no se pierde ningún dato'} onClick={() => { const nt = !p.terminado; ui.confirmar({ titulo: nt ? (pv ? '¿Marcar el caso como terminado?' : '¿Marcar el proyecto como terminado?') : (pv ? '¿Reabrir el caso?' : '¿Reabrir el proyecto?'), texto: nt ? `“${p.nombre}” se va a la sección Terminados y deja de aparecer entre los activos. Los datos no se pierden y lo podés reabrir cuando quieras.` : `“${p.nombre}” vuelve a la lista de activos.`, si: nt ? 'Sí, marcar como terminado' : 'Sí, reabrir', onSi: () => { up(s => ({ ...s, proyectos: s.proyectos.map(x => x.id === p.id ? { ...x, terminado: nt, terminadoEl: nt ? E.today() : '' } : x) })); if (nt) setPid(null); ui.toast(nt ? `${p.nombre} pasó a Terminados. Podés deshacerlo arriba.` : `${p.nombre} volvió a los activos.`); } }); }}>{p.terminado ? '↩ Reabrir' : '✓ Marcar como terminado'}</button>
+        <button className="btn danger" onClick={() => { const nt = S.tareas.filter(t => t.proyId === p.id).length; ui.confirmar({ titulo: pv ? '¿Borrar el caso?' : '¿Borrar el proyecto?', texto: `Se borra “${p.nombre}”${nt ? ` y sus ${nt} tarea${nt === 1 ? '' : 's'}` : ''}. Si solo terminó, mejor usá “Marcar como terminado”. Podés deshacerlo arriba.`, si: 'Sí, borrar', peligro: true, onSi: () => { up(s => ({ ...s, proyectos: s.proyectos.filter(x => x.id !== p.id), tareas: s.tareas.filter(t => t.proyId !== p.id) })); setPid(null); ui.toast('Proyecto borrado. Podés deshacerlo arriba.'); } }); }}>Borrar proyecto</button>
       </div>;
   const tablasMovil = <><section><div className="sec-h"><h2>Pendientes y en proceso <span className="cnt">{nAct}</span></h2></div><TablaMovil roots={roots} vis={visAct} orden={ord} /></section>
     <section className="finsec"><div className="sec-h"><button className="dgrp-t fin-t" onClick={() => { setVerFin(!verFin); guardaG('verfin', !verFin); }}><span className="car">{verFin ? '▾' : '▸'}</span><h2>Finalizadas <span className="cnt ok">{nFin}</span></h2></button></div>
       {verFin && (nFin ? <TablaMovil roots={roots} vis={visFin} orden={ord} /> : <Vacio ic="reloj" chico t="Todavía no hay piezas finalizadas en este proyecto" />)}</section></>;
   if (movil) return <div className="view pmovil">{tabs}
     <section>
-      <div className="sec-h"><div className="row"><span className="chip" style={{ '--c': p.color }}>{p.ini}</span><h2>{p.nombre}</h2></div>
+      <div className="sec-h"><div className="row"><span className="chip" style={{ '--c': p.color }}>{p.ini}</span><h2>{p.nombre}</h2>{p.terminado && <span className="tag ok">✓ Terminado{p.terminadoEl ? ` el ${fD(p.terminadoEl)}` : ''}</span>}</div>
         <button className="btn pri-b" onClick={() => ui.modal({ k: 'task', draft: E.blankTask('proy', p.id, pv) })}>+ Pieza</button></div>
       <button type="button" className={'presum' + (masM ? ' on' : '')} style={{ '--c': p.color }} aria-expanded={masM} onClick={() => setMasM(!masM)}>
         <span className="presum-av"><b>{Math.round(i.av)}%</b><Bar v={i.av} color={p.color} /></span>
@@ -1097,7 +1116,7 @@ function Proyectos({ pv = false }) {
   </div>;
   return <div className="view">{tabs}
     <section>
-      <div className="sec-h"><div className="row"><span className="chip" style={{ '--c': p.color }}>{p.ini}</span><h2>{p.nombre}</h2></div>
+      <div className="sec-h"><div className="row"><span className="chip" style={{ '--c': p.color }}>{p.ini}</span><h2>{p.nombre}</h2>{p.terminado && <span className="tag ok">✓ Terminado{p.terminadoEl ? ` el ${fD(p.terminadoEl)}` : ''}</span>}</div>
         <div className="row"><button className="btn" onClick={() => ui.modal({ k: 'imp', mode: 'proy', proyId: p.id })}>Importar árbol .xlsx</button><button className="btn" onClick={() => ui.modal({ k: 'plan', proyId: p.id })}>Planificar proyecto</button><button className="btn pri-b" onClick={() => ui.modal({ k: 'task', draft: E.blankTask('proy', p.id, pv) })}>+ Pieza</button></div></div>
       <div className="form inline">
         <label>Nombre<input id="p-nom" value={p.nombre} onChange={e => setP('nombre', e.target.value)} /></label>
@@ -1109,7 +1128,8 @@ function Proyectos({ pv = false }) {
         <label className="chk etp" title="Dentro de cada ensamblaje, cada etapa (corte, lijado, plegado, mecanizado, soldadura…) espera a que terminen las anteriores. El orden de las etapas se define en Configuración → Operaciones."><input type="checkbox" checked={!!p.etapas} onChange={e => setP('etapas', e.target.checked)} /> Desplazar por etapas de fabricación</label>
         {p.etapas && <button className="btn" onClick={() => { let n = 0; up(s => { const r = E.acomodarEtapas(s, p.id); n = r.n; return r.S; }); ui.toast(n ? `${n} ${n === 1 ? 'tarea corrida' : 'tareas corridas'} para respetar el orden de las etapas` : 'Ya estaba todo en orden de etapas'); }}>Acomodar por etapas</button>}
         {i.ts.some(t => t.pos !== undefined && t.pos !== null) && <button className="btn" title="Borra el orden manual (▲▼) y vuelve a ordenar por etapa" onClick={() => up(s => ({ ...s, tareas: s.tareas.map(t => t.proyId === p.id && t.pos !== undefined && t.pos !== null ? { ...t, pos: null } : t) }))}>Ordenar por etapa</button>}
-        <button className="btn danger" onClick={() => { up(s => ({ ...s, proyectos: s.proyectos.filter(x => x.id !== p.id), tareas: s.tareas.filter(t => t.proyId !== p.id) })); setPid(null); ui.toast('Proyecto borrado. Podés deshacerlo arriba.'); }}>Borrar proyecto</button>
+        <button className={'btn ' + (p.terminado ? 'warn-b' : 'ok-b')} title={p.terminado ? 'Vuelve a mostrarlo en las pestañas' : 'Lo saca de las pestañas y lo guarda en Terminados; no se pierde ningún dato'} onClick={() => { const nt = !p.terminado; ui.confirmar({ titulo: nt ? (pv ? '¿Marcar el caso como terminado?' : '¿Marcar el proyecto como terminado?') : (pv ? '¿Reabrir el caso?' : '¿Reabrir el proyecto?'), texto: nt ? `“${p.nombre}” se va a la sección Terminados y deja de aparecer entre los activos. Los datos no se pierden y lo podés reabrir cuando quieras.` : `“${p.nombre}” vuelve a la lista de activos.`, si: nt ? 'Sí, marcar como terminado' : 'Sí, reabrir', onSi: () => { up(s => ({ ...s, proyectos: s.proyectos.map(x => x.id === p.id ? { ...x, terminado: nt, terminadoEl: nt ? E.today() : '' } : x) })); if (nt) setPid(null); ui.toast(nt ? `${p.nombre} pasó a Terminados. Podés deshacerlo arriba.` : `${p.nombre} volvió a los activos.`); } }); }}>{p.terminado ? '↩ Reabrir' : '✓ Marcar como terminado'}</button>
+        <button className="btn danger" onClick={() => { const nt = S.tareas.filter(t => t.proyId === p.id).length; ui.confirmar({ titulo: pv ? '¿Borrar el caso?' : '¿Borrar el proyecto?', texto: `Se borra “${p.nombre}”${nt ? ` y sus ${nt} tarea${nt === 1 ? '' : 's'}` : ''}. Si solo terminó, mejor usá “Marcar como terminado”. Podés deshacerlo arriba.`, si: 'Sí, borrar', peligro: true, onSi: () => { up(s => ({ ...s, proyectos: s.proyectos.filter(x => x.id !== p.id), tareas: s.tareas.filter(t => t.proyId !== p.id) })); setPid(null); ui.toast('Proyecto borrado. Podés deshacerlo arriba.'); } }); }}>Borrar proyecto</button>
       </div>
       <div className="kpis">
         <Kpi l="Avance" v={Math.round(i.av) + '%'} s={`${fN(i.hh * i.av / 100)} de ${fN(i.hh)} HH`} onClick={() => setDet(det === 'av' ? null : 'av')} on={det === 'av'} />
@@ -1169,7 +1189,7 @@ function TaskEditor({ id, draft, onClose }) {
     const a = avisoCadena(r); if (a) ui.toast(a); onClose();
   };
   const foot = <>
-    {!isNew && <button className="btn danger" onClick={() => { up(s => E.delTask(s, id)); onClose(); ui.toast('Borrada. Podés deshacerlo arriba.'); }}>Borrar</button>}
+    {!isNew && <button className="btn danger" onClick={() => ui.confirmar({ titulo: '¿Borrar la tarea?', texto: 'Se borra esta tarea. Podés deshacerlo arriba.', si: 'Sí, borrar', peligro: true, onSi: () => { up(s => E.delTask(s, id)); onClose(); ui.toast('Borrada. Podés deshacerlo arriba.'); } })}>Borrar</button>}
     {!isNew && <button className="btn" onClick={() => { up(s => E.dupTask(s, id)); onClose(); ui.toast('Duplicada'); }}>Duplicar</button>}
     {!isNew && !parent && orig.estado !== 'terminada' && (orig.frenada ? <button className="btn pri-b" onClick={() => ui.modal({ k: 'retomar', id })}>Retomar</button> : <button className="btn warn-b" title="Para el trabajo por días: lo hecho queda cerrado y lo que falta queda frenado" onClick={() => ui.modal({ k: 'frenar', id })}>Frenar</button>)}
     {!isNew && !parent && orig.estado !== 'terminada' && <button className="btn terc-b" title="La pieza la hace un proveedor: queda finalizada y tercerizada, sin ocupar planta" onClick={() => ui.modal({ k: 'tercerizar', id })}>↗ Tercerizar</button>}
@@ -1706,11 +1726,11 @@ function AusResumen({ S }) {
   </div>;
 }
 function ListEdit({ title, items, onAdd, onDel, render, addLabel, extra, nota, rowClass }) {
-  const PL = useContext(PlCtx);
+  const PL = useContext(PlCtx); const { ui } = useApp();
   return <section className={'card' + PL.c(title)}><div className="sec-h"><h2>{PL.h(title)}</h2><div className="row">{extra}<button className="btn" onClick={onAdd}>{addLabel || '+ Agregar'}</button></div></div>
     {nota && <p className="mut">{nota}</p>}
     {items.length === 0 && <p className="mut">Nada cargado todavía.</p>}
-    {items.map((it, i) => <div key={it.id || i} className={'lrow' + (rowClass ? rowClass(it) : '')}>{render(it, i)}<button className="btn sm danger" onClick={() => onDel(it, i)}>Borrar</button></div>)}</section>;
+    {items.map((it, i) => <div key={it.id || i} className={'lrow' + (rowClass ? rowClass(it) : '')}>{render(it, i)}<button className="btn sm danger" onClick={() => { const nom = typeof it === 'string' ? it : (it.nombre || it.email || ''); ui.confirmar({ titulo: '¿Borrar' + (nom ? ` “${nom}”` : ' este elemento') + '?', texto: 'Se borra de la lista. Podés deshacerlo arriba.', si: 'Sí, borrar', peligro: true, onSi: () => onDel(it, i) }); }}>Borrar</button></div>)}</section>;
 }
 const PlCtx = createContext({ c: () => '', h: t => t });
 const CFG_SECS = ['Atajos de teclado', 'Operarios', 'Días que viene (ocasionales)', 'Cargar ausencias (calendario)', 'Calendario de ausencias', 'Ausencias', 'Operaciones', 'Códigos de operación', 'Tarifas de mano de obra', 'Materiales', 'Horarios laborales', 'Feriados', 'Usuarios y permisos', 'Color de énfasis', 'Datos', 'Registro de cambios', 'Sesión'];
@@ -1789,18 +1809,18 @@ function Config() {
         <input aria-label="Número" className="w4" inputMode="numeric" maxLength="3" placeholder="000" value={c.num} onChange={e => setL('codigos', c.id, { num: e.target.value.replace(/\D/g, '').slice(0, 3) })} />
         <span className="mut">→</span><select aria-label="Operación" value={c.operacionId} onChange={e => setL('codigos', c.id, { operacionId: e.target.value })}>{S.operaciones.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select>
         {(S.codigos || []).filter(x => x.num && x.num === c.num).length > 1 && <span className="tag bad">número repetido</span>}
-        <span className="sp" /><button className="btn sm danger" onClick={() => up(s => ({ ...s, codigos: s.codigos.filter(x => x.id !== c.id) }))}>Borrar</button></div>)}
+        <span className="sp" /><button className="btn sm danger" onClick={() => ui.confirmar({ titulo: '¿Borrar el código?', texto: `Se borra el código ${c.num || ''}. Podés deshacerlo arriba.`, si: 'Sí, borrar', peligro: true, onSi: () => up(s => ({ ...s, codigos: s.codigos.filter(x => x.id !== c.id) })) })}>Borrar</button></div>)}
       <div className="lrow prueba"><label className="inl">Probar un código<input value={prueba} placeholder="TPFR-120-045-01" onChange={e => setPrueba(e.target.value)} /></label>
         {prueba.trim() && (() => { const r = E.codOp(S, prueba); return <span className={r && r.operacionId ? 'c-ok' : 'c-bad'}>{!r ? 'No reconozco un código TPFR o TPFD con 3 números' : r.operacionId ? `${r.num} → ${operName(S, r.operacionId)}` : `${r.num} → sin operación asignada`}</span>; })()}</div></section>
     <ListEdit title="Tarifas de mano de obra" items={S.tarifas || []} addLabel="+ Tarifa" onAdd={() => up(s => ({ ...s, tarifas: [...(s.tarifas || []), { id: E.uid(), nombre: 'Tarifa nueva', valor: null, fecha: E.today() }] }))}
-      onDel={t => { if (confirm(`¿Borrar la tarifa "${t.nombre}"? Las operaciones que la usan quedan sin tarifa.`)) up(s => ({ ...s, tarifas: s.tarifas.filter(x => x.id !== t.id), operaciones: s.operaciones.map(o => o.tarifaId === t.id ? { ...o, tarifaId: '' } : o) })); }}
+      onDel={t => up(s => ({ ...s, tarifas: s.tarifas.filter(x => x.id !== t.id), operaciones: s.operaciones.map(o => o.tarifaId === t.id ? { ...o, tarifaId: '' } : o) }))}
       extra={<span className="mut">Costo de la hora en USD. Cada operación se asocia a una tarifa.</span>}
       render={t => { const ops = S.operaciones.filter(o => o.tarifaId === t.id); return <><input aria-label="Nombre" value={t.nombre} onChange={e => setL('tarifas', t.id, { nombre: e.target.value })} />
         <label className="inl">USD/h<input aria-label="USD por hora" className="vh" type="number" min="0" step="0.5" value={t.valor ?? ''} placeholder="0" onChange={e => setL('tarifas', t.id, { valor: e.target.value === '' ? null : Number(e.target.value), fecha: E.today() })} /></label>
         <span className="mut fch">{t.valor > 0 ? 'al ' + fFecha(t.fecha) : ''}</span>
         <span className="mut tops-l">{ops.length ? ops.map(o => o.nombre).join(', ') : 'ninguna operación'}</span></>; }} />
     <ListEdit title="Materiales" items={S.materiales || []} addLabel="+ Material" onAdd={() => up(s => ({ ...s, materiales: [...(s.materiales || []), { id: E.uid(), nombre: 'Material nuevo', precio: null, fecha: E.today() }] }))}
-      onDel={m => { if (confirm(`¿Borrar el material "${m.nombre}"? Las piezas que lo usan quedan sin material.`)) up(s => ({ ...s, materiales: s.materiales.filter(x => x.id !== m.id) })); }}
+      onDel={m => up(s => ({ ...s, materiales: s.materiales.filter(x => x.id !== m.id) }))}
       extra={<span className="mut">Precio por kg en USD. Se usa en los costos de la pestaña Tiempos.</span>}
       render={m => <><input aria-label="Nombre" value={m.nombre} onChange={e => setL('materiales', m.id, { nombre: e.target.value })} />
         <label className="inl">USD/kg<input aria-label="Precio por kg" className="vh" type="number" min="0" step="0.01" value={m.precio ?? ''} placeholder="0" onChange={e => setL('materiales', m.id, { precio: e.target.value === '' ? null : Number(e.target.value), fecha: E.today() })} /></label>
@@ -1872,7 +1892,7 @@ function UsuariosFB() {
       <label className="inl">Proyectos<select value={u.admin ? 'editar' : u.proy} disabled={u.admin} onChange={e => setU(u, { proy: e.target.value })}><option value="ver">Ver</option><option value="editar">Editar</option></select></label>
       <label className="chk"><input type="checkbox" checked={!!u.admin} disabled={yoMismo} onChange={e => setU(u, { admin: e.target.checked })} /> Administrador</label>
       <button className="btn sm" onClick={async () => { const r = await ses.reset(u.email); ui.toast(r.error || `Le mandamos a ${u.email} un mail para elegir una contraseña nueva`); }}>Mail para cambiar contraseña</button></div>
-      {!yoMismo && <button className="btn sm danger" onClick={() => up(s => ({ ...s, usuarios: s.usuarios.filter(x => x.id !== u.id) }))}>Quitar acceso</button>}</div>; })}
+      {!yoMismo && <button className="btn sm danger" onClick={() => ui.confirmar({ titulo: '¿Quitar el acceso?', texto: `${u.email || 'Este usuario'} ya no va a poder entrar a la app.`, si: 'Sí, quitar acceso', peligro: true, onSi: () => up(s => ({ ...s, usuarios: s.usuarios.filter(x => x.id !== u.id) })) })}>Quitar acceso</button>}</div>; })}
     <div className="alta"><b>Nuevo usuario</b>
       <div className="urow"><input id="nu-nom" placeholder="Nombre (el que se ve en la app)" value={f.nombre} onChange={e => setF({ ...f, nombre: e.target.value })} />
         <input id="nu-mail" type="email" placeholder="mail@ejemplo.com" value={f.email} onChange={e => setF({ ...f, email: e.target.value })} />
@@ -2234,7 +2254,8 @@ export function App({ db, ses, S0 }) {
   useEffect(() => db.escuchar ? db.escuchar((R, remoto) => { ref.current = R; setS(R); if (remoto) { hist.current = []; fut.current = []; setNh(0); setNf(0); } }) : undefined, []);
   useEffect(() => { document.documentElement.style.setProperty('--accent', S.cfg.accent); }, [S.cfg.accent]);
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3200); return () => clearTimeout(t); }, [toast]);
-  const ui = useMemo(() => ({ modal: setModal, toast: setToast, tab: k => { setTab(k); try { history.replaceState(null, '', '#' + k); } catch (e) { } } }), []);
+  const [conf, setConf] = useState(null);
+  const ui = useMemo(() => ({ modal: setModal, toast: setToast, confirmar: setConf, tab: k => { setTab(k); try { history.replaceState(null, '', '#' + k); } catch (e) { } } }), []);
   const close = useCallback(() => setModal(null), []);
   const [tema, setTema] = useState(leerTema); useEffect(() => { ponerTema(tema); }, [tema]);
   const act = E.seasonNow(S), h = S.cfg.horarios[act];
@@ -2264,6 +2285,7 @@ export function App({ db, ses, S0 }) {
       {modal && modal.k === 'lote' && <LoteEditor ids={modal.ids} titulo={modal.titulo} onClose={close} />}
       {modal && modal.k === 'imp' && <Importer mode={modal.mode} proyId={modal.proyId} onClose={close} />}
       {modal && modal.k === 'plan' && <PlanificarDlg proyId={modal.proyId} alcance={modal.alcance} onClose={close} />}
+      {conf && <ConfirmarDlg {...conf} onClose={() => setConf(null)} />}
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   </Ctx.Provider>;

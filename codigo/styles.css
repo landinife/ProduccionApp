@@ -1039,3 +1039,21 @@ label.chk.cadena { font-size: 13px !important; color: var(--mut) !important; }
 .pcard { text-align: center; align-items: center; }
 .presum { text-align: center; }
 .presum > span { align-items: center; }
+
+/* ================= Proyectos y casos terminados (6/11) ================= */
+.ptab.terminados { font-family: var(--f-d); letter-spacing: .04em; text-transform: uppercase; color: var(--ok); border-style: dashed; }
+.ptab.terminados small { color: inherit; opacity: .8; }
+.ptab.terminados .kar { font-style: normal; margin-left: 2px; }
+.ptab.terminados.abierto { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, var(--panel)); }
+.ptab.term { opacity: .72; border-style: dashed; }
+.ptab.term.on, .ptab.term:hover { opacity: 1; }
+.pcard.term { opacity: .8; border-top-color: var(--ok); }
+.pcard.term:hover { opacity: 1; }
+.termsec { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; border-top: 1px solid var(--line); padding-top: 10px; }
+.btn.ok-b { border-color: var(--ok); color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, var(--panel2)); }
+
+/* ================= Cartel de confirmación ================= */
+.ovl.ovl-conf { z-index: 70; align-items: center; padding-top: 16px; }
+.modal.conf { max-width: 430px; width: 100%; }
+.modal.conf p { margin: 0; line-height: 1.45; }
+.modal.conf footer { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
