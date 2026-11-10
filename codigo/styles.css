@@ -20,6 +20,7 @@
   --s2: #c77b48;
   --s3: #3fb5a5;   /* Taller (trabajos para el propio taller) */
   --sinc: #5d6a78; /* horas sin cargar */
+  --prox: #e37fa7;  /* próximo a realizar */
   --r: 10px;
   --sh: 0 6px 22px rgba(0,0,0,.30);
   --glow: color-mix(in srgb, var(--accent) 38%, transparent);
@@ -806,7 +807,7 @@ select.ci.est.e-pendiente { background: transparent; }
 /* 7. Tema claro (botón ☀ en la barra superior) */
 :root[data-theme="light"] {
   color-scheme: light;
-  --s3: #1f8f80; --sinc: #a9b4c0;
+  --s3: #1f8f80; --sinc: #a9b4c0; --prox: #c2457a;
   --ext: #7c3aed;
   --bg: #eef2f6; --panel: #ffffff; --panel2: #f4f7fa; --line: #cfd8e2; --stripe: rgba(20,40,60,.045);
   --ink: #16202a; --mut: #586a7d; --on-accent: #08131d;
@@ -1159,3 +1160,12 @@ label.chk.cadena { font-size: 13px !important; color: var(--mut) !important; }
 .fmenu-i { width: 18px; text-align: center; color: var(--mut); flex: none; }
 .fmenu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; }
 @media (pointer: coarse) { .fmenu-b { width: 30px; height: 32px; font-size: 18px; } .fmenu button { padding: 11px 12px; } }
+
+/* ================= Estado "Próximo a realizar" y secciones por estado (10/11) ================= */
+.e-proximo { color: var(--prox); border-color: var(--prox); background: color-mix(in srgb, var(--prox) 13%, transparent); }
+select.ci.est.e-proximo { background: transparent; }
+.mk.prox { color: var(--prox); border-color: color-mix(in srgb, var(--prox) 60%, var(--line)); background: color-mix(in srgb, var(--prox) 12%, transparent); }
+.pitem.prx { grid-template-columns: auto 1fr auto auto; border-color: color-mix(in srgb, var(--prox) 45%, var(--line)); }
+.pitem.prx .proxn { color: var(--prox); font: 700 17px/1 var(--f-d); min-width: 20px; text-align: center; }
+.pitem.prx .mut { grid-column: 2 / -1; } .pitem.prx .sug { grid-column: 2 / -1; }
+.pitem.prx .pn .chip { margin-right: 4px; }

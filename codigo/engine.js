@@ -186,8 +186,10 @@ export const finOf = (S, t) => {
 // Estado de un padre: las piezas de 0 h sin nada cargado no frenan el "terminado" (no tienen trabajo que hacer)
 // (si quedan piezas de 0 h sin finalizar, el padre igual se finaliza pero con aviso: sin0 = cuántas son)
 const sinTrabajo = c => !(c.hh > 0) && c.estado !== 'terminada';
+// Sin empezar: pendiente o próximo a realizar (estado 'proximo', 10/11). Para el motor (planificar, calendario, juntar) son lo mismo.
+export const esPend = t => !!t && (t.estado === 'pendiente' || t.estado === 'proximo');
 export const estadoDe = lst => { const l = lst.filter(c => !sinTrabajo(c)); const b = l.length ? l : lst;
-  return b.every(c => c.estado === 'terminada') ? 'terminada' : b.every(c => c.estado === 'pendiente') ? 'pendiente' : 'en proceso'; };
+  return b.every(c => c.estado === 'terminada') ? 'terminada' : b.every(esPend) ? 'pendiente' : 'en proceso'; };
 export function derive(S) {
   const kids = {}; S.tareas.forEach(t => { (kids[t.parentId || ''] = kids[t.parentId || ''] || []).push(t); });
   const byId = {}; S.tareas.forEach(t => { byId[t.id] = t; });
@@ -367,7 +369,7 @@ export function setExtraDia(S, op, d, horas, modo) {
 export function setAusencias(S, ausencias) {
   let S2 = arrastrarCola(S, { ...S, ausencias });
   const cambio = new Set((S.ausencias || []).concat(ausencias).map(a => a.opId));
-  S2.tareas.filter(t => t.inicio && t.ops.length && t.estado === 'pendiente' && t.ops.some(o => cambio.has(o)) && isLeaf(S2, t.id)).forEach(t => {
+  S2.tareas.filter(t => t.inicio && t.ops.length && esPend(t) && t.ops.some(o => cambio.has(o)) && isLeaf(S2, t.id)).forEach(t => {
     const ni = normStart(S2, t.inicio, t.turno, t.ops); if (ni !== t.inicio) S2 = patchTask(S2, t.id, { inicio: ni }, true); });
   return S2;
 }
@@ -375,7 +377,7 @@ export function setAusencias(S, ausencias) {
 // las pendientes que caían en días sin él pasan al primer momento libre y la cola de detrás se corre con ellas.
 export function setDispOp(S, opId, patch) {
   let S2 = arrastrarCola(S, { ...S, operarios: S.operarios.map(o => o.id === opId ? { ...o, ...patch } : o) });
-  S2.tareas.filter(t => t.inicio && t.ops.includes(opId) && t.estado === 'pendiente' && isLeaf(S2, t.id)).forEach(t => {
+  S2.tareas.filter(t => t.inicio && t.ops.includes(opId) && esPend(t) && isLeaf(S2, t.id)).forEach(t => {
     const ni = normStart(S2, t.inicio, t.turno, t.ops); if (ni !== t.inicio) S2 = patchTask(S2, t.id, { inicio: ni }, true); });
   return S2;
 }
@@ -477,9 +479,11 @@ export function volverAPlanta(S, id) {
   return patchTask({ ...S1, tareas: S1.tareas.map(x => x.id === id ? { ...x, inicio: ini } : x) }, id, {}, true);
 }
 // ---- Próximo a realizar: piezas que se marcan para hacer primero (la marca guarda cuándo se puso, para ordenarlas) ----
-// Solo cuenta mientras la pieza está pendiente: al iniciarla o finalizarla la marca se quita sola.
-export const esProximo = t => !!(t && t.proximo && t.estado === 'pendiente');
-export function setProximo(S, id, on) { return { ...S, tareas: S.tareas.map(x => x.id === id ? { ...x, proximo: on ? nowDT() : null } : x) }; }
+// Próximo a realizar es un estado propio ('proximo'); "proximo" guarda cuándo se marcó (da el orden de la lista).
+// Las marcadas antes del 10/11 (estado 'pendiente' con fecha en "proximo") se siguen tomando como próximo a realizar.
+// Al iniciarla o finalizarla deja de serlo sola.
+export const esProximo = t => !!t && (t.estado === 'proximo' || (!!t.proximo && t.estado === 'pendiente'));
+export function setProximo(S, id, on) { return { ...S, tareas: S.tareas.map(x => x.id === id && esPend(x) ? { ...x, estado: on ? 'proximo' : 'pendiente', proximo: on ? (x.proximo || nowDT()) : null } : x) }; }
 export const proximas = (S, filtro) => S.tareas.filter(t => esProximo(t) && (!filtro || filtro(t))).sort((a, b) => a.proximo < b.proximo ? -1 : a.proximo > b.proximo ? 1 : 0);
 const soltarFreno = (x, now) => x.frenada ? { ...x, frenada: null, frenoHist: [...(x.frenoHist || []), { ...x.frenada, retomada: now }] } : x;
 // Lo hecho queda cerrado como una parte (si había algo hecho) y lo que falta queda como una tarea nueva, frenada.
@@ -562,7 +566,7 @@ export function iniciar(S, id) {
   const t0 = S.tareas.find(x => x.id === id); if (!t0) return S; const now = nowDT(); let S1 = S;
   S.tareas.filter(x => x.id !== id && corriendo(x) && x.ops.some(o => t0.ops.includes(o))).forEach(x => { S1 = partir(S1, x.id); });   // una persona, una tarea a la vez
   const t = S1.tareas.find(x => x.id === id); const ini = t.ops.length ? normStart(S1, now, t.turno, t.ops) : t.inicio;
-  S1 = { ...S1, tareas: S1.tareas.map(x => x.id === id ? { ...x, estado: 'en proceso', pausada: false, proximo: null, finReal: null, sinFecha: false, inicio: !x.inicio || x.inicio > now || x.estado === 'pendiente' ? ini : x.inicio, crono: { acum: x.crono ? Number(x.crono.acum) || 0 : Number(x.hhReal) || 0, desde: now } } : x) };
+  S1 = { ...S1, tareas: S1.tareas.map(x => x.id === id ? { ...x, estado: 'en proceso', pausada: false, proximo: null, finReal: null, sinFecha: false, inicio: !x.inicio || x.inicio > now || esPend(x) ? ini : x.inicio, crono: { acum: x.crono ? Number(x.crono.acum) || 0 : Number(x.hhReal) || 0, desde: now } } : x) };
   return t.ops.length ? reflow(S1, id) : S1;
 }
 // real = se finaliza en el momento (desde el taller): el fin real es ahora y la barra pasa a mostrar lo que duró
@@ -572,7 +576,10 @@ export function finalizar(S, id, hh, real = false) { const h = r2(Math.max(0, Nu
 export function finalizarSinFecha(S, id, hh) { const h = r2(Math.max(0, Number(hh) || 0));
   return { ...S, tareas: S.tareas.map(x => x.id === id ? { ...x, estado: 'terminada', avance: 100, proximo: null, hhReal: h, finReal: null, realFin: false, crono: { acum: h, desde: null }, pausada: false, empuje: null, tercerizada: false, sinFecha: true } : x) }; }
 export function setEstado(S, id, e) {
-  const t = S.tareas.find(x => x.id === id); if (!t || t.estado === e) return S;
+  const t = S.tareas.find(x => x.id === id); if (!t) return S;
+  if (e === 'proximo') return setProximo(esPend(t) ? S : setEstado(S, id, 'pendiente'), id, true);
+  if (e === 'pendiente' && esPend(t)) return esProximo(t) ? setProximo(S, id, false) : S;
+  if (t.estado === e) return S;
   if (e === 'en proceso') return iniciar(S, id);
   if (e === 'sinfecha') { const l = llevado(S, t); return finalizarSinFecha(S, id, l > 0 ? l : t.hhReal); }
   if (e === 'terminada') { const l = llevado(S, t); return finalizarYEncadenar(S, id, l > 0 ? l : t.hhReal).S; }
@@ -589,7 +596,7 @@ export function adelantarCola(S, id, finPlan) {
     const cola = S2.tareas.filter(x => viva(x) && x.ops.includes(op) && cls(x) === cls(t) && x.inicio >= (t.inicio || '')).sort((a, b) => a.inicio < b.inicio ? -1 : 1);
     for (const x0 of cola) {
       const x = S2.tareas.find(y => y.id === x0.id);
-      if (x.estado !== 'pendiente' || x.manual || x.inicio > normStart(S2, finAnt, x.turno, x.ops)) break;
+      if (!esPend(x) || x.manual || x.inicio > normStart(S2, finAnt, x.turno, x.ops)) break;
       const finViejo = finOf(S2, x); let ni = cursor;
       predsDe(S2, x).forEach(pid => { const pt = S2.tareas.find(y => y.id === pid); const f = pt && pt.estado !== 'terminada' && pt.inicio ? finOf(S2, pt) : finTerc(pt); if (f && f > ni) ni = f; });
       x.ops.filter(o => o !== op).forEach(o => S2.tareas.forEach(y => { if (viva(y) && y.id !== x.id && y.ops.includes(o) && choque(y.turno, x.turno) && y.inicio < x.inicio) { const f = finOf(S2, y); if (f > ni) ni = f; } }));   // los otros operarios de la tarea también tienen que estar libres
@@ -647,7 +654,7 @@ export function compactar(S, op) {
   const orden = S.tareas.filter(t => viva(S, t)).sort((a, b) => a.inicio < b.inicio ? -1 : a.inicio > b.inicio ? 1 : 0); const pos = {}; orden.forEach((t, i) => { pos[t.id] = i; });
   let S2 = S, n = 0;
   orden.forEach(t0 => {
-    if ((op && !t0.ops.includes(op)) || t0.estado !== 'pendiente') return;
+    if ((op && !t0.ops.includes(op)) || !esPend(t0)) return;
     const t = S2.tareas.find(x => x.id === t0.id); if (t.inicio <= now) return;
     let ni = now;
     S2.tareas.forEach(x => { if (x.id === t.id || pos[x.id] == null || pos[x.id] > pos[t.id] || cls(x) !== cls(t) || !x.ops.some(o => t.ops.includes(o))) return; const f = finOf(S2, x); if (f > ni) ni = f; });
@@ -832,7 +839,7 @@ export function planificarGrupo(S, filtro, horas = {}, opts = {}) {
   const c = idx(S), nomOp = id => (S.operaciones.find(o => o.id === id) || {}).nombre || '?';
   const opDeT = t => t.operacionId || autoCompletar(S, t, false).operacionId || '';
   // opts.op: si viene una operación, solo se planifican las piezas de esa operación (las demás no estorban)
-  const pend = S.tareas.filter(t => filtro(t) && isLeaf(S, t.id) && t.estado === 'pendiente' && !t.tercerizada && !estaFrenada(t) && !t.sinFecha && (opts.todas || !t.inicio || !t.ops.length) && (!opts.op || opDeT(t) === opts.op));
+  const pend = S.tareas.filter(t => filtro(t) && isLeaf(S, t.id) && esPend(t) && !t.tercerizada && !estaFrenada(t) && !t.sinFecha && (opts.todas || !t.inicio || !t.ops.length) && (!opts.op || opDeT(t) === opts.op));
   const faltan = [], noPudo = [], hhDe = {}, opDe = {}, origen = {}, elig = {};
   pend.forEach(t => {
     let h = Number(horas[t.id]); origen[t.id] = 'cargada';
