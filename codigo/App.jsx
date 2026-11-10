@@ -558,10 +558,95 @@ function OpsCell({ t }) {
     {pos && <div className="opspop" style={{ left: pos.x, top: pos.y }}>{S.operarios.filter(o => o.activo || t.ops.includes(o.id)).map(o => <label key={o.id}><input type="checkbox" checked={t.ops.includes(o.id)} onChange={() => tog(o.id)} /> {o.nombre}</label>)}</div>}
   </>;
 }
+/* ================= Filtros tipo Excel en las tablas (Repuestos, Proyectos, Post Venta y Taller) =================
+   Cada tabla tiene su juego de filtros y orden, que se recuerda en esta PC. Las tablas de la misma sección
+   (por ejemplo, los grupos de Repuestos o Pendientes y Finalizadas de un proyecto) comparten los mismos filtros. */
+const VACIO = '(vacías)';
+const FSTORE = {}, FLIS = new Set();
+const leerF = k => { if (!FSTORE[k]) { let v = null; try { v = JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { } FSTORE[k] = v && v.f ? v : { f: {}, s: null }; } return FSTORE[k]; };
+function useFiltros(k) {
+  const [, f] = useState(0);
+  useEffect(() => { const l = () => f(x => x + 1); FLIS.add(l); return () => FLIS.delete(l); }, []);
+  const set = fn => { FSTORE[k] = fn(leerF(k)); try { localStorage.setItem(k, JSON.stringify(FSTORE[k])); } catch (e) { } FLIS.forEach(l => l()); };
+  return [leerF(k), set];
+}
+const FILTRABLES = new Set(['orden', 'cliente', 'nombre', 'cant', 'prioridad', 'estado', 'operacion', 'ops', 'turno', 'inicio', 'fin', 'real', 'avance']);
+const TURNOS = { normal: 'Normal', extra: 'Extra', ambos: 'Normal + extra' };
+// Valores de una fila para el filtro (texto que se ve en la lista). Operarios devuelve uno por operario.
+const valF = (S, V, k, t) => { const r = V.D[t.id] || {}; const rt = V.rootOf(t) || t;
+  switch (k) {
+    case 'orden': return [rt.orden || VACIO];
+    case 'cliente': return [rt.cliente || VACIO];
+    case 'nombre': return [t.nombre || VACIO];
+    case 'cant': return [t.cant === '' || t.cant == null ? VACIO : String(t.cant)];
+    case 'prioridad': return [t.prioridad || VACIO];
+    case 'estado': return [esTerc(t) ? 'tercerizada' : sinF(t) ? 'finalizada, sin fecha' : estTxt(r.estado || t.estado)];
+    case 'operacion': return [r.parent ? VACIO : t.operacionId ? operName(S, t.operacionId) : VACIO];
+    case 'ops': { const l = r.parent ? (r.ops || []) : t.ops; return l.length ? l.map(o => opName(S, o)) : ['Sin asignar']; }
+    case 'turno': return [r.parent ? VACIO : TURNOS[t.turno] || t.turno || VACIO];
+    case 'inicio': return [r.inicio ? fD(r.inicio.slice(0, 10)) : VACIO];
+    case 'fin': return [r.fin ? fD(r.fin.slice(0, 10)) : VACIO];
+    case 'real': return [r.hhReal > 0 ? fN(r.hhReal) : VACIO];
+    case 'avance': return [Math.round(r.avance || 0) + ' %'];
+    default: return [VACIO];
+  } };
+// Valor para ordenar (números como números y fechas por fecha)
+const ordV = (S, V, k, t) => { const r = V.D[t.id] || {};
+  switch (k) {
+    case 'cant': return Number(t.cant) || 0;
+    case 'real': return r.hhReal || 0;
+    case 'avance': return r.avance || 0;
+    case 'prioridad': return PRI[t.prioridad] ?? 9;
+    case 'inicio': return r.inicio || '9999';
+    case 'fin': return r.fin || '9999';
+    default: return valF(S, V, k, t)[0].toLowerCase();
+  } };
+// Orden de la lista de valores: números y fechas en orden natural, "(vacías)" al final
+const cmpVal = k => (a, b) => { if (a === VACIO) return 1; if (b === VACIO) return -1;
+  if (k === 'inicio' || k === 'fin') { const d = x => x.split('/').reverse().join(''); return d(a) < d(b) ? -1 : 1; }
+  const na = parseFloat(String(a).replace(',', '.')), nb = parseFloat(String(b).replace(',', '.'));
+  if (!isNaN(na) && !isNaN(nb) && /^[\d.,\s%]+$/.test(a + b)) return na - nb;
+  return String(a).localeCompare(String(b), 'es', { numeric: true }); };
+
+function FiltroPop({ titulo, k, valores, elegidos, orden, pos, onOk, onOrden, onClose }) {
+  const [q, setQ] = useState(''); const [m, setM] = useState(() => new Set(elegidos || valores.map(v => v.v)));
+  const ref = useRef(null);
+  useEffect(() => { const h = e => { if (ref.current && !ref.current.contains(e.target) && !e.target.closest('.fbtn')) onClose(); };
+    const esc = e => { if (e.key === 'Escape') onClose(); };
+    const sc = e => { if (!ref.current || !ref.current.contains(e.target)) onClose(); };   // si se mueve la tabla o la página, se cierra (como en Excel)
+    window.addEventListener('mousedown', h); window.addEventListener('keydown', esc); window.addEventListener('scroll', sc, true); return () => { window.removeEventListener('mousedown', h); window.removeEventListener('keydown', esc); window.removeEventListener('scroll', sc, true); }; }, []);
+  const ql = q.trim().toLowerCase(); const vis = valores.filter(v => !ql || v.v.toLowerCase().includes(ql));
+  const todosVis = vis.length > 0 && vis.every(v => m.has(v.v));
+  const togTodos = () => setM(p => { const n = new Set(p); vis.forEach(v => todosVis ? n.delete(v.v) : n.add(v.v)); return n; });
+  const tog = v => setM(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n; });
+  // Como en Excel: si hay texto en el buscador, "Aceptar" deja solo lo que coincide y está tildado
+  const aceptar = () => { const elig = (ql ? vis.filter(v => m.has(v.v)) : valores.filter(v => m.has(v.v))).map(v => v.v);
+    onOk(elig.length === valores.length ? null : elig); };
+  const az = k === 'cant' || k === 'real' || k === 'avance' ? ['Ordenar de menor a mayor', 'Ordenar de mayor a menor'] : k === 'inicio' || k === 'fin' ? ['Ordenar de más antigua a más nueva', 'Ordenar de más nueva a más antigua'] : k === 'prioridad' ? ['Ordenar de alta a baja', 'Ordenar de baja a alta'] : ['Ordenar de A a Z', 'Ordenar de Z a A'];
+  const H = Math.min(450, window.innerHeight - 16), x = Math.max(8, Math.min(pos.x, window.innerWidth - 290)), y = Math.max(8, Math.min(pos.y, window.innerHeight - H - 8));   // que entre siempre en la pantalla
+  return createPortal(<div className="fpop" ref={ref} style={{ left: x, top: y, maxHeight: H }} role="dialog" aria-label={'Filtro de ' + titulo}>
+    <div className="fpop-t">{titulo}</div>
+    <button className={'fpop-o' + (orden === 1 ? ' on' : '')} onClick={() => onOrden(orden === 1 ? 0 : 1)}>↑ {az[0]}</button>
+    <button className={'fpop-o' + (orden === -1 ? ' on' : '')} onClick={() => onOrden(orden === -1 ? 0 : -1)}>↓ {az[1]}</button>
+    <hr />
+    <input type="search" autoFocus placeholder="Buscar…" value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') aceptar(); }} />
+    <div className="fpop-l">
+      <label className="fpop-all"><input type="checkbox" checked={todosVis} onChange={togTodos} /> {ql ? '(Seleccionar todos los resultados)' : '(Seleccionar todo)'}</label>
+      {vis.map(v => <label key={v.v} title={v.v}><input type="checkbox" checked={m.has(v.v)} onChange={() => tog(v.v)} /><span className={v.v === VACIO ? 'mut' : ''}>{v.v}</span><small>{v.n}</small></label>)}
+      {vis.length === 0 && <p className="mut">Nada coincide con "{q}"</p>}
+    </div>
+    <div className="fpop-b">
+      <button className="btn sm" disabled={!elegidos} onClick={() => onOk(null)}>Borrar filtro</button><span className="sp" />
+      <button className="btn sm" onClick={onClose}>Cancelar</button>
+      <button className="btn sm pri-b" disabled={m.size === 0 || (ql && !vis.some(v => m.has(v.v)))} onClick={aceptar}>Aceptar</button>
+    </div>
+  </div>, document.body);
+}
+
 const colsDe = tipo => [...(tipo === 'rep' ? [['orden', 'OV/OC', 148], ['cliente', 'Cliente', 160]] : []), ['nombre', 'Pieza', 300], ['cant', 'Cant.', 66], ['prioridad', 'Prioridad', 108], ['estado', 'Estado', 118], ['operacion', 'Operación', 130], ['ops', 'Operarios', 150], ['turno', 'Turno', 92], ['hh', 'Duración', 132], ['inicio', 'Inicio', 190], ['fin', 'Fin', 190], ['real', 'HH real', 80], ['tot', 'Hijos plan / real', 160], ['avance', 'Avance %', 86], ['acts', '', 124]];
 // Suma de los hijos de un padre (plan y real de todo lo que tiene adentro), sin el trabajo propio del padre
 const hijosDe = (V, id) => (V.kids[id] || []).reduce((a, c) => { const x = V.SUB[c.id] || V.D[c.id]; return { hh: a.hh + (x.hh || 0), hhReal: a.hhReal + (x.hhReal || 0) }; }, { hh: 0, hhReal: 0 });
-function TaskTable({ roots, tipo, vis, collapsed, toggle, orden }) {
+function TaskTable({ roots, tipo, vis, collapsed, toggle, orden, universo }) {
   const { S, V, up, ui } = useApp(); const own = useSet();
   const col = collapsed || own[0], tog = toggle || own[1];
   const cols = colsDe(tipo), WK = 'produccionapp-cols5-' + tipo;
@@ -570,10 +655,32 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden }) {
   const resize = (e, k) => { e.preventDefault(); const x0 = e.clientX, w0 = W[k];
     const mv = ev => setW(p => ({ ...p, [k]: Math.max(44, w0 + ev.clientX - x0) })); const end = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', end); };
     window.addEventListener('pointermove', mv); window.addEventListener('pointerup', end); };
-  const rows = flatten(roots, V, col, vis, orden);
+  // Filtros: uno por sección (Repuestos, Proyectos, Post Venta o Taller)
+  const pr0 = tipo === 'proy' && roots[0] ? S.proyectos.find(p => p.id === roots[0].proyId) : null;
+  const FK = 'produccionapp-filtros-' + (tipo === 'rep' ? 'rep' : pr0 && pr0.pv ? 'pv' : pr0 && pr0.tl ? 'tl' : 'proy');
+  const [FL, setFL] = useFiltros(FK); const [fpop, setFpop] = useState(null);
+  const activos = Object.keys(FL.f).filter(k => FL.f[k] && cols.some(c => c[0] === k));
+  const pasa = (t, sin) => activos.every(k => k === sin || valF(S, V, k, t).some(v => FL.f[k].includes(v)));
+  // Una fila se ve si cumple los filtros o si tiene adentro alguna pieza que los cumple (así no se pierde el árbol)
+  const visCon = sin => { const memo = new Map(); const ok = t => { if (memo.has(t.id)) return memo.get(t.id); let r = !vis || vis(t);
+      if (r && activos.some(k => k !== sin)) r = pasa(t, sin) || (V.kids[t.id] || []).some(ok); memo.set(t.id, r); return r; }; return ok; };
+  const visF = activos.length ? visCon(null) : vis;
+  const so = FL.s && cols.some(c => c[0] === FL.s.k) ? FL.s : null;
+  const ordenF = so ? l => (orden || (x => x))(l).map((t, i) => [t, ordV(S, V, so.k, t), i]).sort((a, b) => (a[1] < b[1] ? -so.d : a[1] > b[1] ? so.d : 0) || a[2] - b[2]).map(x => x[0]) : orden;
+  const rows = flatten(roots, V, col, visF, ordenF);
+  const verIds = new Set(rows.map(r => r.t.id));
+  // Lista de valores de una columna: lo que queda visible con los demás filtros (como en Excel).
+  // En Repuestos, "universo" son todas las órdenes (de todos los grupos), porque los grupos comparten el filtro.
+  const valoresDe = k => { const cnt = new Map(); flatten(universo || roots, V, new Set(), visCon(k)).forEach(({ t }) => valF(S, V, k, t).forEach(v => cnt.set(v, (cnt.get(v) || 0) + 1)));
+    (FL.f[k] || []).forEach(v => { if (!cnt.has(v)) cnt.set(v, 0); });
+    return [...cnt.keys()].sort(cmpVal(k)).map(v => ({ v, n: cnt.get(v) })); };
+  const abrirF = (e, c) => { e.stopPropagation(); if (fpop && fpop.k === c[0]) { setFpop(null); return; } const r = e.currentTarget.closest('th').getBoundingClientRect(); setFpop({ k: c[0], titulo: c[1], x: r.left, y: r.bottom + 2 }); };
+  const ponerF = (k, v) => setFL(p => ({ ...p, f: { ...p.f, [k]: v } }));
+  const borrarTodo = () => setFL(() => ({ f: {}, s: null }));
   const [sel, setSel] = useState(() => new Set()); const togSel = id => setSel(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const vivos = [...sel].filter(id => V.byId[id]); const todos = rows.length > 0 && rows.every(r => sel.has(r.t.id));
-  const hojasSel = () => { const set_ = new Set(); vivos.forEach(id => { if (V.D[id].parent) E.descendants(S, id).forEach(d => { if (!V.D[d].parent) set_.add(d); }); else set_.add(id); }); return S.tareas.filter(t => set_.has(t.id)).sort((a, b) => (a.inicio || '9') < (b.inicio || '9') ? -1 : 1).map(t => t.id); };
+  // con filtros activos, de un ensamblaje elegido solo se toman las piezas que se ven
+  const hojasSel = () => { const set_ = new Set(); vivos.forEach(id => { if (V.D[id].parent) E.descendants(S, id).forEach(d => { if (!V.D[d].parent && (!activos.length || verIds.has(d))) set_.add(d); }); else set_.add(id); }); return S.tareas.filter(t => set_.has(t.id)).sort((a, b) => (a.inicio || '9') < (b.inicio || '9') ? -1 : 1).map(t => t.id); };
   const enBloque = (que, val) => { if (!val) return; const ids = hojasSel(); let n = 0;
     up(s => { let s2 = s;
       if (que === 'prioridad') { const all = new Set([...vivos, ...ids]); n = all.size; return { ...s2, tareas: s2.tareas.map(t => all.has(t.id) ? { ...t, prioridad: val } : t) }; }
@@ -649,7 +756,7 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden }) {
         return <span className="ro num tot" title={`Suma de sus hijos: ${fN(hj.hh)} HH planificadas · ${hj.hhReal > 0 ? fN(hj.hhReal) : '0'} HH reales`}><b>{fN(hj.hh)}</b> / {hj.hhReal > 0 ? fN(hj.hhReal) : '—'}</span>; }
       case 'avance': return r.parent ? <span className="ro num">{Math.round(r.avance)}</span> : <EdIn className="num" type="number" min="0" max="100" step="5" value={Math.round(r.avance)} disabled={t.estado === 'terminada'} onCommit={v => { const a = Math.min(100, num(v)); if (a >= 100) { cerrarTarea(up, ui, t.id, undefined, false, 'Finalizada: pasó a la lista de finalizadas'); return; } set(t, { avance: a, estado: a > 0 && t.estado === 'pendiente' ? 'en proceso' : t.estado }); }} />;
       default: return <div className="acts">
-        {orden && <><button title="Subir (orden manual)" aria-label="Subir" onClick={() => mover(t, -1)}>▲</button><button title="Bajar (orden manual)" aria-label="Bajar" onClick={() => mover(t, 1)}>▼</button></>}
+        {orden && !so && <><button title="Subir (orden manual)" aria-label="Subir" onClick={() => mover(t, -1)}>▲</button><button title="Bajar (orden manual)" aria-label="Bajar" onClick={() => mover(t, 1)}>▼</button></>}
         <button title="Editar todos los datos" aria-label="Editar" onClick={() => ui.modal({ k: 'task', id: t.id })}>✎</button>
         {!r.parent && t.estado === 'pendiente' && <button className={E.esProximo(t) ? 'on' : ''} title={E.esProximo(t) ? 'Quitar de Próximo a realizar' : 'Marcar como Próximo a realizar'} aria-label="Próximo a realizar" onClick={() => { const on = !E.esProximo(t); up(s => E.setProximo(s, t.id, on)); ui.toast(on ? 'Marcada como Próximo a realizar' : 'Quitada de Próximo a realizar'); }}>⏭</button>}
         <button title="Agregar hijo" aria-label="Agregar hijo" onClick={() => ui.modal({ k: 'task', draft: { ...E.blankTask(t.tipo, t.proyId), parentId: t.id, prioridad: t.prioridad } })}>＋</button>
@@ -666,11 +773,18 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden }) {
       <button className="btn sm pri-b" onClick={() => { const ids = vivos.filter(id => !V.D[id].parent); if (!ids.length) { ui.toast('Elegí piezas con trabajo propio (no ensamblajes generales)'); return; } ui.modal({ k: 'lote', ids }); }}>✎ Editar en lote</button>
       <button className="btn sm terc-b" title="Las piezas elegidas las hace un proveedor: quedan finalizadas y tercerizadas" onClick={() => { const ids = vivos.filter(i => !V.D[i].parent && V.D[i].estado !== 'terminada'); if (!ids.length) { ui.toast('Elegí piezas sin finalizar y sin piezas hijas'); return; } ui.modal({ k: 'tercerizar', ids }); }}>↗ Tercerizar</button>
       <span className="sp" /><button className="btn sm danger" onClick={() => ui.confirmar({ titulo: '¿Borrar las tareas seleccionadas?', texto: `Se borran ${vivos.length} tarea${vivos.length === 1 ? '' : 's'}. Podés deshacerlo arriba.`, si: 'Sí, borrar', peligro: true, onSi: borrarSel })}>Borrar</button><button className="btn sm" onClick={() => setSel(new Set())}>Quitar selección</button></div>}
+    {(activos.length > 0 || so) && <div className="fbar"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12l-4.6 5.4V13l-2.8 1.4V8.4z" /></svg>
+      {activos.map(k => { const c = cols.find(x => x[0] === k); const l = FL.f[k]; return <span key={k} className="fchip"><b>{c[1]}:</b> {l.length <= 2 ? l.join(', ') : `${l.slice(0, 2).join(', ')} y ${l.length - 2} más`}<button title="Quitar este filtro" aria-label={'Quitar filtro de ' + c[1]} onClick={() => ponerF(k, null)}>✕</button></span>; })}
+      {so && <span className="fchip"><b>Orden:</b> {cols.find(x => x[0] === so.k)[1]} {so.d === 1 ? '↑' : '↓'}<button title="Volver al orden normal" aria-label="Quitar orden" onClick={() => setFL(p => ({ ...p, s: null }))}>✕</button></span>}
+      <span className="mut">{rows.length} {rows.length === 1 ? 'fila' : 'filas'} a la vista</span><span className="sp" />
+      <button className="btn sm" onClick={borrarTodo}>Borrar filtros y orden</button></div>}
+    {fpop && <FiltroPop key={fpop.k} k={fpop.k} titulo={fpop.titulo} pos={fpop} valores={valoresDe(fpop.k)} elegidos={FL.f[fpop.k] || null} orden={so && so.k === fpop.k ? so.d : 0}
+      onOk={v => { ponerF(fpop.k, v); setFpop(null); }} onOrden={d => { setFL(p => ({ ...p, s: d ? { k: fpop.k, d } : null })); setFpop(null); }} onClose={() => setFpop(null)} />}
     <div className="scroll xlw"><table className="tt xl" onKeyDown={nav} style={{ width: cols.reduce((a, c) => a + W[c[0]], 0) }}>
     <colgroup>{cols.map(c => <col key={c[0]} style={{ width: W[c[0]] }} />)}</colgroup>
-    <thead><tr>{cols.map((c, i) => <th key={c[0]}>{i === 0 && <input type="checkbox" className="selc" aria-label="Seleccionar todas" checked={todos} onChange={() => setSel(todos ? new Set() : new Set(rows.map(r => r.t.id)))} />}<span>{c[1]}</span><i className="rz" title="Arrastrá para ajustar el ancho. Doble clic para volver al ancho original." onPointerDown={e => resize(e, c[0])} onDoubleClick={() => setW(p => ({ ...p, [c[0]]: c[2] }))} /></th>)}</tr></thead>
+    <thead><tr>{cols.map((c, i) => <th key={c[0]}>{i === 0 && <input type="checkbox" className="selc" aria-label="Seleccionar todas" checked={todos} onChange={() => setSel(todos ? new Set() : new Set(rows.map(r => r.t.id)))} />}<span>{c[1]}</span>{FILTRABLES.has(c[0]) && <button className={'fbtn' + (FL.f[c[0]] ? ' on' : '') + (so && so.k === c[0] ? ' ord' : '')} title={FL.f[c[0]] ? `Filtrado: ${FL.f[c[0]].length} ${FL.f[c[0]].length === 1 ? 'valor' : 'valores'}. Tocá para cambiarlo.` : 'Filtrar u ordenar esta columna'} aria-label={'Filtrar ' + c[1]} onClick={e => abrirF(e, c)}>{so && so.k === c[0] ? (so.d === 1 ? '↑' : '↓') : ''}{FL.f[c[0]] ? <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12l-4.6 5.4V13l-2.8 1.4V8.4z" /></svg> : '▾'}</button>}<i className="rz" title="Arrastrá para ajustar el ancho. Doble clic para volver al ancho original." onPointerDown={e => resize(e, c[0])} onDoubleClick={() => setW(p => ({ ...p, [c[0]]: c[2] }))} /></th>)}</tr></thead>
     <tbody>
-      {rows.length === 0 && <tr><td colSpan={cols.length} className="mut pad">No hay tareas para mostrar. Cargá una a mano o importá una planilla.</td></tr>}
+      {rows.length === 0 && <tr><td colSpan={cols.length} className="mut pad">{activos.length ? <>Ninguna tarea cumple los filtros. <button className="lnk sm" onClick={borrarTodo}>Borrar filtros</button></> : 'No hay tareas para mostrar. Cargá una a mano o importá una planilla.'}</td></tr>}
       {rows.map(({ t, depth, hasKids }) => { const r = V.D[t.id]; const oc = tipo === 'rep' && !t.parentId ? E.chipOf(S, V, t).color : null;
         return <tr key={t.id} data-id={t.id} className={(hasKids ? 'par ' : '') + (r.parent ? 'grp ' : hasKids ? 'trab ' : '') + (r.estado === 'terminada' ? 'done ' : '') + (esTerc(t) ? 'terc ' : '') + (sel.has(t.id) ? 'selr' : '')}>{cols.map((c, i) => <td key={c[0]} tabIndex={-1} style={i === 0 && oc ? { boxShadow: `inset 3px 0 ${oc}` } : undefined}>{i === 0 ? <div className="c0"><input type="checkbox" className="selc" aria-label="Seleccionar" checked={sel.has(t.id)} onChange={() => togSel(t.id)} />{cell(c[0], t, depth, hasKids, r)}{marcas(t, hasKids, r)}</div> : cell(c[0], t, depth, hasKids, r)}</td>)}</tr>; })}
     </tbody></table></div></>;
@@ -754,7 +868,7 @@ function Repuestos() {
             return G.map(([k, l, c]) => { const rs = ord_.filter(r => grupo(r) === k && vis(r)); if (!rs.length && k !== 'curso') return null;
               return <div key={k} className={'repg' + (plg[k] ? '' : ' on')} style={{ '--c': c }}>
                 <button className="dgrp-t repg-t" onClick={() => togG(k)}><span className="car">{plg[k] ? '▸' : '▾'}</span><b>{l}</b><span className="cnt">{rs.length}</span>{k === 'pausa' && <span className="mut">empezadas que no se están haciendo ahora</span>}</button>
-                {!plg[k] && (rs.length ? <TaskTable roots={rs} tipo="rep" vis={vis} /> : <p className="mut pad">Ningún repuesto en curso en este momento.</p>)}</div>; }); })()}
+                {!plg[k] && (rs.length ? <TaskTable roots={rs} tipo="rep" vis={vis} universo={ord_} /> : <p className="mut pad">Ningún repuesto en curso en este momento.</p>)}</div>; }); })()}
     </section>
   </div>;
 }

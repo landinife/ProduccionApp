@@ -1119,3 +1119,30 @@ label.chk.cadena { font-size: 13px !important; color: var(--mut) !important; }
 .est-pn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .est-pc2 > p { margin: 0; font-size: 13px; }
 .est-pc2 .est-pl .est-pn { margin-left: 0; flex: 1; min-width: 0; }
+
+/* ================= Filtros tipo Excel en las tablas (10/11) ================= */
+.tt.xl th { padding-right: 30px; }
+.fbtn { position: absolute; top: 50%; right: 9px; transform: translateY(-50%); display: inline-flex; align-items: center; gap: 1px; height: 20px; min-width: 20px; padding: 0 3px; border-radius: 4px; border: 1px solid var(--line); background: var(--panel); color: var(--mut); font-size: 11px; line-height: 1; cursor: pointer; z-index: 1; }
+.fbtn:hover { color: var(--ink); border-color: var(--accent); }
+.fbtn svg, .fbar svg { width: 12px; height: 12px; fill: currentColor; }
+.fbtn.on, .fbtn.ord { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+.fbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 7px 10px; margin-bottom: 6px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); background: color-mix(in srgb, var(--accent) 8%, var(--panel)); font-size: 13px; }
+.fbar > svg { color: var(--accent); width: 14px; height: 14px; }
+.fchip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 9px; border-radius: 20px; border: 1px solid var(--line); background: var(--panel2); max-width: 340px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fchip b { font-weight: 600; }
+.fchip button { background: none; border: 0; color: var(--mut); cursor: pointer; padding: 0 4px; font-size: 12px; } .fchip button:hover { color: var(--bad); }
+.fpop { position: fixed; z-index: 45; width: 280px; display: flex; flex-direction: column; gap: 4px; padding: 8px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel2); box-shadow: 0 12px 34px rgba(0,0,0,.45); text-transform: none; letter-spacing: 0; font: 400 13px var(--f-b); color: var(--ink); overflow: hidden; }
+.fpop-t { font: 600 13px var(--f-d); letter-spacing: .07em; text-transform: uppercase; color: var(--mut); padding: 2px 4px 4px; }
+.fpop-o { text-align: left; background: none; border: 0; border-radius: 6px; padding: 6px 8px; color: var(--ink); cursor: pointer; font: inherit; }
+.fpop-o:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); } .fpop-o.on { color: var(--accent); font-weight: 600; }
+.fpop hr { border: 0; border-top: 1px solid var(--line); margin: 3px 0; width: 100%; }
+.fpop input[type=search] { min-width: 0; width: 100%; color: var(--ink); }
+.fpop-l { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 60px; max-height: 260px; overflow-y: auto; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); padding: 3px; }
+.fpop-l label { display: flex; align-items: center; gap: 7px; padding: 4px 6px; border-radius: 5px; cursor: pointer; min-width: 0; }
+.fpop-l label:hover { background: var(--panel2); }
+.fpop-l label span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fpop-l label small { color: var(--mut); font-size: 12px; }
+.fpop-l .fpop-all { font-weight: 600; border-bottom: 1px solid var(--line); border-radius: 5px 5px 0 0; margin-bottom: 2px; }
+.fpop-l p { padding: 8px; margin: 0; }
+.fpop-b { display: flex; align-items: center; gap: 6px; padding-top: 4px; }
+@media (pointer: coarse) { .fbtn { height: 28px; min-width: 28px; font-size: 13px; } .tt.xl th { padding-right: 40px; } .fpop-l label { padding: 8px; } }
