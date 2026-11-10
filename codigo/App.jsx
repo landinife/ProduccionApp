@@ -643,7 +643,23 @@ function FiltroPop({ titulo, k, valores, elegidos, orden, pos, onOk, onOrden, on
   </div>, document.body);
 }
 
-const colsDe = tipo => [...(tipo === 'rep' ? [['orden', 'OV/OC', 148], ['cliente', 'Cliente', 160]] : []), ['nombre', 'Pieza', 300], ['cant', 'Cant.', 66], ['prioridad', 'Prioridad', 108], ['estado', 'Estado', 118], ['operacion', 'Operación', 130], ['ops', 'Operarios', 150], ['turno', 'Turno', 92], ['hh', 'Duración', 132], ['inicio', 'Inicio', 190], ['fin', 'Fin', 190], ['real', 'HH real', 80], ['tot', 'Hijos plan / real', 160], ['avance', 'Avance %', 86], ['acts', '', 124]];
+/* Menú de acciones de una fila (botón ⋮ al principio de la fila): editar, próximo a realizar, agregar hijo, subir/bajar, duplicar y borrar */
+function FilaMenu({ pos, items, onClose }) {
+  const ref = useRef(null);
+  useEffect(() => { const h = e => { if (ref.current && !ref.current.contains(e.target) && !e.target.closest('.fmenu-b')) onClose(); };
+    const k = e => { if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); const bs = [...ref.current.querySelectorAll('button:not(:disabled)')]; const i = bs.indexOf(document.activeElement); const n = bs[(i + (e.key === 'ArrowDown' ? 1 : -1) + bs.length) % bs.length]; n && n.focus(); } };
+    const sc = e => { if (!ref.current || !ref.current.contains(e.target)) onClose(); };
+    window.addEventListener('mousedown', h); window.addEventListener('keydown', k); window.addEventListener('scroll', sc, true);
+    const b = ref.current && ref.current.querySelector('button'); b && b.focus();
+    return () => { window.removeEventListener('mousedown', h); window.removeEventListener('keydown', k); window.removeEventListener('scroll', sc, true); }; }, []);
+  const H = items.length * 38 + 12, x = Math.max(8, Math.min(pos.x, window.innerWidth - 250)), y = pos.y + H > window.innerHeight - 8 ? Math.max(8, pos.top - H - 2) : pos.y;
+  return createPortal(<div className="fmenu" ref={ref} role="menu" style={{ left: x, top: y }}>
+    {items.map((it, i) => it === '-' ? <hr key={i} /> : <button key={i} role="menuitem" className={it.peligro ? 'danger' : it.on ? 'on' : ''} disabled={it.disabled} onClick={() => { if (!it.queda) onClose(); it.fn(); }}><span className="fmenu-i">{it.ic}</span>{it.txt}</button>)}
+  </div>, document.body);
+}
+
+const colsDe = tipo => [...(tipo === 'rep' ? [['orden', 'OV/OC', 148], ['cliente', 'Cliente', 160]] : []), ['nombre', 'Pieza', 300], ['cant', 'Cant.', 66], ['prioridad', 'Prioridad', 108], ['estado', 'Estado', 118], ['operacion', 'Operación', 130], ['ops', 'Operarios', 150], ['turno', 'Turno', 92], ['hh', 'Duración', 132], ['inicio', 'Inicio', 190], ['fin', 'Fin', 190], ['real', 'HH real', 80], ['tot', 'Hijos plan / real', 160], ['avance', 'Avance %', 86]];
 // Suma de los hijos de un padre (plan y real de todo lo que tiene adentro), sin el trabajo propio del padre
 const hijosDe = (V, id) => (V.kids[id] || []).reduce((a, c) => { const x = V.SUB[c.id] || V.D[c.id]; return { hh: a.hh + (x.hh || 0), hhReal: a.hhReal + (x.hhReal || 0) }; }, { hh: 0, hhReal: 0 });
 function TaskTable({ roots, tipo, vis, collapsed, toggle, orden, universo }) {
@@ -658,7 +674,7 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden, universo }) {
   // Filtros: uno por sección (Repuestos, Proyectos, Post Venta o Taller)
   const pr0 = tipo === 'proy' && roots[0] ? S.proyectos.find(p => p.id === roots[0].proyId) : null;
   const FK = 'produccionapp-filtros-' + (tipo === 'rep' ? 'rep' : pr0 && pr0.pv ? 'pv' : pr0 && pr0.tl ? 'tl' : 'proy');
-  const [FL, setFL] = useFiltros(FK); const [fpop, setFpop] = useState(null);
+  const [FL, setFL] = useFiltros(FK); const [fpop, setFpop] = useState(null); const [menu, setMenu] = useState(null);
   const activos = Object.keys(FL.f).filter(k => FL.f[k] && cols.some(c => c[0] === k));
   const pasa = (t, sin) => activos.every(k => k === sin || valF(S, V, k, t).some(v => FL.f[k].includes(v)));
   // Una fila se ve si cumple los filtros o si tiene adentro alguna pieza que los cumple (así no se pierde el árbol)
@@ -737,6 +753,16 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden, universo }) {
     {t.empuje && <span className="mk warn" title={`Empujada: estaba para ${fDT(t.empuje)}. Dale el OK en Producción.`}>↦</span>}
     {!r.ok && !r.parent && <button className="mk bad" title={`Faltan ${fN(r.falta)} h extra por habilitar en el calendario. Tocá para habilitarlas.`} onClick={() => ui.modal({ k: 'extras', ids: [t.id] })}>!h</button>}
     {esp && <span className="mk" title={`Espera a "${esp.nombre}"${esp.fin ? ', que termina ' + fDT(esp.fin) : ', que todavía no está programada'}. Por eso no se adelanta.`}>⧖</span>}</>; };
+  const accionesDe = (t, r) => { const prox = E.esProximo(t);
+    return [
+      { ic: '✎', txt: 'Editar todos los datos', fn: () => ui.modal({ k: 'task', id: t.id }) },
+      ...(!r.parent && t.estado === 'pendiente' ? [{ ic: '⏭', txt: prox ? 'Quitar de Próximo a realizar' : 'Marcar como Próximo a realizar', on: prox, fn: () => { up(s => E.setProximo(s, t.id, !prox)); ui.toast(!prox ? 'Marcada como Próximo a realizar' : 'Quitada de Próximo a realizar'); } }] : []),
+      { ic: '＋', txt: 'Agregar hijo', fn: () => ui.modal({ k: 'task', draft: { ...E.blankTask(t.tipo, t.proyId), parentId: t.id, prioridad: t.prioridad } }) },
+      { ic: '⧉', txt: 'Duplicar', fn: () => { up(s => E.dupTask(s, t.id)); ui.toast('Duplicada'); } },
+      ...(orden && !so ? ['-', { ic: '▲', txt: 'Subir (orden manual)', queda: true, fn: () => mover(t, -1) }, { ic: '▼', txt: 'Bajar (orden manual)', queda: true, fn: () => mover(t, 1) }] : []),
+      '-',
+      { ic: '✕', txt: 'Borrar', peligro: true, fn: () => ui.confirmar({ titulo: '¿Borrar esta tarea?', texto: `Se borra "${t.nombre || '(sin nombre)'}"${(V.kids[t.id] || []).length ? ' con todo lo que tiene adentro' : ''}. Podés deshacerlo arriba.`, si: 'Sí, borrar', peligro: true, onSi: () => { up(s => E.delTask(s, t.id)); ui.toast('Borrada. Podés deshacerlo arriba.'); } }) }]; };
+  const abrirMenu = (e, t) => { e.stopPropagation(); if (menu && menu.id === t.id) { setMenu(null); return; } const b = e.currentTarget.getBoundingClientRect(); setMenu({ id: t.id, x: b.left, y: b.bottom + 2, top: b.top }); };
   const cell = (k, t, depth, hasKids, r) => {
     switch (k) {
       case 'orden': return !t.parentId ? <EdIn value={t.orden} placeholder="OV-0000" onCommit={v => set(t, { orden: v.trim() })} /> : null;
@@ -755,13 +781,7 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden, universo }) {
       case 'tot': { if (!hasKids) return null; const hj = hijosDe(V, t.id);   // padres: suma de sus hijos (el tiempo propio del padre queda en Duración y HH real)
         return <span className="ro num tot" title={`Suma de sus hijos: ${fN(hj.hh)} HH planificadas · ${hj.hhReal > 0 ? fN(hj.hhReal) : '0'} HH reales`}><b>{fN(hj.hh)}</b> / {hj.hhReal > 0 ? fN(hj.hhReal) : '—'}</span>; }
       case 'avance': return r.parent ? <span className="ro num">{Math.round(r.avance)}</span> : <EdIn className="num" type="number" min="0" max="100" step="5" value={Math.round(r.avance)} disabled={t.estado === 'terminada'} onCommit={v => { const a = Math.min(100, num(v)); if (a >= 100) { cerrarTarea(up, ui, t.id, undefined, false, 'Finalizada: pasó a la lista de finalizadas'); return; } set(t, { avance: a, estado: a > 0 && t.estado === 'pendiente' ? 'en proceso' : t.estado }); }} />;
-      default: return <div className="acts">
-        {orden && !so && <><button title="Subir (orden manual)" aria-label="Subir" onClick={() => mover(t, -1)}>▲</button><button title="Bajar (orden manual)" aria-label="Bajar" onClick={() => mover(t, 1)}>▼</button></>}
-        <button title="Editar todos los datos" aria-label="Editar" onClick={() => ui.modal({ k: 'task', id: t.id })}>✎</button>
-        {!r.parent && t.estado === 'pendiente' && <button className={E.esProximo(t) ? 'on' : ''} title={E.esProximo(t) ? 'Quitar de Próximo a realizar' : 'Marcar como Próximo a realizar'} aria-label="Próximo a realizar" onClick={() => { const on = !E.esProximo(t); up(s => E.setProximo(s, t.id, on)); ui.toast(on ? 'Marcada como Próximo a realizar' : 'Quitada de Próximo a realizar'); }}>⏭</button>}
-        <button title="Agregar hijo" aria-label="Agregar hijo" onClick={() => ui.modal({ k: 'task', draft: { ...E.blankTask(t.tipo, t.proyId), parentId: t.id, prioridad: t.prioridad } })}>＋</button>
-        <button title="Duplicar" aria-label="Duplicar" onClick={() => { up(s => E.dupTask(s, t.id)); ui.toast('Duplicada'); }}>⧉</button>
-        <button title="Borrar" aria-label="Borrar" onClick={() => { up(s => E.delTask(s, t.id)); ui.toast('Borrada. Podés deshacerlo arriba.'); }}>✕</button></div>;
+      default: return null;
     }
   };
   return <>{vivos.length > 0 && <div className="bulk"><b>{vivos.length} {vivos.length === 1 ? 'seleccionada' : 'seleccionadas'}</b>
@@ -778,6 +798,7 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden, universo }) {
       {so && <span className="fchip"><b>Orden:</b> {cols.find(x => x[0] === so.k)[1]} {so.d === 1 ? '↑' : '↓'}<button title="Volver al orden normal" aria-label="Quitar orden" onClick={() => setFL(p => ({ ...p, s: null }))}>✕</button></span>}
       <span className="mut">{rows.length} {rows.length === 1 ? 'fila' : 'filas'} a la vista</span><span className="sp" />
       <button className="btn sm" onClick={borrarTodo}>Borrar filtros y orden</button></div>}
+    {menu && V.byId[menu.id] && <FilaMenu pos={menu} items={accionesDe(V.byId[menu.id], V.D[menu.id])} onClose={() => setMenu(null)} />}
     {fpop && <FiltroPop key={fpop.k} k={fpop.k} titulo={fpop.titulo} pos={fpop} valores={valoresDe(fpop.k)} elegidos={FL.f[fpop.k] || null} orden={so && so.k === fpop.k ? so.d : 0}
       onOk={v => { ponerF(fpop.k, v); setFpop(null); }} onOrden={d => { setFL(p => ({ ...p, s: d ? { k: fpop.k, d } : null })); setFpop(null); }} onClose={() => setFpop(null)} />}
     <div className="scroll xlw"><table className="tt xl" onKeyDown={nav} style={{ width: cols.reduce((a, c) => a + W[c[0]], 0) }}>
@@ -786,7 +807,7 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden, universo }) {
     <tbody>
       {rows.length === 0 && <tr><td colSpan={cols.length} className="mut pad">{activos.length ? <>Ninguna tarea cumple los filtros. <button className="lnk sm" onClick={borrarTodo}>Borrar filtros</button></> : 'No hay tareas para mostrar. Cargá una a mano o importá una planilla.'}</td></tr>}
       {rows.map(({ t, depth, hasKids }) => { const r = V.D[t.id]; const oc = tipo === 'rep' && !t.parentId ? E.chipOf(S, V, t).color : null;
-        return <tr key={t.id} data-id={t.id} className={(hasKids ? 'par ' : '') + (r.parent ? 'grp ' : hasKids ? 'trab ' : '') + (r.estado === 'terminada' ? 'done ' : '') + (esTerc(t) ? 'terc ' : '') + (sel.has(t.id) ? 'selr' : '')}>{cols.map((c, i) => <td key={c[0]} tabIndex={-1} style={i === 0 && oc ? { boxShadow: `inset 3px 0 ${oc}` } : undefined}>{i === 0 ? <div className="c0"><input type="checkbox" className="selc" aria-label="Seleccionar" checked={sel.has(t.id)} onChange={() => togSel(t.id)} />{cell(c[0], t, depth, hasKids, r)}{marcas(t, hasKids, r)}</div> : cell(c[0], t, depth, hasKids, r)}</td>)}</tr>; })}
+        return <tr key={t.id} data-id={t.id} className={(hasKids ? 'par ' : '') + (r.parent ? 'grp ' : hasKids ? 'trab ' : '') + (r.estado === 'terminada' ? 'done ' : '') + (esTerc(t) ? 'terc ' : '') + (sel.has(t.id) ? 'selr' : '')}>{cols.map((c, i) => <td key={c[0]} tabIndex={-1} style={i === 0 && oc ? { boxShadow: `inset 3px 0 ${oc}` } : undefined}>{i === 0 ? <div className="c0"><input type="checkbox" className="selc" aria-label="Seleccionar" checked={sel.has(t.id)} onChange={() => togSel(t.id)} /><button className={'fmenu-b' + (menu && menu.id === t.id ? ' on' : '')} title="Acciones: editar, próximo a realizar, agregar hijo, duplicar, borrar…" aria-label="Acciones de la fila" aria-haspopup="menu" onClick={e => abrirMenu(e, t)}>⋮</button>{cell(c[0], t, depth, hasKids, r)}{marcas(t, hasKids, r)}</div> : cell(c[0], t, depth, hasKids, r)}</td>)}</tr>; })}
     </tbody></table></div></>;
 }
 

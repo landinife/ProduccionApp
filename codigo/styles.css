@@ -1146,3 +1146,16 @@ label.chk.cadena { font-size: 13px !important; color: var(--mut) !important; }
 .fpop-l p { padding: 8px; margin: 0; }
 .fpop-b { display: flex; align-items: center; gap: 6px; padding-top: 4px; }
 @media (pointer: coarse) { .fbtn { height: 28px; min-width: 28px; font-size: 13px; } .tt.xl th { padding-right: 40px; } .fpop-l label { padding: 8px; } }
+
+/* ================= Menú de acciones al principio de la fila (10/11) ================= */
+.fmenu-b { flex: none; width: 20px; height: 24px; padding: 0; border: 1px solid transparent; border-radius: 5px; background: none; color: var(--mut); font: 700 16px/1 var(--f-b); cursor: pointer; }
+.fmenu-b:hover, .fmenu-b.on, .fmenu-b:focus-visible { color: var(--ink); border-color: var(--line); background: var(--panel2); }
+.fmenu-b.on { color: var(--accent); border-color: var(--accent); }
+.fmenu { position: fixed; z-index: 45; min-width: 230px; display: flex; flex-direction: column; padding: 5px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel2); box-shadow: 0 12px 34px rgba(0,0,0,.45); }
+.fmenu button { display: flex; align-items: center; gap: 10px; text-align: left; background: none; border: 0; border-radius: 6px; padding: 8px 10px; color: var(--ink); cursor: pointer; font: 500 13.5px var(--f-b); }
+.fmenu button:hover, .fmenu button:focus-visible { background: color-mix(in srgb, var(--accent) 16%, transparent); outline: 0; }
+.fmenu button.on .fmenu-i { color: var(--accent); }
+.fmenu button.danger { color: var(--bad); } .fmenu button.danger:hover { background: color-mix(in srgb, var(--bad) 14%, transparent); }
+.fmenu-i { width: 18px; text-align: center; color: var(--mut); flex: none; }
+.fmenu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; }
+@media (pointer: coarse) { .fmenu-b { width: 30px; height: 32px; font-size: 18px; } .fmenu button { padding: 11px 12px; } }
