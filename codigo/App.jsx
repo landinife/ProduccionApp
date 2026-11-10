@@ -130,6 +130,7 @@ function Desvio({ real, plan }) { const d = real - plan; if (!(plan > 0)) return
 function permiso(p, n, pm) {
   if (pm.admin) return null;
   if (['cfg', 'operarios', 'operaciones', 'feriados', 'usuarios', 'codigos', 'materiales', 'cotizaciones', 'tarifas', 'historico'].some(k => p[k] !== n[k])) return 'Solo un administrador puede cambiar la configuración.';
+  if (p.asignaciones !== n.asignaciones) return 'Solo un administrador puede cargar horas globales.';
   const DEF = ['nombre', 'cant', 'prioridad', 'operacionId', 'hh', 'preds', 'parentId', 'entrega', 'proyId'];
   const old = Object.fromEntries(p.tareas.map(t => [t.id, t])); const seen = new Set(); let rep = false, proyDef = p.proyectos !== n.proyectos, proyProg = false;
   n.tareas.forEach(t => { seen.add(t.id); const o = old[t.id]; if (o === t) return;
@@ -156,7 +157,7 @@ function describir(p, n) {
     if (add.length) out.push('Agregó ' + lista(add)); if (del.length) out.push('Borró ' + lista(del));
     if (chg.length) out.push(chg.slice(0, 3).map(t => `"${t.nombre}": ${dif(old[t.id], t).map(f => `${CAMPOS[f]} ${val(p, f, old[t.id][f])} → ${val(n, f, t[f])}`).join(', ')}`).join(' · ') + (chg.length > 3 ? ` · y ${chg.length - 3} tareas más` : ''));
     if (out.length) k = 't:' + [...add, ...del, ...chg].slice(0, 4).map(t => t.id).join() + ':' + (chg[0] ? dif(old[chg[0].id], chg[0]).join() : ''); }
-  [['proyectos', 'Cambió proyectos'], ['extras', 'Cambió horas extra'], ['extraModo', 'Cambió el uso de una extra'], ['ausencias', 'Cambió ausencias'], ['operarios', 'Cambió operarios'], ['operaciones', 'Cambió operaciones'], ['codigos', 'Cambió códigos de operación'], ['materiales', 'Cambió materiales'], ['tarifas', 'Cambió tarifas de mano de obra'], ['historico', 'Cambió el historial importado'], ['cotizaciones', 'Cambió cotizaciones'], ['feriados', 'Cambió feriados'], ['usuarios', 'Cambió usuarios o permisos'], ['cfg', 'Cambió horarios o apariencia']]
+  [['proyectos', 'Cambió proyectos'], ['asignaciones', 'Cambió cargas globales de horas'], ['extras', 'Cambió horas extra'], ['extraModo', 'Cambió el uso de una extra'], ['ausencias', 'Cambió ausencias'], ['operarios', 'Cambió operarios'], ['operaciones', 'Cambió operaciones'], ['codigos', 'Cambió códigos de operación'], ['materiales', 'Cambió materiales'], ['tarifas', 'Cambió tarifas de mano de obra'], ['historico', 'Cambió el historial importado'], ['cotizaciones', 'Cambió cotizaciones'], ['feriados', 'Cambió feriados'], ['usuarios', 'Cambió usuarios o permisos'], ['cfg', 'Cambió horarios o apariencia']]
     .forEach(([key, txt]) => { if (p[key] !== n[key] && !(key === 'extraModo' && p.extras !== n.extras)) { out.push(txt); k += '|' + key; } });
   return out.length ? { k, txt: out.join(' · ') } : null;
 }
@@ -387,7 +388,7 @@ function Alertas({ tipo, days, ops, wk, cerrar }) {
     cont = rs.length ? rs.map(x => { const ids = x.proy ? S.tareas.filter(t => t.proyId === x.proy).map(t => t.id) : [x.id, ...E.descendants(S, x.id)]; const u = ultima(ids); const ent = x.proy ? (S.proyectos.find(p => p.id === x.proy) || {}).entrega : V.byId[x.id].entrega;
       return fila(x.id || x.proy, <><b>{x.txt}</b><span className="mut">entrega {fD(ent)} · termina {fD((x.proy ? ids.map(i => V.D[i].fin).filter(Boolean).sort().pop() : V.D[x.id].fin || '').slice(0, 10))} · <span className="c-bad">+{x.dias} {x.dias === 1 ? 'día' : 'días'}</span></span>
         {u && <span className="mut">La que termina más tarde: <button className="al-t" onClick={() => abrir(u.id)}><Chip t={u} small /> {etiqueta(V, u)}</button> · {u.ops.map(o => opName(S, o)).join(', ') || 'sin operario'} · {u.turno === 'extra' ? 'horas extra' : u.turno === 'ambos' ? 'normal + extra' : 'turno normal'} · fin {fDT(V.D[u.id].fin)}</span>}</>,
-        <>{x.proy ? <button className="btn sm" onClick={() => { try { const pvx = (S.proyectos.find(p => p.id === x.proy) || {}).pv; localStorage.setItem(pvx ? 'produccionapp-pv-actual' : 'produccionapp-proy-actual', x.proy); ui.tab(pvx ? 'postventa' : 'proyectos'); } catch (e) { } }}>Ver proyecto</button> : <button className="btn sm" onClick={() => abrir(x.id)}>Abrir</button>}
+        <>{x.proy ? <button className="btn sm" onClick={() => { try { const cl = E.claseP(S.proyectos.find(p => p.id === x.proy)); localStorage.setItem('produccionapp-' + cl + '-actual', x.proy); ui.tab(cl === 'pv' ? 'postventa' : cl === 'tl' ? 'internos' : 'proyectos'); } catch (e) { } }}>Ver proyecto</button> : <button className="btn sm" onClick={() => abrir(x.id)}>Abrir</button>}
           {u && u.ops.length > 0 && u.turno === 'normal' && <button className="btn sm" title="Que la última tarea use también las horas extra de cada día" onClick={() => { up(s => E.patchTask(s, u.id, { turno: 'ambos' }, true)); ui.toast('Ahora usa el turno normal y las horas extra. Habilitá extras en el operario si hace falta.'); }}>Sumarle horas extra</button>}
           {u && u.ops.length > 0 && <button className="btn sm" onClick={() => ui.modal({ k: 'op', id: u.ops[0] })}>Extras de {opName(S, u.ops[0])}</button>}
           <button className="btn sm" title="Pone en prioridad alta todas sus tareas" onClick={() => up(s => ({ ...s, tareas: s.tareas.map(t => ids.includes(t.id) && t.prioridad !== 'alta' ? { ...t, prioridad: 'alta' } : t) }))}>Prioridad alta</button></>, 'bad'); }) : <p className="mut">No hay entregas en riesgo.</p>;
@@ -503,7 +504,7 @@ function Resumen() {
           <button className="btn" onClick={() => setW0(E.addDays(w0, 7))} aria-label="Semana siguiente" title="Semana siguiente">»</button></>}
           <button className="btn" onClick={() => ui.modal({ k: 'hoy' })}>Parte del día</button>
           <button className="btn" title="Adelanta las tareas pendientes de todos para cerrar los huecos libres" onClick={() => juntar(up, ui, null)}>Juntar tareas</button>
-          <label className="chk cadena" title="Cuando una tarea se finaliza antes de lo planificado (desde el Taller, la tabla o el editor), las pendientes que venían pegadas detrás en el mismo operario se adelantan solas. Si había un hueco a propósito o una tarea fijada a mano 📌, ahí se corta."><input type="checkbox" checked={S.cfg.adelantarCola !== false} onChange={e => up(s => ({ ...s, cfg: { ...s.cfg, adelantarCola: e.target.checked } }))} /> Si una tarea termina antes, adelantar las que vienen detrás</label>
+          <label className="chk cadena" title="Cuando una tarea se finaliza antes de lo planificado (desde Operarios, la tabla o el editor), las pendientes que venían pegadas detrás en el mismo operario se adelantan solas. Si había un hueco a propósito o una tarea fijada a mano 📌, ahí se corta."><input type="checkbox" checked={S.cfg.adelantarCola !== false} onChange={e => up(s => ({ ...s, cfg: { ...s.cfg, adelantarCola: e.target.checked } }))} /> Si una tarea termina antes, adelantar las que vienen detrás</label>
           <button className="btn" title="Corre desde ahora lo que quedó atrasado según el avance real. Queda marcado en el cartel para dar el OK." onClick={() => { let n = 0; up(s => { const r = E.reprogramar(s); n = r.n; return r.n ? r.S : s; }); ui.toast(n ? `${n} ${n === 1 ? 'tarea reprogramada' : 'tareas reprogramadas'} desde ahora. Revisalas en el cartel.` : 'No hay tareas atrasadas.'); }}>Reprogramar atrasadas</button>
         </div>
       </div>
@@ -1031,15 +1032,15 @@ function RegistroPV({ ts, conCaso }) {
   </section>;
 }
 
-function Proyectos({ pv = false }) {
-  const { S, V, up, ui } = useApp(); const lista = S.proyectos.filter(x => !!x.pv === !!pv), activos = lista.filter(x => !x.terminado), terminados = lista.filter(x => x.terminado), LK =pv ? 'produccionapp-pv-actual' : 'produccionapp-proy-actual'; const movil = useMovil(); const [vistaM, setVistaM] = useState(() => prefG('movil-vista', 'lista')); const [masM, setMasM] = useState(false); const [pid, setPid0] = useState(() => { try { return localStorage.getItem(LK) || null; } catch (e) { return null; } });
+function Proyectos({ pv = false, tl = false }) {
+  const { S, V, up, ui } = useApp(); const clase = pv ? 'pv' : tl ? 'tl' : 'proy', caso = pv || tl; const lista = S.proyectos.filter(x => E.claseP(x) === clase), activos = lista.filter(x => !x.terminado), terminados = lista.filter(x => x.terminado), LK = 'produccionapp-' + clase + '-actual'; const movil = useMovil(); const [vistaM, setVistaM] = useState(() => prefG('movil-vista', 'lista')); const [masM, setMasM] = useState(false); const [pid, setPid0] = useState(() => { try { return localStorage.getItem(LK) || null; } catch (e) { return null; } });
   const setPid = id => { setPid0(id); try { id ? localStorage.setItem(LK, id) : localStorage.removeItem(LK); } catch (e) { } if (typeof window.scrollTo === 'function') window.scrollTo({ top: 0 }); };
-  useEffect(() => { const k = e => { if (!e.altKey || e.ctrlKey || e.metaKey) return; const n = Number(e.key); if (n >= 1 && n <= 9 && activos[n - 1]) { e.preventDefault(); setPid(activos[n - 1].id); } else if (e.key === '0') { e.preventDefault(); setPid(null); } }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [S.proyectos, pv]); const [col, tog, setCol] = useSet(); const [det, setDet] = useState(null); const [hhv, setHhv] = useState('padre'); const [altoG, setAltoG] = useState('completo'); const [q, setQ] = useState(''); const [verFin, setVerFin] = useState(() => prefG('verfin', false)); const [verTerm, setVerTerm] = useState(() => prefG(pv ? 'verterm-pv' : 'verterm', false));
+  useEffect(() => { const k = e => { if (!e.altKey || e.ctrlKey || e.metaKey) return; const n = Number(e.key); if (n >= 1 && n <= 9 && activos[n - 1]) { e.preventDefault(); setPid(activos[n - 1].id); } else if (e.key === '0') { e.preventDefault(); setPid(null); } }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [S.proyectos, pv, tl]); const [col, tog, setCol] = useSet(); const [det, setDet] = useState(null); const [hhv, setHhv] = useState('padre'); const [altoG, setAltoG] = useState('completo'); const [q, setQ] = useState(''); const [verFin, setVerFin] = useState(() => prefG('verfin', false)); const [verTerm, setVerTerm] = useState(() => prefG('verterm' + (caso ? '-' + clase : ''), false));
   useEffect(() => { if (pid) setAltoG(prefG('alto-' + pid, 'completo')); }, [pid]);
   const p = lista.find(x => x.id === pid);
   const info = pr => { const ts = S.tareas.filter(t => t.proyId === pr.id), rs = ts.filter(t => !t.parentId).map(t => V.D[t.id]); const hh = rs.reduce((a, r) => a + r.hh, 0);
     return { ts, hh, av: hh ? rs.reduce((a, r) => a + r.hh * r.avance, 0) / hh : 0, prev: Math.max(0, Number(pr.hhPrevias) || 0), real: Math.max(0, Number(pr.hhPrevias) || 0) + rs.reduce((a, r) => a + r.hhReal, 0), ini: rs.map(r => r.inicio).filter(Boolean).sort()[0], fin: rs.map(r => r.fin).filter(Boolean).sort().pop() }; };
-  const nuevo = () => { const id = E.uid(); up(s => ({ ...s, proyectos: [...s.proyectos, { id, nombre: pv ? 'Caso nuevo' : 'Proyecto nuevo', ini: pv ? 'PV' : 'NVO', color: ACCENTS[s.proyectos.length % ACCENTS.length], entrega: '', ...(pv ? { pv: true } : {}) }] })); setPid(id); };
+  const nuevo = () => { const id = E.uid(); up(s => ({ ...s, proyectos: [...s.proyectos, { id, nombre: caso ? 'Caso nuevo' : 'Proyecto nuevo', ini: pv ? 'PV' : tl ? 'TL' : 'NVO', color: ACCENTS[s.proyectos.length % ACCENTS.length], entrega: '', ...(pv ? { pv: true } : tl ? { tl: true } : {}) }] })); setPid(id); };
   const tabs = <ProyTabs pid={p ? pid : null} setPid={setPid} info={info} lista={lista} />;
   const tarjeta = pr => { const i = info(pr); const late = !pr.terminado && pr.entrega && i.fin && i.fin.slice(0, 10) > pr.entrega; return <button key={pr.id} className={'pcard' + (pr.terminado ? ' term' : '')} style={{ '--c': pr.color }} onClick={() => setPid(pr.id)}>
     <span className="chip">{pr.ini}</span><b>{pr.nombre}</b>
@@ -1048,13 +1049,13 @@ function Proyectos({ pv = false }) {
     {pr.terminado ? <span className="tag ok">✓ terminado{pr.terminadoEl ? ` el ${fD(pr.terminadoEl)}` : ''}</span> : pr.entrega && <span className={'tag ' + (late ? 'bad' : '')}>{late ? `se pasa ${E.diffDays(pr.entrega, i.fin.slice(0, 10))} d de la entrega` : `entrega ${fD(pr.entrega)}`}</span>}
   </button>; };
   if (!p) return <div className="view">{tabs}<section>
-    <div className="sec-h"><h2>{pv ? 'Post Venta' : 'En proceso'}</h2><div className="row">{pv && <button className="btn" onClick={() => ui.modal({ k: 'plan', alcance: 'pv' })}>Planificar todos los casos</button>}<button className="btn pri-b" onClick={nuevo}>{pv ? '+ Caso' : '+ Proyecto'}</button></div></div>
+    <div className="sec-h"><h2>{pv ? 'Post Venta' : tl ? 'Taller' : 'En proceso'}</h2><div className="row">{caso && <button className="btn" onClick={() => ui.modal({ k: 'plan', alcance: clase })}>Planificar todos los casos</button>}<button className="btn pri-b" onClick={nuevo}>{caso ? '+ Caso' : '+ Proyecto'}</button></div></div>
     <div className="pcards">{activos.map(tarjeta)}
-      {lista.length === 0 && <Vacio ic="caja" t={pv ? 'Todavía no hay casos de post venta' : 'Todavía no hay proyectos'}>{pv ? 'Creá el primero con "+ Caso": puede ser un cliente, un equipo o un reclamo.' : 'Creá el primero con el botón de arriba.'}</Vacio>}
-      {lista.length > 0 && activos.length === 0 && <Vacio ic="caja" chico t={pv ? 'Todos los casos están terminados' : 'Todos los proyectos están terminados'} />}</div>
-    {terminados.length > 0 && <div className="termsec"><div className="sec-h"><button className="dgrp-t fin-t" onClick={() => { setVerTerm(!verTerm); guardaG(pv ? 'verterm-pv' : 'verterm', !verTerm); }}><span className="car">{verTerm ? '▾' : '▸'}</span><h2>Terminados <span className="cnt ok">{terminados.length}</span></h2></button></div>
+      {lista.length === 0 && <Vacio ic="caja" t={pv ? 'Todavía no hay casos de post venta' : tl ? 'Todavía no hay trabajos de taller' : 'Todavía no hay proyectos'}>{pv ? 'Creá el primero con "+ Caso": puede ser un cliente, un equipo o un reclamo.' : tl ? 'Creá el primero con "+ Caso": trabajos para nuestro propio taller (mantenimiento, mejoras, orden), sin OV ni OC.' : 'Creá el primero con el botón de arriba.'}</Vacio>}
+      {lista.length > 0 && activos.length === 0 && <Vacio ic="caja" chico t={caso ? 'Todos los casos están terminados' : 'Todos los proyectos están terminados'} />}</div>
+    {terminados.length > 0 && <div className="termsec"><div className="sec-h"><button className="dgrp-t fin-t" onClick={() => { setVerTerm(!verTerm); guardaG('verterm' + (caso ? '-' + clase : ''), !verTerm); }}><span className="car">{verTerm ? '▾' : '▸'}</span><h2>Terminados <span className="cnt ok">{terminados.length}</span></h2></button></div>
       {verTerm && <div className="pcards">{terminados.map(tarjeta)}</div>}</div>}
-  </section>{pv && <RegistroPV ts={S.tareas.filter(t => t.tipo === 'proy' && lista.some(x => x.id === t.proyId))} conCaso />}<Proximas filtro={t => t.tipo === 'proy' && lista.some(x => x.id === t.proyId)} donde={pv ? 'en post venta' : 'en proyectos'} /></div>;
+  </section>{pv && <RegistroPV ts={S.tareas.filter(t => t.tipo === 'proy' && lista.some(x => x.id === t.proyId))} conCaso />}<Proximas filtro={t => t.tipo === 'proy' && lista.some(x => x.id === t.proyId)} donde={pv ? 'en post venta' : tl ? 'en el taller' : 'en proyectos'} /></div>;
   const i = info(p); const setP = (k, v) => up(s => ({ ...s, proyectos: s.proyectos.map(x => x.id === p.id ? { ...x, [k]: v } : x) }));
   const roots = i.ts.filter(t => !t.parentId);
   const qn = q.trim().toLowerCase(); let visQ = null, nQ = 0;
@@ -1102,8 +1103,8 @@ function Proyectos({ pv = false }) {
         <label className="chk etp" title="Dentro de cada ensamblaje, cada etapa (corte, lijado, plegado, mecanizado, soldadura…) espera a que terminen las anteriores. El orden de las etapas se define en Configuración → Operaciones."><input type="checkbox" checked={!!p.etapas} onChange={e => setP('etapas', e.target.checked)} /> Desplazar por etapas de fabricación</label>
         {p.etapas && <button className="btn" onClick={() => { let n = 0; up(s => { const r = E.acomodarEtapas(s, p.id); n = r.n; return r.S; }); ui.toast(n ? `${n} ${n === 1 ? 'tarea corrida' : 'tareas corridas'} para respetar el orden de las etapas` : 'Ya estaba todo en orden de etapas'); }}>Acomodar por etapas</button>}
         {i.ts.some(t => t.pos !== undefined && t.pos !== null) && <button className="btn" title="Borra el orden manual (▲▼) y vuelve a ordenar por etapa" onClick={() => up(s => ({ ...s, tareas: s.tareas.map(t => t.proyId === p.id && t.pos !== undefined && t.pos !== null ? { ...t, pos: null } : t) }))}>Ordenar por etapa</button>}
-        <button className={'btn ' + (p.terminado ? 'warn-b' : 'ok-b')} title={p.terminado ? 'Vuelve a mostrarlo en las pestañas' : 'Lo saca de las pestañas y lo guarda en Terminados; no se pierde ningún dato'} onClick={() => { const nt = !p.terminado; ui.confirmar({ titulo: nt ? (pv ? '¿Marcar el caso como terminado?' : '¿Marcar el proyecto como terminado?') : (pv ? '¿Reabrir el caso?' : '¿Reabrir el proyecto?'), texto: nt ? `“${p.nombre}” se va a la sección Terminados y deja de aparecer entre los activos. Los datos no se pierden y lo podés reabrir cuando quieras.` : `“${p.nombre}” vuelve a la lista de activos.`, si: nt ? 'Sí, marcar como terminado' : 'Sí, reabrir', fecha: nt ? E.today() : undefined, onSi: f => { up(s => ({ ...s, proyectos: s.proyectos.map(x => x.id === p.id ? { ...x, terminado: nt, terminadoEl: nt ? (f || E.today()) : '' } : x) })); if (nt) setPid(null); ui.toast(nt ? `${p.nombre} pasó a Terminados. Podés deshacerlo arriba.` : `${p.nombre} volvió a los activos.`); } }); }}>{p.terminado ? '↩ Reabrir' : '✓ Marcar como terminado'}</button>
-        <button className="btn danger" onClick={() => { const nt = S.tareas.filter(t => t.proyId === p.id).length; ui.confirmar({ titulo: pv ? '¿Borrar el caso?' : '¿Borrar el proyecto?', texto: `Se borra “${p.nombre}”${nt ? ` y sus ${nt} tarea${nt === 1 ? '' : 's'}` : ''}. Si solo terminó, mejor usá “Marcar como terminado”. Podés deshacerlo arriba.`, si: 'Sí, borrar', peligro: true, onSi: () => { up(s => ({ ...s, proyectos: s.proyectos.filter(x => x.id !== p.id), tareas: s.tareas.filter(t => t.proyId !== p.id) })); setPid(null); ui.toast('Proyecto borrado. Podés deshacerlo arriba.'); } }); }}>Borrar proyecto</button>
+        <button className={'btn ' + (p.terminado ? 'warn-b' : 'ok-b')} title={p.terminado ? 'Vuelve a mostrarlo en las pestañas' : 'Lo saca de las pestañas y lo guarda en Terminados; no se pierde ningún dato'} onClick={() => { const nt = !p.terminado; ui.confirmar({ titulo: nt ? (caso ? '¿Marcar el caso como terminado?' : '¿Marcar el proyecto como terminado?') : (caso ? '¿Reabrir el caso?' : '¿Reabrir el proyecto?'), texto: nt ? `“${p.nombre}” se va a la sección Terminados y deja de aparecer entre los activos. Los datos no se pierden y lo podés reabrir cuando quieras.` : `“${p.nombre}” vuelve a la lista de activos.`, si: nt ? 'Sí, marcar como terminado' : 'Sí, reabrir', fecha: nt ? E.today() : undefined, onSi: f => { up(s => ({ ...s, proyectos: s.proyectos.map(x => x.id === p.id ? { ...x, terminado: nt, terminadoEl: nt ? (f || E.today()) : '' } : x) })); if (nt) setPid(null); ui.toast(nt ? `${p.nombre} pasó a Terminados. Podés deshacerlo arriba.` : `${p.nombre} volvió a los activos.`); } }); }}>{p.terminado ? '↩ Reabrir' : '✓ Marcar como terminado'}</button>
+        <button className="btn danger" onClick={() => { const nt = S.tareas.filter(t => t.proyId === p.id).length; ui.confirmar({ titulo: caso ? '¿Borrar el caso?' : '¿Borrar el proyecto?', texto: `Se borra “${p.nombre}”${nt ? ` y sus ${nt} tarea${nt === 1 ? '' : 's'}` : ''}. Si solo terminó, mejor usá “Marcar como terminado”. Podés deshacerlo arriba.`, si: 'Sí, borrar', peligro: true, onSi: () => { up(s => ({ ...s, proyectos: s.proyectos.filter(x => x.id !== p.id), tareas: s.tareas.filter(t => t.proyId !== p.id) })); setPid(null); ui.toast('Proyecto borrado. Podés deshacerlo arriba.'); } }); }}>Borrar proyecto</button>
       </div>;
   const tablasMovil = <><section><div className="sec-h"><h2>Pendientes y en proceso <span className="cnt">{nAct}</span></h2></div><TablaMovil roots={roots} vis={visAct} orden={ord} /></section>
     <section className="finsec"><div className="sec-h"><button className="dgrp-t fin-t" onClick={() => { setVerFin(!verFin); guardaG('verfin', !verFin); }}><span className="car">{verFin ? '▾' : '▸'}</span><h2>Finalizadas <span className="cnt ok">{nFin}</span></h2></button></div>
@@ -1143,8 +1144,8 @@ function Proyectos({ pv = false }) {
         <label className="chk etp" title="Dentro de cada ensamblaje, cada etapa (corte, lijado, plegado, mecanizado, soldadura…) espera a que terminen las anteriores. El orden de las etapas se define en Configuración → Operaciones."><input type="checkbox" checked={!!p.etapas} onChange={e => setP('etapas', e.target.checked)} /> Desplazar por etapas de fabricación</label>
         {p.etapas && <button className="btn" onClick={() => { let n = 0; up(s => { const r = E.acomodarEtapas(s, p.id); n = r.n; return r.S; }); ui.toast(n ? `${n} ${n === 1 ? 'tarea corrida' : 'tareas corridas'} para respetar el orden de las etapas` : 'Ya estaba todo en orden de etapas'); }}>Acomodar por etapas</button>}
         {i.ts.some(t => t.pos !== undefined && t.pos !== null) && <button className="btn" title="Borra el orden manual (▲▼) y vuelve a ordenar por etapa" onClick={() => up(s => ({ ...s, tareas: s.tareas.map(t => t.proyId === p.id && t.pos !== undefined && t.pos !== null ? { ...t, pos: null } : t) }))}>Ordenar por etapa</button>}
-        <button className={'btn ' + (p.terminado ? 'warn-b' : 'ok-b')} title={p.terminado ? 'Vuelve a mostrarlo en las pestañas' : 'Lo saca de las pestañas y lo guarda en Terminados; no se pierde ningún dato'} onClick={() => { const nt = !p.terminado; ui.confirmar({ titulo: nt ? (pv ? '¿Marcar el caso como terminado?' : '¿Marcar el proyecto como terminado?') : (pv ? '¿Reabrir el caso?' : '¿Reabrir el proyecto?'), texto: nt ? `“${p.nombre}” se va a la sección Terminados y deja de aparecer entre los activos. Los datos no se pierden y lo podés reabrir cuando quieras.` : `“${p.nombre}” vuelve a la lista de activos.`, si: nt ? 'Sí, marcar como terminado' : 'Sí, reabrir', fecha: nt ? E.today() : undefined, onSi: f => { up(s => ({ ...s, proyectos: s.proyectos.map(x => x.id === p.id ? { ...x, terminado: nt, terminadoEl: nt ? (f || E.today()) : '' } : x) })); if (nt) setPid(null); ui.toast(nt ? `${p.nombre} pasó a Terminados. Podés deshacerlo arriba.` : `${p.nombre} volvió a los activos.`); } }); }}>{p.terminado ? '↩ Reabrir' : '✓ Marcar como terminado'}</button>
-        <button className="btn danger" onClick={() => { const nt = S.tareas.filter(t => t.proyId === p.id).length; ui.confirmar({ titulo: pv ? '¿Borrar el caso?' : '¿Borrar el proyecto?', texto: `Se borra “${p.nombre}”${nt ? ` y sus ${nt} tarea${nt === 1 ? '' : 's'}` : ''}. Si solo terminó, mejor usá “Marcar como terminado”. Podés deshacerlo arriba.`, si: 'Sí, borrar', peligro: true, onSi: () => { up(s => ({ ...s, proyectos: s.proyectos.filter(x => x.id !== p.id), tareas: s.tareas.filter(t => t.proyId !== p.id) })); setPid(null); ui.toast('Proyecto borrado. Podés deshacerlo arriba.'); } }); }}>Borrar proyecto</button>
+        <button className={'btn ' + (p.terminado ? 'warn-b' : 'ok-b')} title={p.terminado ? 'Vuelve a mostrarlo en las pestañas' : 'Lo saca de las pestañas y lo guarda en Terminados; no se pierde ningún dato'} onClick={() => { const nt = !p.terminado; ui.confirmar({ titulo: nt ? (caso ? '¿Marcar el caso como terminado?' : '¿Marcar el proyecto como terminado?') : (caso ? '¿Reabrir el caso?' : '¿Reabrir el proyecto?'), texto: nt ? `“${p.nombre}” se va a la sección Terminados y deja de aparecer entre los activos. Los datos no se pierden y lo podés reabrir cuando quieras.` : `“${p.nombre}” vuelve a la lista de activos.`, si: nt ? 'Sí, marcar como terminado' : 'Sí, reabrir', fecha: nt ? E.today() : undefined, onSi: f => { up(s => ({ ...s, proyectos: s.proyectos.map(x => x.id === p.id ? { ...x, terminado: nt, terminadoEl: nt ? (f || E.today()) : '' } : x) })); if (nt) setPid(null); ui.toast(nt ? `${p.nombre} pasó a Terminados. Podés deshacerlo arriba.` : `${p.nombre} volvió a los activos.`); } }); }}>{p.terminado ? '↩ Reabrir' : '✓ Marcar como terminado'}</button>
+        <button className="btn danger" onClick={() => { const nt = S.tareas.filter(t => t.proyId === p.id).length; ui.confirmar({ titulo: caso ? '¿Borrar el caso?' : '¿Borrar el proyecto?', texto: `Se borra “${p.nombre}”${nt ? ` y sus ${nt} tarea${nt === 1 ? '' : 's'}` : ''}. Si solo terminó, mejor usá “Marcar como terminado”. Podés deshacerlo arriba.`, si: 'Sí, borrar', peligro: true, onSi: () => { up(s => ({ ...s, proyectos: s.proyectos.filter(x => x.id !== p.id), tareas: s.tareas.filter(t => t.proyId !== p.id) })); setPid(null); ui.toast('Proyecto borrado. Podés deshacerlo arriba.'); } }); }}>Borrar proyecto</button>
       </div>
       <div className="kpis">
         <Kpi l="Avance" v={Math.round(i.av) + '%'} s={`${fN(i.hh * i.av / 100)} de ${fN(i.hh)} HH`} onClick={() => setDet(det === 'av' ? null : 'av')} on={det === 'av'} />
@@ -1571,7 +1572,7 @@ function TallerTask({ t }) {
         {!run && <button className="btn" title="Para el trabajo por días: lo que falta queda frenado" onClick={() => setDlg('frenar')}>Frenar</button>}</div>}</>}
   </div>;
 }
-function Taller() {
+function Taller({ cab }) {
   const { S, V } = useApp(); const [, setTick] = useState(0);
   const [oid, setOid] = useState(() => { try { return localStorage.getItem(KEY + '-taller') || ''; } catch (e) { return ''; } });
   useEffect(() => { const i = setInterval(() => setTick(x => x + 1), 30000); return () => clearInterval(i); }, []);
@@ -1582,7 +1583,7 @@ function Taller() {
   const tira = <div className="ttira" ref={tref}>{ops.map(x => { const run = S.tareas.some(t => t.ops.includes(x.id) && E.corriendo(t)); const au = E.ausenciaDe(S, x.id, hoy);
     return <button key={x.id} className={'tq' + (o && x.id === o.id ? ' on' : '') + (au ? ' aus' : '')} onClick={() => elegir(o && x.id === o.id ? '' : x.id)} title={au ? 'Ausente: ' + au.motivo : run ? 'Trabajando' : 'Sin tarea en curso'}>
       <Av o={x} i={S.operarios.indexOf(x)} /><b>{x.nombre}</b><i className={'dot ' + (au ? 'aus' : run ? 'run' : '')} /></button>; })}</div>;
-  if (!o) return <div className="view taller"><section><div className="sec-h"><h2>¿Quién sos?</h2><span className="mut">Tocá tu nombre</span></div>
+  if (!o) return <div className="view taller">{cab}<section><div className="sec-h"><h2>¿Quién sos?</h2><span className="mut">Tocá tu nombre</span></div>
     {ops.length === 0 && <Vacio ic="gente" t="Todavía no hay operarios cargados">Se agregan en Configuración.</Vacio>}
     {tira}</section></div>;
   const todas = S.tareas.filter(t => t.ops.includes(o.id) && !V.D[t.id].parent && t.estado !== 'terminada').sort((a, b) => (a.inicio || '9') < (b.inicio || '9') ? -1 : 1);
@@ -1590,7 +1591,7 @@ function Taller() {
   const en = mine.filter(t => E.corriendo(t)), pau = mine.filter(t => t.pausada || (t.estado === 'en proceso' && !E.corriendo(t))), sig = mine.filter(t => t.estado === 'pendiente' && !t.pausada).sort((a, b) => E.esProximo(b) - E.esProximo(a));   // las marcadas como próximo a realizar van primero
   const hechas = S.tareas.filter(t => t.ops.includes(o.id) && t.estado === 'terminada' && !t.tercerizada && (t.finReal || '').startsWith(hoy) && !V.D[t.id].parent);
   const aus = E.ausenciaDe(S, o.id, hoy);
-  return <div className="view taller">{tira}<section>
+  return <div className="view taller">{cab}{tira}<section>
     <div className="sec-h"><div className="row"><Av o={o} i={S.operarios.indexOf(o)} /><h2>{o.nombre}</h2></div></div>
     <p className="mut">{fDia(hoy)}{aus ? ` · hoy figura ausente (${aus.motivo})` : ` · ${fN(((V.load[`${o.id}|${hoy}|normal`] || {}).h || 0) + ((V.load[`${o.id}|${hoy}|extra`] || {}).h || 0))} h programadas hoy`}</p>
     <h3>Ahora</h3>
@@ -1604,6 +1605,130 @@ function Taller() {
     {fren.length > 0 && <><h3>Frenadas <span className="cnt">{fren.length}</span></h3>{fren.map(t => <TallerTask key={t.id} t={t} />)}</>}
     {hechas.length > 0 && <><h3>Finalizadas hoy <span className="cnt">{hechas.length}</span></h3>{hechas.map(t => <DoneRow key={t.id} t={t} />)}</>}
   </section><section><DarTareas op={o.id} grande /></section></div>;
+}
+
+/* ================= OPERARIOS: trabajo del día y calendario mensual ================= */
+// La pestaña se llamaba "Taller". Los que planifican ven además el calendario mensual de cada operario (control de carga).
+function Operarios() {
+  const { pm } = useApp(); const verCal = pm.admin || pm.rep || pm.proy;
+  const [modo, setModo] = useState(() => { try { return localStorage.getItem(KEY + '-opmodo') || 'dia'; } catch (e) { return 'dia'; } });
+  const cambiar = m => { setModo(m); try { localStorage.setItem(KEY + '-opmodo', m); } catch (e) { } };
+  const cab = verCal && <div className="seg opmodos">{[['dia', 'Trabajo del día', 'M12 7v5l3 2M12 3a9 9 0 100 18 9 9 0 000-18z'], ['cal', 'Calendario mensual', 'M4 6h16v14H4zM4 10h16M9 3v4M15 3v4']].map(([k, l, d]) => <button key={k} className={modo === k ? 'on' : ''} onClick={() => cambiar(k)}><svg viewBox="0 0 24 24"><path d={d} /></svg>{l}</button>)}</div>;
+  return verCal && modo === 'cal' ? <CalOperarios cab={cab} /> : <Taller cab={cab} />;
+}
+const TIPOS = ['proy', 'rep', 'pv', 'tl'];
+const ABR_EST = { proy: 'Proy.', rep: 'Rep.', pv: 'PV', tl: 'Taller' };
+// Cómo quedó cargado un día de un operario: disponible, horas por tipo, sin asignar, de más y si hay que revisarlo
+function diaOp(S, CD, op, d, hoy) {
+  const dp = E.dispDia(S, op, d), c = CD[op + '|' + d] || { proy: 0, rep: 0, pv: 0, tl: 0, total: 0, glob: 0, items: [] };
+  const fut = d > hoy, sin = fut ? 0 : Math.max(0, dp - c.total), exc = c.total - dp;
+  const aus = E.ausenciaDe(S, op, d), fer = E.feriadoDe(S, d), finde = !E.isWork(S, d);
+  const motivo = aus ? aus.motivo : fer ? fer.nombre : finde && dp <= 0 ? '' : '';
+  const alerta = exc > 0.05 ? 'over' : !fut && d < hoy && dp > 0 && sin >= Math.max(0.5, dp * 0.25) ? 'falta' : '';
+  return { d, dp, c, fut, sin, exc, aus, fer, finde, motivo, alerta };
+}
+function CalOperarios({ cab }) {
+  const { S, V, ui, pm } = useApp(); const hoy = E.today();
+  const ops = S.operarios.filter(o => o.activo !== false);
+  const [oid, setOid] = useState(() => { try { return localStorage.getItem(KEY + '-calop') || ''; } catch (e) { return ''; } });
+  const [mes, setMes] = useState(hoy.slice(0, 7)); const [sel, setSel] = useState(null);
+  const CD = useMemo(() => E.cargaDiaria(S, V), [S, V]);
+  const o = ops.find(x => x.id === oid) || ops[0];
+  const elegir = id => { setOid(id); setSel(null); try { localStorage.setItem(KEY + '-calop', id); } catch (e) { } };
+  const antes = k => { const [y, m] = k.split('-').map(Number); return m === 1 ? `${y - 1}-12` : `${y}-${E.pad(m - 1)}`; };
+  const irMes = k => { setMes(k); setSel(null); };
+  const d1 = mes + '-01', dUlt = E.addDays(E.mesSig(mes) + '-01', -1);
+  const delMes = []; for (let d = d1; d <= dUlt; d = E.addDays(d, 1)) delMes.push(d);
+  // días a revisar de cada operario en el mes (para marcar la tira de nombres)
+  const nAlertas = useMemo(() => { const r = {}; ops.forEach(x => { r[x.id] = delMes.filter(d => d <= hoy && diaOp(S, CD, x.id, d, hoy).alerta).length; }); return r; }, [S, CD, mes, hoy]);
+  const tira = <div className="ttira">{ops.map(x => <button key={x.id} className={'tq' + (o && x.id === o.id ? ' on' : '')} onClick={() => elegir(x.id)} title={nAlertas[x.id] ? `${nAlertas[x.id]} ${nAlertas[x.id] === 1 ? 'día' : 'días'} para revisar este mes` : 'Sin días para revisar este mes'}>
+    <Av o={x} i={S.operarios.indexOf(x)} /><b>{x.nombre}</b>{nAlertas[x.id] > 0 && <span className="oc-cnt">{nAlertas[x.id]}</span>}</button>)}</div>;
+  if (!o) return <div className="view">{cab}<Vacio ic="gente" t="Todavía no hay operarios activos">Se agregan en Configuración.</Vacio></div>;
+  const dias = delMes.map(d => diaOp(S, CD, o.id, d, hoy));
+  const lun = E.dow(d1) === 0 ? 6 : E.dow(d1) - 1;   // casillas vacías antes del día 1 (la semana arranca el lunes)
+  const tot = dias.reduce((a, x) => { TIPOS.forEach(k => { a[k] += x.c[k]; }); a.total += x.c.total; a.glob += x.c.glob; a.disp += x.dp; if (!x.fut) { a.dispH += x.dp; a.sin += x.sin; } if (x.exc > 0.05) a.exc += x.exc; if (x.alerta) a.rev++; return a; }, { proy: 0, rep: 0, pv: 0, tl: 0, total: 0, glob: 0, disp: 0, dispH: 0, sin: 0, exc: 0, rev: 0 });
+  const asigs = (S.asignaciones || []).filter(a => a.opId === o.id && a.desde <= dUlt && (a.hasta || a.desde) >= d1).sort((a, b) => a.desde < b.desde ? -1 : 1);
+  const xs = sel && dias.find(x => x.d === sel);
+  const nuevaAsig = () => ui.modal({ k: 'asig', opId: o.id, desde: sel || (d1 <= hoy ? d1 : hoy), hasta: sel || (dUlt < hoy ? dUlt : hoy) });
+  const celda = x => { const ancho = Math.max(x.dp, x.c.total, 0.0001), vac = x.dp <= 0 && x.c.total <= 0;
+    return <button key={x.d} className={'oc-d' + (x.alerta ? ' ' + x.alerta : '') + (x.fut ? ' fut' : '') + (vac ? ' vac' : '') + (x.d === hoy ? ' hoy' : '') + (x.d === sel ? ' sel' : '') + (x.c.glob > 0 ? ' glob' : '')} onClick={() => setSel(x.d === sel ? null : x.d)}
+      aria-label={`${E.fDia(x.d)}: ${fN(x.c.total)} h cargadas de ${fN(x.dp)} disponibles`}>
+      <span className="oc-h"><b>{Number(x.d.slice(8))}</b><span className="oc-dn">{E.fDia(x.d).slice(0, 3)}</span>{x.dp > 0 && <small>{fN(x.dp)} h</small>}</span>
+      {(x.aus || x.fer) && <small className="oc-mot">{x.aus ? x.aus.motivo : x.fer.nombre}</small>}
+      {!vac && <span className="oc-bar" title={`${fN(x.c.total)} h cargadas de ${fN(x.dp)} disponibles`}>{TIPOS.map(k => x.c[k] > 0 && <i key={k} style={{ width: x.c[k] / ancho * 100 + '%', background: COL_EST[k] }} />)}{x.sin > 0 && <i className="oc-sin" style={{ width: x.sin / ancho * 100 + '%' }} />}</span>}
+      {!vac && <span className="oc-l">{TIPOS.map(k => x.c[k] > 0.05 && <span key={k}><i style={{ background: COL_EST[k] }} />{ABR_EST[k]} <b>{fN(x.c[k])}</b></span>)}
+        {x.sin > 0.05 && <span className="sin"><i />Sin asig. <b>{fN(x.sin)}</b></span>}</span>}
+      {x.exc > 0.05 && <small className="oc-exc">+{fN(x.exc)} h de más</small>}
+    </button>; };
+  return <div className="view oc-view">{cab}{tira}
+    <section><div className="sec-h"><div className="row"><Av o={o} i={S.operarios.indexOf(o)} /><h2>{o.nombre}</h2></div>
+      <div className="row"><button className="btn sm" onClick={() => irMes(antes(mes))} aria-label="Mes anterior">‹</button><input type="month" value={mes} onChange={e => e.target.value && irMes(e.target.value)} aria-label="Mes" /><button className="btn sm" onClick={() => irMes(E.mesSig(mes))} aria-label="Mes siguiente">›</button>{mes !== hoy.slice(0, 7) && <button className="btn sm" onClick={() => irMes(hoy.slice(0, 7))}>Este mes</button>}
+        {pm.admin && <button className="btn pri-b" onClick={nuevaAsig} title="Asignar horas a mano a un destino (viajes, vacaciones, datos sin cargar)">+ Carga global</button>}</div></div>
+      <div className="kpis oc-kpis">
+        <div className="kpi"><span>Disponible</span><b>{fN(tot.disp)} h</b><em>{fN(tot.dispH)} h hasta hoy</em></div>
+        {TIPOS.map(k => <div key={k} className="kpi"><span><i className="est-dot" style={{ background: COL_EST[k] }} />{NOM_EST[k]}</span><b>{fN(tot[k])} h</b><em>{pcE(tot.dispH > 0 ? tot[k] / tot.dispH * 100 : null)} de lo disponible</em></div>)}
+        <div className={'kpi' + (tot.sin > 0.05 ? ' warn' : '')}><span><i className="est-dot oc-sin" />Sin asignar</span><b>{fN(tot.sin)} h</b><em>hasta hoy{tot.exc > 0.05 ? ` · ${fN(tot.exc)} h cargadas de más` : ''}</em></div>
+      </div>
+      <p className="mut oc-ley"><span className="oc-k over" /> cargó más de lo disponible · <span className="oc-k falta" /> quedó un cuarto o más sin asignar · <span className="oc-k glob" /> incluye carga global · {tot.rev ? <b className="c-bad">{tot.rev} {tot.rev === 1 ? 'día para revisar' : 'días para revisar'}</b> : <b className="c-ok">ningún día para revisar</b>}</p>
+      <div className="oc-cal">{['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'].map(n => <span key={n} className="oc-dh">{n}</span>)}
+        {Array.from({ length: lun }, (_, i) => <span key={'v' + i} className="oc-pad" />)}{dias.map(celda)}</div>
+      {xs && <DiaOpDet x={xs} o={o} cerrar={() => setSel(null)} />}
+      <p className="mut">Las horas de una pieza se reparten en partes iguales entre los días hábiles que duró y entre sus operarios: en piezas de varios días el reparto diario es aproximado (el total de la pieza es exacto). No entran las tercerizadas, las finalizadas sin día puntual ni el cronómetro que todavía corre.</p>
+    </section>
+    <section><div className="sec-h"><h3>Cargas globales de {o.nombre} en el mes <span className="cnt">{asigs.length}</span></h3></div>
+      {asigs.length === 0 ? <p className="mut">No hay cargas globales en este mes. Se usan cuando no se cargaron las tareas puntuales (viajes, vacaciones): elegís operario, fechas, destino y horas.</p>
+        : <div className="al-l">{asigs.map(a => <div key={a.id} className="al-r"><div className="al-b"><b><i className="est-dot" style={{ background: COL_EST[E.destinoTipo(S, a.destino)] }} />{E.destinoNom(S, a.destino)} · {fN(Number(a.horas) || 0)} h</b><span className="mut">{fD(a.desde)} → {fD(a.hasta || a.desde)}{a.nota ? ' · ' + a.nota : ''}</span></div>
+          {pm.admin && <div className="al-a"><button className="btn sm" onClick={() => ui.modal({ k: 'asig', id: a.id })}>Editar</button></div>}</div>)}</div>}
+    </section></div>;
+}
+// Detalle de un día: qué suma esas horas
+function DiaOpDet({ x, o, cerrar }) {
+  const { S, V, ui, pm } = useApp(); const s0 = E.schedAt(S, x.d), jor = E.capN(S, o.id, x.d), ext = x.aus ? 0 : E.extraDe(S, o.id, x.d);
+  return <div className="calg-det oc-det"><div className="sec-h"><h3>{E.fDia(x.d)} · {o.nombre}</h3><button className="btn sm" onClick={cerrar}>Cerrar</button></div>
+    <p className="mut">{x.aus ? `Ausente: ${x.aus.motivo}. ` : x.fer ? `Feriado: ${x.fer.nombre}. ` : x.finde && !ext ? 'Fin de semana. ' : ''}Disponible {fN(x.dp)} h{x.dp > 0 ? ` (jornada ${fN(jor)} h${ext ? ` + ${fN(ext)} h extra` : ''})` : ''} · cargadas {fN(x.c.total)} h{x.fut ? '' : ` · sin asignar ${fN(x.sin)} h`}{x.exc > 0.05 ? ` · ${fN(x.exc)} h de más` : ''}</p>
+    {x.alerta === 'over' && <p className="note bad">Se cargaron más horas de las que tenía disponibles. Revisá las horas reales de las piezas de abajo, si las extras están habilitadas ese día, o si una pieza quedó con un inicio o un fin equivocado (sus horas se reparten entre todos los días que duró).</p>}
+    {x.alerta === 'falta' && <p className="note">Quedaron {fN(x.sin)} h sin asignar. Puede faltar cargar una tarea o sus horas reales, o una ausencia.</p>}
+    {x.c.items.length === 0 ? <p className="mut">No hay horas cargadas este día.</p> : <div className="al-l">{x.c.items.map((it, i) => { const t = it.t && V.byId[it.t], a = it.a && (S.asignaciones || []).find(z => z.id === it.a);
+      return <div key={i} className="al-r"><div className="al-b">{t ? <><span className="row"><Chip t={t} small /><b>{etiqueta(V, t)}</b></span><span className="mut"><i className="est-dot" style={{ background: COL_EST[it.tipo] }} />{NOM_EST[it.tipo]} · {fN(it.h)} h este día · la pieza tiene {fN(it.real)} h reales{it.dias > 1 ? ` repartidas en ${it.dias} días` : ''}{t.ops.length > 1 ? ` entre ${t.ops.length} operarios` : ''} · {fDT(t.inicio)} → {fDT(t.finReal || V.D[t.id].fin)}</span></>
+        : a ? <><b><i className="est-dot" style={{ background: COL_EST[it.tipo] }} />Carga global: {E.destinoNom(S, a.destino)}</b><span className="mut">{fN(it.h)} h este día · {fN(Number(a.horas) || 0)} h del {fD(a.desde)} al {fD(a.hasta || a.desde)}{a.nota ? ' · ' + a.nota : ''}</span></> : null}</div>
+        <div className="al-a">{t && <button className="btn sm" onClick={() => ui.modal({ k: 'task', id: t.id })}>Abrir</button>}{a && pm.admin && <button className="btn sm" onClick={() => ui.modal({ k: 'asig', id: a.id })}>Editar</button>}</div></div>; })}</div>}
+  </div>;
+}
+// Ventana para cargar horas a mano (carga global)
+function AsigDlg({ id, opId, desde, hasta, onClose }) {
+  const { S, V, up, ui } = useApp(); const prev = id ? (S.asignaciones || []).find(a => a.id === id) : null;
+  const [f, setF] = useState(() => prev ? { ...prev, horas: String(prev.horas ?? '') } : { id: E.uid(), opId: opId || '', desde: desde || E.today(), hasta: hasta || desde || E.today(), destino: '', horas: '', nota: '' });
+  const set = (k, v) => setF(x => ({ ...x, [k]: v }));
+  const rangoOk = f.desde && f.hasta && f.hasta >= f.desde && E.diffDays(f.desde, f.hasta) <= 366;
+  // ayuda: horas disponibles y ya cargadas en esas fechas (sin contar esta misma carga)
+  const ay = useMemo(() => { if (!f.opId || !rangoOk) return null; const CD = E.cargaDiaria({ ...S, asignaciones: (S.asignaciones || []).filter(a => a.id !== f.id) }, V); let disp = 0, carg = 0, libre = 0, dias = 0;
+    for (let d = f.desde; d <= f.hasta; d = E.addDays(d, 1)) { const dp = E.dispDia(S, f.opId, d), c = (CD[f.opId + '|' + d] || {}).total || 0; disp += dp; carg += c; libre += Math.max(0, dp - c); if (dp > 0) dias++; }
+    return { disp, carg, libre, dias }; }, [S, V, f.opId, f.desde, f.hasta, f.id]);
+  const h = Number(String(f.horas).replace(',', '.'));
+  const ok = f.opId && f.destino && rangoOk && h > 0;
+  const guardar = () => { if (!ok) return; const a = { id: f.id, opId: f.opId, desde: f.desde, hasta: f.hasta, destino: f.destino, horas: Math.round(h * 100) / 100, nota: (f.nota || '').trim() };
+    up(s => ({ ...s, asignaciones: prev ? (s.asignaciones || []).map(x => x.id === a.id ? a : x) : [...(s.asignaciones || []), a] })); ui.toast(prev ? 'Carga global actualizada' : `Cargadas ${fN(a.horas)} h a ${opName(S, a.opId)} en ${E.destinoNom(S, a.destino)}`); onClose(); };
+  const borrar = () => ui.confirmar({ titulo: '¿Borrar la carga global?', texto: `Se borran las ${fN(Number(prev.horas) || 0)} h de ${opName(S, prev.opId)} en ${E.destinoNom(S, prev.destino)} (${fD(prev.desde)} → ${fD(prev.hasta)}). Podés deshacerlo arriba.`, si: 'Sí, borrar', peligro: true, onSi: () => { up(s => ({ ...s, asignaciones: (s.asignaciones || []).filter(x => x.id !== prev.id) })); ui.toast('Carga global borrada'); onClose(); } });
+  const grupo = (cl, tit) => { const l = S.proyectos.filter(p => E.claseP(p) === cl).sort((a, b) => (!!a.terminado - !!b.terminado) || a.nombre.localeCompare(b.nombre, 'es')); return l.length ? <optgroup label={tit}>{l.map(p => <option key={p.id} value={'p:' + p.id}>{p.nombre}{p.terminado ? ' (terminado)' : ''}</option>)}</optgroup> : null; };
+  return <Modal title={prev ? 'Editar carga global' : 'Carga global de horas'} onClose={onClose} foot={<>{prev && <button className="btn danger" onClick={borrar}>Borrar</button>}<span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!ok} onClick={guardar}>Guardar</button></>}>
+    <p className="mut">Para cuando no se cargaron las tareas puntuales (viajes, vacaciones): indicás a qué se dedicó el operario en esas fechas y cuántas horas. Suma en Estadísticas y en el calendario del operario. No crea tareas ni cambia el Gantt ni Tiempos.</p>
+    <div className="form">
+      <label>Operario<select value={f.opId} onChange={e => set('opId', e.target.value)}><option value="">Elegí…</option>{S.operarios.slice().sort(porApellido).map(x => <option key={x.id} value={x.id}>{x.nombre}{x.activo === false ? ' (inactivo)' : ''}</option>)}</select></label>
+      <label>A qué se dedicó<select value={f.destino} onChange={e => set('destino', e.target.value)}><option value="">Elegí…</option>
+        <option value="rep">Repuestos (en general)</option>{grupo('proy', 'Proyectos')}
+        <option value="pv">Post Venta (en general)</option>{grupo('pv', 'Casos de Post Venta')}
+        <option value="tl">Taller (en general)</option>{grupo('tl', 'Trabajos de Taller')}</select></label>
+      <label>Desde<input type="date" value={f.desde} onChange={e => set('desde', e.target.value)} /></label>
+      <label>Hasta<input type="date" value={f.hasta} min={f.desde} onChange={e => set('hasta', e.target.value)} /></label>
+      <label>Horas-hombre del período<input type="text" inputMode="decimal" value={f.horas} onChange={e => set('horas', e.target.value)} placeholder="por ejemplo 40" /></label>
+      <label className="g2">Nota (opcional)<input value={f.nota || ''} onChange={e => set('nota', e.target.value)} placeholder="por ejemplo: viaje a Brasil, armado de la escaldadora" /></label>
+    </div>
+    {!rangoOk && f.desde && f.hasta && <p className="note bad">La fecha «Hasta» tiene que ser igual o posterior a «Desde» (y el rango, de un año como máximo).</p>}
+    {ay && <div className="note">En esas fechas {opName(S, f.opId)} tenía <b>{fN(ay.disp)} h disponibles</b> en {ay.dias} {ay.dias === 1 ? 'día' : 'días'}, ya tiene <b>{fN(ay.carg)} h cargadas</b> y le quedan <b>{fN(ay.libre)} h libres</b>.
+      {ay.libre > 0.05 && <> <button className="lnk sm" onClick={() => set('horas', String(Math.round(ay.libre * 10) / 10))}>Usar las {fN(ay.libre)} h libres</button></>}
+      <span className="hint">Las horas se reparten en partes iguales entre los días con horas disponibles del rango.</span></div>}
+    {ay && h > 0 && h > ay.libre + 0.05 && <p className="note bad">Supera las horas libres de esas fechas en {fN(h - ay.libre)} h. Se puede guardar igual, pero esos días van a quedar marcados en rojo en el calendario.</p>}
+  </Modal>;
 }
 
 /* ================= IMPORTADOR ================= */
@@ -1785,11 +1910,11 @@ function Config() {
   const setH = (t, k, v) => up(s => ({ ...s, cfg: { ...s.cfg, horarios: { ...s.cfg.horarios, [t]: { ...s.cfg.horarios[t], [k]: v } } } }));
   const cambiar = () => { up(s => ({ ...s, cfg: { ...s.cfg, temporadas: [...s.cfg.temporadas.filter(x => x.desde !== E.today()), { desde: E.today(), t: otra }] } })); ui.toast(`Horario de ${otra} activo desde hoy`); };
   const fila = t => { const r = V.D[t.id], root = V.rootOf(t); const p = S.proyectos.find(x => x.id === t.proyId);
-    return { Tipo: t.tipo === 'rep' ? 'Repuesto' : 'Proyecto', Proyecto: p ? p.nombre : '', 'OV/OC': t.tipo === 'rep' ? root.orden : '', Cliente: t.tipo === 'rep' ? root.cliente : '', Pieza: t.nombre, 'Depende de': t.parentId ? V.byId[t.parentId].nombre : '', Cantidad: Number(t.cant) || 0, Prioridad: t.prioridad, Operación: r.parent ? '' : operName(S, t.operacionId), Operarios: r.ops.map(o => opName(S, o)).join(', '), Turno: r.parent ? '' : t.turno, Inicio: r.inicio ? r.inicio.replace('T', ' ') : '', Fin: r.fin ? r.fin.replace('T', ' ') : '', 'Horas-hombre': r.hh, 'Duración calendario (h)': r.parent ? '' : r.durCal, Estado: esTerc(t) ? 'tercerizada' : estTxt(r.estado), Proveedor: esTerc(t) ? (t.proveedor || '') : '', Vuelve: esTerc(t) && t.tercFecha ? t.tercFecha : '', 'Avance %': Math.round(r.avance), 'HH reales': r.hhReal }; };
+    return { Tipo: t.tipo === 'rep' ? 'Repuesto' : ({ pv: 'Post Venta', tl: 'Taller' })[E.claseP(p)] || 'Proyecto', Proyecto: p ? p.nombre : '', 'OV/OC': t.tipo === 'rep' ? root.orden : '', Cliente: t.tipo === 'rep' ? root.cliente : '', Pieza: t.nombre, 'Depende de': t.parentId ? V.byId[t.parentId].nombre : '', Cantidad: Number(t.cant) || 0, Prioridad: t.prioridad, Operación: r.parent ? '' : operName(S, t.operacionId), Operarios: r.ops.map(o => opName(S, o)).join(', '), Turno: r.parent ? '' : t.turno, Inicio: r.inicio ? r.inicio.replace('T', ' ') : '', Fin: r.fin ? r.fin.replace('T', ' ') : '', 'Horas-hombre': r.hh, 'Duración calendario (h)': r.parent ? '' : r.durCal, Estado: esTerc(t) ? 'tercerizada' : estTxt(r.estado), Proveedor: esTerc(t) ? (t.proveedor || '') : '', Vuelve: esTerc(t) && t.tercFecha ? t.tercFecha : '', 'Avance %': Math.round(r.avance), 'HH reales': r.hhReal }; };
   const exportar = () => { if (!window.XLSX) { ui.toast('No se pudo cargar el generador de Excel'); return; } const X = window.XLSX, wb = X.utils.book_new();
-    const esPV = t => !!(S.proyectos.find(x => x.id === t.proyId) || {}).pv;
-    const orden = (tipo, pv) => { const out = []; const go = t => { out.push(pv ? { ...fila(t), Origen: t.origen === 'reventa' ? 'Reventa' : 'Fabricada', Motivo: t.motivo || '', 'Cant. enviada': Number(t.cantEnv) || 0, 'Fecha de envío': t.fechaEnvio || '', Remito: t.remito || '', Destinatario: t.destinatario || '', 'Remito verificado': t.remitoOk ? 'Sí' : 'No', Avisos: pvAvisos(t).join(' / ') } : fila(t)); (V.kids[t.id] || []).forEach(go); }; S.tareas.filter(t => t.tipo === tipo && !t.parentId && (tipo !== 'proy' || esPV(t) === !!pv)).forEach(go); return out; };
-    X.utils.book_append_sheet(wb, X.utils.json_to_sheet(orden('rep')), 'Repuestos'); X.utils.book_append_sheet(wb, X.utils.json_to_sheet(orden('proy')), 'Proyectos'); X.utils.book_append_sheet(wb, X.utils.json_to_sheet(orden('proy', true)), 'Post Venta');
+    const claseT = t => E.claseP(S.proyectos.find(x => x.id === t.proyId));
+    const orden = (tipo, pv) => { const out = []; const go = t => { out.push(pv === true ? { ...fila(t), Origen: t.origen === 'reventa' ? 'Reventa' : 'Fabricada', Motivo: t.motivo || '', 'Cant. enviada': Number(t.cantEnv) || 0, 'Fecha de envío': t.fechaEnvio || '', Remito: t.remito || '', Destinatario: t.destinatario || '', 'Remito verificado': t.remitoOk ? 'Sí' : 'No', Avisos: pvAvisos(t).join(' / ') } : fila(t)); (V.kids[t.id] || []).forEach(go); }; S.tareas.filter(t => t.tipo === tipo && !t.parentId && (tipo !== 'proy' || claseT(t) === (pv === true ? 'pv' : pv || 'proy'))).forEach(go); return out; };
+    X.utils.book_append_sheet(wb, X.utils.json_to_sheet(orden('rep')), 'Repuestos'); X.utils.book_append_sheet(wb, X.utils.json_to_sheet(orden('proy')), 'Proyectos'); X.utils.book_append_sheet(wb, X.utils.json_to_sheet(orden('proy', true)), 'Post Venta'); X.utils.book_append_sheet(wb, X.utils.json_to_sheet(orden('proy', 'tl')), 'Taller');
     saveFile(`produccion-${E.today()}.xlsx`, X.write(wb, { type: 'array', bookType: 'xlsx' }), ui.toast); };
   const [imp, setImp] = useState(null);
   const leerHist = e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; if (!window.XLSX) { ui.toast('No se pudo cargar el lector de Excel'); return; }
@@ -2114,20 +2239,20 @@ function CotEditor({ r, onClose }) {
 }
 
 /* ================= APP ================= */
-const TABS = [['resumen', 'Producción', 'M4 5h16v15H4zM4 10h16M9 5v15M15 5v15'], ['repuestos', 'Repuestos', 'M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9zM12 9a3 3 0 100 6 3 3 0 000-6z'], ['proyectos', 'Proyectos', 'M4 6h9M8 12h11M5 18h8'], ['postventa', 'Post Venta', 'M3 7l9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10'], ['taller', 'Taller', 'M14.5 5.5a4 4 0 00-5.2 5.2L4 16l4 4 5.3-5.3a4 4 0 005.2-5.2l-2.7 2.7-2.3-.7-.7-2.3z'], ['tiempos', 'Tiempos', 'M12 7v5l3 2M12 3a9 9 0 100 18 9 9 0 000-18z'], ['estadisticas', 'Estadísticas', 'M4 20V10M10 20V4M16 20v-8M22 20H2', 'Estad.'], ['config', 'Configuración', 'M4 7h10M18 7h2M4 17h2M10 17h10M16 5v4M8 15v4', 'Config.']];
+const TABS = [['resumen', 'Producción', 'M4 5h16v15H4zM4 10h16M9 5v15M15 5v15'], ['repuestos', 'Repuestos', 'M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9zM12 9a3 3 0 100 6 3 3 0 000-6z'], ['proyectos', 'Proyectos', 'M4 6h9M8 12h11M5 18h8'], ['postventa', 'Post Venta', 'M3 7l9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10'], ['internos', 'Taller', 'M14.5 5.5a4 4 0 00-5.2 5.2L4 16l4 4 5.3-5.3a4 4 0 005.2-5.2l-2.7 2.7-2.3-.7-.7-2.3z'], ['operarios', 'Operarios', 'M9 11a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 4.5a3.5 3.5 0 010 6.5M18 14c1.8.8 3 2.6 3 4.7', 'Operar.'], ['tiempos', 'Tiempos', 'M12 7v5l3 2M12 3a9 9 0 100 18 9 9 0 000-18z'], ['estadisticas', 'Estadísticas', 'M4 20V10M10 20V4M16 20v-8M22 20H2', 'Estad.'], ['config', 'Configuración', 'M4 7h10M18 7h2M4 17h2M10 17h10M16 5v4M8 15v4', 'Config.']];
 const AVC = ['#5cc8c0', '#e59a57', '#b08cf0', '#e37fa7', '#8fbf5a', '#6f9df5', '#d9c15a', '#d98a8a', '#58b7e8', '#c9a0dc'];
 const Av = ({ o, i, sm }) => <span className={'av' + (sm ? ' sm' : '')} style={{ '--c': AVC[i % AVC.length] }}>{(o.nombre || '?').trim().slice(0, 2).toUpperCase()}</span>;
 // Planificar un proyecto completo: reparte las piezas pendientes entre los operarios respetando dependencias y promedios
 function PlanificarDlg({ proyId, alcance, onClose }) {
   const { S, up, ui } = useApp(); const p = S.proyectos.find(x => x.id === proyId);
   const [hs, setHs] = useState({}); const [todas, setTodas] = useState(false); const [op, setOp] = useState(''); const [forz, setForz] = useState({});
-  const run = (s, h) => alcance === 'rep' ? E.planificarRepuestos(s, h, { todas, op, forzar: forz }) : alcance === 'pv' ? E.planificarPV(s, h, { todas, op, forzar: forz }) : E.planificarProyecto(s, proyId, h, { todas, op, forzar: forz });
+  const run = (s, h) => alcance === 'rep' ? E.planificarRepuestos(s, h, { todas, op, forzar: forz }) : alcance === 'pv' ? E.planificarPV(s, h, { todas, op, forzar: forz }) : alcance === 'tl' ? E.planificarTL(s, h, { todas, op, forzar: forz }) : E.planificarProyecto(s, proyId, h, { todas, op, forzar: forz });
   const horas = useMemo(() => { const o = {}; Object.entries(hs).forEach(([k, v]) => { const n = Number(String(v).replace(',', '.')); if (n > 0) o[k] = n; }); return o; }, [hs]);
   const r = useMemo(() => run(S, horas), [S, proyId, alcance, horas, todas, op, forz]);
   const aplicar = () => { let n = 0; up(s => { const x = run(s, horas); n = x.plan.length; return n ? x.S : s; }); ui.toast(n ? `Plan aplicado: ${n} ${n === 1 ? 'pieza' : 'piezas'} en el Gantt. Podés deshacerlo.` : 'No había nada para planificar'); onClose(); };
   const lista = x => S.operarios.filter(o => o.activo).map(o => ({ o, n: o.op1 === x.opId ? 1 : o.op2 === x.opId ? 2 : 3 })).sort((a, b) => a.n - b.n || a.o.nombre.localeCompare(b.o.nombre));
   const orig = { cargada: 'cargada ahora', manual: 'cargada', promedio: 'promedio' };
-  return <Modal title={alcance === 'rep' ? 'Planificar repuestos' : alcance === 'pv' ? 'Planificar todos los casos de Post Venta' : 'Planificar proyecto' + (p ? ' · ' + p.nombre : '')} onClose={onClose} wide foot={<><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!r.plan.length || r.faltan.length > 0} onClick={aplicar}>Aplicar plan</button></>}>
+  return <Modal title={alcance === 'rep' ? 'Planificar repuestos' : alcance === 'pv' ? 'Planificar todos los casos de Post Venta' : alcance === 'tl' ? 'Planificar todos los trabajos de Taller' : 'Planificar proyecto' + (p ? ' · ' + p.nombre : '')} onClose={onClose} wide foot={<><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!r.plan.length || r.faltan.length > 0} onClick={aplicar}>Aplicar plan</button></>}>
     <label className="row">Operación<select value={op} onChange={e => setOp(e.target.value)} aria-label="Operación a planificar"><option value="">Todas las operaciones</option>{S.operaciones.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select></label>
     <label className="row"><input type="checkbox" checked={todas} onChange={e => setTodas(e.target.checked)} /> Volver a planificar también las piezas que ya tienen día y operario</label>
     {r.avisos && r.avisos.length > 0 && <div className="aviso-b"><b>Ojo con las dependencias</b>{r.avisos.map((x, i) => <p key={i} className="mut">• {x.nombre} depende de «{x.pred}», que todavía no está planificada: el plan no la espera.</p>)}</div>}
@@ -2142,87 +2267,113 @@ function PlanificarDlg({ proyId, alcance, onClose }) {
   </Modal>;
 }
 /* ================= ESTADÍSTICAS ================= */
-const COL_EST = { rep: 'var(--s1)', proy: 'var(--s2)', pv: 'var(--ext)' };
-const NOM_EST = { rep: 'Repuestos', proy: 'Proyectos', pv: 'Post Venta' };
+const COL_EST = { rep: 'var(--s1)', proy: 'var(--s2)', pv: 'var(--ext)', tl: 'var(--s3)', sin: 'var(--sinc)' };
+const NOM_EST = { rep: 'Repuestos', proy: 'Proyectos', pv: 'Post Venta', tl: 'Taller', sin: 'Sin cargar' };
 const pcE = v => v == null || isNaN(v) ? '—' : (Math.round(v * 10) / 10).toLocaleString('es-AR') + ' %';
 const usdE = v => 'US$ ' + Math.round(v || 0).toLocaleString('es-AR');
 const labMes = k => `${E.MESES[Number(k.slice(5)) - 1]} ${k.slice(2, 4)}`;
+const TE = ['rep', 'proy', 'pv', 'tl'];
 function Estadisticas() {
   const { S, V } = useApp(); const [n, setN] = useState(6); const [tabla, setTabla] = useState(false); const [hov, setHov] = useState(null); const [ft, setFt] = useState(''); const [mt, setMt] = useState(''); const [modo, setModo] = useState('pct');
-  const R = useMemo(() => E.estadisticas(S, V), [S, V]);
+  const R = useMemo(() => E.estadisticas(S, V), [S, V]); const [tabla2, setTabla2] = useState(false); const [hov2, setHov2] = useState(null);
   // meses seguidos (aunque alguno no tenga horas), los últimos n o todos
   const todos = []; if (R.meses.length) { let [y, m] = R.meses[0].split('-').map(Number); const fin = R.meses[R.meses.length - 1]; for (let g = 0; g < 120; g++) { const k = `${y}-${E.pad(m)}`; todos.push(k); if (k >= fin) break; m++; if (m > 12) { m = 1; y++; } } }
   const ms = n ? todos.slice(-n) : todos;
-  const dm = ms.map(k => ({ k, ...({ rep: 0, proy: 0, pv: 0, total: 0, costo: 0, disp: 0, ...R.mes[k] }) }));
-  const per = dm.reduce((a, d) => ({ rep: a.rep + d.rep, proy: a.proy + d.proy, pv: a.pv + d.pv, total: a.total + d.total, costo: a.costo + d.costo, disp: a.disp + d.disp }), { rep: 0, proy: 0, pv: 0, total: 0, costo: 0, disp: 0 });
+  const CERO = { rep: 0, proy: 0, pv: 0, tl: 0, total: 0, costo: 0, disp: 0, sinCargar: 0, exceso: 0, glob: 0 };
+  const dm = ms.map(k => ({ k, ...CERO, ...R.mes[k] }));
+  const per = dm.reduce((a, d) => { const r = {}; Object.keys(CERO).forEach(x => { r[x] = a[x] + d[x]; }); return r; }, { ...CERO });
   const pct = (v, t) => t > 0 ? v / t * 100 : null;
   const top = Math.max(10, Math.ceil(Math.max(0, ...dm.map(d => d.total)) / 20) * 20), H = 170;
-  const opNom = k => k === '_' ? 'Sin operación' : operName(S, k);
+  const opNom = k => k === '_' ? 'Sin operación' : k === '_glob' ? 'Carga global (sin operación)' : operName(S, k);
   const oper = k => (S.operarios.find(o => o.id === k) || {}).nombre || '—';
   const lista = (obj, nom) => { const l = Object.entries(obj).map(([k, h]) => ({ k, nom: nom(k), h })).sort((a, b) => b.h - a.h); const mx = Math.max(1, ...l.map(x => x.h)); return l.length ? l.map(x => <div key={x.k} className="est-bar"><span className="est-bn" title={x.nom}>{x.nom}</span><span className="pbar big"><i style={{ width: x.h / mx * 100 + '%', background: 'var(--accent)' }} /></span><b>{fN(x.h)} h</b></div>) : <p className="mut">Todavía no hay horas reales cargadas.</p>; };
   const gr = R.grupos.filter(g => !ft || g.tipo === ft);
-  const totPl = R.totales.rep + R.totales.proy + R.totales.pv;
-  if (!R.grupos.length) return <div className="view"><section><h2>Estadísticas</h2><p className="mut">Todavía no hay horas reales cargadas en las piezas. Las estadísticas se arman con las HH reales (Taller, editor de la pieza o HH reales previas).</p></section></div>;
+  const totPl = R.totales.rep + R.totales.proy + R.totales.pv + R.totales.tl;
+  if (!R.grupos.length) return <div className="view"><section><h2>Estadísticas</h2><p className="mut">Todavía no hay horas reales cargadas en las piezas. Las estadísticas se arman con las HH reales (Operarios, editor de la pieza, HH reales previas o carga global).</p></section></div>;
   return <div className="view">
     <section><div className="sec-h"><h2>Estadísticas de horas-hombre</h2>
-      <div className="seg">{[[3, '3 meses'], [6, '6 meses'], [12, '12 meses'], [0, 'Todo']].map(([k, l]) => <button key={k} className={n === k ? 'on' : ''} onClick={() => setN(k)}>{l}</button>)}</div></div>
+      <div className="seg">{[[1, 'Último mes'], [3, '3 meses'], [6, '6 meses'], [12, '12 meses'], [0, 'Todo']].map(([k, l]) => <button key={k} className={n === k ? 'on' : ''} onClick={() => setN(k)}>{l}</button>)}</div></div>
       <div className="kpis">
         <div className="kpi grow"><span>Total del período</span><b>{fN(per.total)} h</b><em>{ms.length ? `${labMes(ms[0])} a ${labMes(ms[ms.length - 1])}` : ''}{per.disp > 0 ? ` · ${pcE(pct(per.total, per.disp))} de las horas disponibles` : ''}</em></div>
-        {['rep', 'proy', 'pv'].map(k => <div key={k} className="kpi"><span><i className="est-dot" style={{ background: COL_EST[k] }} />{NOM_EST[k]}</span><b>{fN(per[k])} h</b><em>{pcE(pct(per[k], per.total))} del período · Total histórico {fN(R.totales[k])} h</em></div>)}
+        {TE.map(k => <div key={k} className="kpi"><span><i className="est-dot" style={{ background: COL_EST[k] }} />{NOM_EST[k]}</span><b>{fN(per[k])} h</b><em>{pcE(pct(per[k], per.total))} del período · Total histórico {fN(R.totales[k])} h</em></div>)}
+        <div className={'kpi' + (per.sinCargar > 0.05 ? ' warn' : '')}><span><i className="est-dot est-sin" />Sin cargar</span><b>{fN(per.sinCargar)} h</b><em>{pcE(pct(per.sinCargar, per.disp))} de las horas disponibles</em></div>
       </div>
+      {per.glob > 0.05 && <p className="note">{fN(per.glob)} h del período vienen de cargas globales (horas asignadas a mano en Operarios → Calendario mensual).</p>}
       {R.sinFecha > 0 && <p className="note">{fN(R.sinFecha)} h no entran en los meses porque no tienen día: HH reales previas de proyectos viejos y piezas finalizadas sin día puntual. Sí suman en los totales de cada proyecto.</p>}</section>
 
+    <section className="chart"><div className="sec-h"><h3>Mes a mes: cómo se usaron las horas disponibles</h3>
+      <div className="seg">{[['pct', '% de las disponibles'], ['h', 'Horas']].map(([k, l]) => <button key={k} className={modo === k ? 'on' : ''} onClick={() => setModo(k)}>{l}</button>)}</div></div>
+      <div className="lgd">{TE.map(k => <span key={k}><i style={{ background: COL_EST[k] }} />{NOM_EST[k]}</span>)}<span><i className="est-sin" />Sin cargar</span>{modo === 'h' && <span><i className="est-dl" />Disponibles</span>}</div>
+      {dm.length < 2 ? <p className="mut est-uno">Con un solo mes no hay evolución para mostrar: el reparto de ese mes está en la torta de más abajo. Elegí 3 meses o más para ver las líneas.</p> : (() => { const W = 600, Hh = 200, L = 38, Rr = 12, T = 12, B = 24; const LS = [...TE, 'sin'], hv = (d, k) => k === 'sin' ? d.sinCargar : d[k], base = d => d.total + d.sinCargar;
+        const val = (d, k) => modo === 'pct' ? (base(d) > 0 ? hv(d, k) / base(d) * 100 : 0) : hv(d, k);
+        const mx = modo === 'pct' ? 100 : Math.max(10, Math.ceil(Math.max(0, ...dm.flatMap(d => [d.disp, ...LS.map(k => hv(d, k))])) / 50) * 50);
+        const x = i => dm.length > 1 ? L + i * (W - L - Rr) / (dm.length - 1) : (W + L) / 2, y = v => T + (Hh - T - B) * (1 - Math.min(v, mx) / mx);
+        return <svg className="est-line" viewBox={`0 0 ${W} ${Hh}`} role="img" aria-label="Evolución mensual de las horas disponibles">
+          {[0, .5, 1].map(f => <g key={f}><line x1={L} x2={W - Rr} y1={y(mx * f)} y2={y(mx * f)} stroke="currentColor" strokeOpacity=".15" /><text x={L - 4} y={y(mx * f) + 3} textAnchor="end" fontSize="10" fill="currentColor" opacity=".7">{Math.round(mx * f)}{modo === 'pct' ? '%' : ''}</text></g>)}
+          {modo === 'h' && <polyline fill="none" stroke="currentColor" strokeOpacity=".8" strokeWidth="1.5" strokeDasharray="5 4" points={dm.map((d, i) => `${x(i)},${y(d.disp)}`).join(' ')}><title>Horas disponibles</title></polyline>}
+          {LS.map(k => <g key={k}><polyline fill="none" stroke={COL_EST[k]} strokeWidth="2.5" strokeDasharray={k === 'sin' ? '6 4' : undefined} points={dm.map((d, i) => `${x(i)},${y(val(d, k))}`).join(' ')} />
+            {dm.map((d, i) => <circle key={d.k} cx={x(i)} cy={y(val(d, k))} r="3.5" fill={COL_EST[k]}><title>{labMes(d.k)} · {NOM_EST[k]}: {fN(hv(d, k))} h ({pcE(base(d) > 0 ? hv(d, k) / base(d) * 100 : null)} de las {fN(base(d))} h)</title></circle>)}</g>)}
+          {dm.map((d, i) => <text key={d.k} x={x(i)} y={Hh - 8} textAnchor="middle" fontSize="10" fill="currentColor" opacity=".8">{labMes(d.k)}</text>)}</svg>; })()}
+      <p className="mut">El 100 % son todas las horas disponibles del mes: lo cargado en cada tipo más lo que quedó sin cargar. Pasá el dedo o el mouse sobre un punto para ver las horas y el %.</p>
+    </section>
+
     <section className="chart"><div className="sec-h"><h3>Horas-hombre por mes</h3><button className="btn sm" onClick={() => setTabla(!tabla)}>{tabla ? 'Ver gráfico' : 'Ver tabla'}</button></div>
-      <div className="lgd">{['rep', 'proy', 'pv'].map(k => <span key={k}><i style={{ background: COL_EST[k] }} />{NOM_EST[k]}</span>)}</div>
-      {tabla ? <div className="scroll"><table className="tt"><thead><tr><th>Mes</th><th className="num">Repuestos</th><th className="num">% Rep.</th><th className="num">Proyectos</th><th className="num">% Proy.</th><th className="num">Post Venta</th><th className="num">% PV</th><th className="num">Total HH</th><th className="num">Disponibles</th><th className="num">Uso</th><th className="num">Mano de obra</th></tr></thead>
-        <tbody>{dm.map(d => <tr key={d.k}><td>{labMes(d.k)}</td><td className="num">{fN(d.rep)}</td><td className="num">{pcE(pct(d.rep, d.total))}</td><td className="num">{fN(d.proy)}</td><td className="num">{pcE(pct(d.proy, d.total))}</td><td className="num">{fN(d.pv)}</td><td className="num">{pcE(pct(d.pv, d.total))}</td><td className="num"><b>{fN(d.total)}</b></td><td className="num">{d.disp > 0 ? fN(d.disp) : '—'}</td><td className="num">{pcE(pct(d.total, d.disp))}</td><td className="num">{usdE(d.costo)}</td></tr>)}
-          <tr className="par"><td><b>Período</b></td><td className="num">{fN(per.rep)}</td><td className="num">{pcE(pct(per.rep, per.total))}</td><td className="num">{fN(per.proy)}</td><td className="num">{pcE(pct(per.proy, per.total))}</td><td className="num">{fN(per.pv)}</td><td className="num">{pcE(pct(per.pv, per.total))}</td><td className="num"><b>{fN(per.total)}</b></td><td className="num">{per.disp > 0 ? fN(per.disp) : '—'}</td><td className="num">{pcE(pct(per.total, per.disp))}</td><td className="num">{usdE(per.costo)}</td></tr></tbody></table></div>
+      <div className="lgd">{TE.map(k => <span key={k}><i style={{ background: COL_EST[k] }} />{NOM_EST[k]}</span>)}</div>
+      {tabla ? <div className="scroll"><table className="tt"><thead><tr><th>Mes</th><th className="num">Repuestos</th><th className="num">% Rep.</th><th className="num">Proyectos</th><th className="num">% Proy.</th><th className="num">Post Venta</th><th className="num">% PV</th><th className="num">Taller</th><th className="num">% Taller</th><th className="num">Total HH</th><th className="num">Disponibles</th><th className="num">Uso</th><th className="num">Mano de obra</th></tr></thead>
+        <tbody>{dm.map(d => <tr key={d.k}><td>{labMes(d.k)}</td><td className="num">{fN(d.rep)}</td><td className="num">{pcE(pct(d.rep, d.total))}</td><td className="num">{fN(d.proy)}</td><td className="num">{pcE(pct(d.proy, d.total))}</td><td className="num">{fN(d.pv)}</td><td className="num">{pcE(pct(d.pv, d.total))}</td><td className="num">{fN(d.tl)}</td><td className="num">{pcE(pct(d.tl, d.total))}</td><td className="num"><b>{fN(d.total)}</b></td><td className="num">{d.disp > 0 ? fN(d.disp) : '—'}</td><td className="num">{pcE(pct(d.total, d.disp))}</td><td className="num">{usdE(d.costo)}</td></tr>)}
+          <tr className="par"><td><b>Período</b></td><td className="num">{fN(per.rep)}</td><td className="num">{pcE(pct(per.rep, per.total))}</td><td className="num">{fN(per.proy)}</td><td className="num">{pcE(pct(per.proy, per.total))}</td><td className="num">{fN(per.pv)}</td><td className="num">{pcE(pct(per.pv, per.total))}</td><td className="num">{fN(per.tl)}</td><td className="num">{pcE(pct(per.tl, per.total))}</td><td className="num"><b>{fN(per.total)}</b></td><td className="num">{per.disp > 0 ? fN(per.disp) : '—'}</td><td className="num">{pcE(pct(per.total, per.disp))}</td><td className="num">{usdE(per.costo)}</td></tr></tbody></table></div>
         : <div className="bc"><div className="bc-y" style={{ height: H }}>{[top, top / 2, 0].map(v => <span key={v} style={{ bottom: v / top * H }}>{v}</span>)}</div>
           <div className="bc-main"><div className="bc-plot" style={{ height: H }}>
             {[top, top / 2].map(v => <i key={v} className="bc-grid" style={{ bottom: v / top * H }} />)}
             {dm.map(d => <div key={d.k} className={'bc-g' + (hov === d.k ? ' on' : '')} onMouseEnter={() => setHov(d.k)} onMouseLeave={() => setHov(null)} onFocus={() => setHov(d.k)} onBlur={() => setHov(null)} tabIndex="0" aria-label={`${labMes(d.k)}: ${fN(d.total)} horas-hombre`}>
-              <div className="est-stack" style={{ height: d.total / top * H }}><b className="est-tot">{d.total > 0 ? fN(d.total) : ''}</b>{['pv', 'proy', 'rep'].map(k => d[k] > 0 && <div key={k} style={{ height: d[k] / d.total * 100 + '%', background: COL_EST[k] }} />)}</div>
-              {hov === d.k && <div className="bc-tip"><b>{labMes(d.k)}</b>{['rep', 'proy', 'pv'].map(k => <span key={k}><i style={{ background: COL_EST[k] }} />{NOM_EST[k]} <em>{fN(d[k])} h · {pcE(pct(d[k], d.total))}</em></span>)}{d.disp > 0 && <span className="mut">Usó {pcE(pct(d.total, d.disp))} de {fN(d.disp)} h disponibles</span>}</div>}
+              <div className="est-stack" style={{ height: d.total / top * H }}><b className="est-tot">{d.total > 0 ? fN(d.total) : ''}</b>{[...TE].reverse().map(k => d[k] > 0 && <div key={k} style={{ height: d[k] / d.total * 100 + '%', background: COL_EST[k] }} />)}</div>
+              {hov === d.k && <div className="bc-tip"><b>{labMes(d.k)}</b>{TE.map(k => <span key={k}><i style={{ background: COL_EST[k] }} />{NOM_EST[k]} <em>{fN(d[k])} h · {pcE(pct(d[k], d.total))}</em></span>)}{d.disp > 0 && <span className="mut">Usó {pcE(pct(d.total, d.disp))} de {fN(d.disp)} h disponibles</span>}</div>}
             </div>)}</div>
             <div className="bc-x">{dm.map(d => <span key={d.k}>{labMes(d.k)}</span>)}</div></div></div>}
     </section>
 
-    <section className="chart"><div className="sec-h"><h3>Reparto de las horas</h3>
-      <select value={mt} onChange={e => setMt(e.target.value)} aria-label="Período de la torta"><option value="">Todo el período elegido</option>{dm.map(d => <option key={d.k} value={d.k}>{labMes(d.k)}</option>)}</select></div>
-      {(() => { const b = mt ? dm.find(d => d.k === mt) || per : per; let acc = 0; const arcs = ['rep', 'proy', 'pv'].map(k => { const v = b.total > 0 ? b[k] / b.total * 100 : 0; const a = { k, v, off: 25 - acc }; acc += v; return a; });
-        return <div className="est-pie"><svg viewBox="-1 -1 38 38" role="img" aria-label="Torta de horas por tipo"><circle cx="18" cy="18" r="15.9155" fill="none" stroke="var(--line, #8883)" strokeWidth="5" />
-          {arcs.map(a => a.v > 0 && <circle key={a.k} cx="18" cy="18" r="15.9155" fill="none" stroke={COL_EST[a.k]} strokeWidth="5" strokeDasharray={`${a.v} ${100 - a.v}`} strokeDashoffset={a.off}><title>{NOM_EST[a.k]}: {fN(b[a.k])} h · {pcE(a.v)}</title></circle>)}
-          <text x="18" y="18.6" textAnchor="middle" fontSize="4.6" fontWeight="700" fill="currentColor">{fN(b.total)} h</text></svg>
-          <div className="est-pl">{arcs.map(a => <div key={a.k}><i className="est-dot" style={{ background: COL_EST[a.k] }} /><b>{NOM_EST[a.k]}</b><span>{fN(b[a.k])} h</span><em>{pcE(a.v)}</em></div>)}
-            {b.disp > 0 && <p className="mut">Usó {pcE(pct(b.total, b.disp))} de las {fN(b.disp)} h disponibles.</p>}</div></div>; })()}
+    <section className="chart"><div className="sec-h"><h3>Horas disponibles: en qué se usaron</h3><button className="btn sm" onClick={() => setTabla2(!tabla2)}>{tabla2 ? 'Ver gráfico' : 'Ver tabla'}</button></div>
+      <div className="lgd">{TE.map(k => <span key={k}><i style={{ background: COL_EST[k] }} />{NOM_EST[k]}</span>)}<span><i className="est-sin" />Sin cargar</span><span><i className="est-dl" />Disponibles</span></div>
+      {(() => { const top2 = Math.max(10, Math.ceil(Math.max(0, ...dm.map(d => Math.max(d.disp, d.total + d.sinCargar))) / 50) * 50);
+        if (tabla2) return <div className="scroll"><table className="tt"><thead><tr><th>Mes</th><th className="num">Disponibles</th>{TE.map(k => <th key={k} className="num">{NOM_EST[k]}</th>)}<th className="num">Sin cargar</th><th className="num">Cargadas de más</th></tr></thead>
+          <tbody>{[...dm, { ...per, k: 'per' }].map(d => <tr key={d.k} className={d.k === 'per' ? 'par' : ''}><td>{d.k === 'per' ? <b>Período</b> : labMes(d.k)}</td><td className="num"><b>{d.disp > 0 ? fN(d.disp) : '—'}</b></td>{TE.map(k => <td key={k} className="num">{fN(d[k])} <small className="mut">{pcE(pct(d[k], d.disp))}</small></td>)}<td className="num">{fN(d.sinCargar)} <small className="mut">{pcE(pct(d.sinCargar, d.disp))}</small></td><td className={'num' + (d.exceso > 0.05 ? ' c-bad' : '')}>{d.exceso > 0.05 ? fN(d.exceso) : '—'}</td></tr>)}</tbody></table></div>;
+        return <div className="bc"><div className="bc-y" style={{ height: H }}>{[top2, top2 / 2, 0].map(v => <span key={v} style={{ bottom: v / top2 * H }}>{v}</span>)}</div>
+          <div className="bc-main"><div className="bc-plot" style={{ height: H }}>
+            {[top2, top2 / 2].map(v => <i key={v} className="bc-grid" style={{ bottom: v / top2 * H }} />)}
+            {dm.map(d => { const alto = d.total + d.sinCargar; return <div key={d.k} className={'bc-g' + (hov2 === d.k ? ' on' : '')} onMouseEnter={() => setHov2(d.k)} onMouseLeave={() => setHov2(null)} onFocus={() => setHov2(d.k)} onBlur={() => setHov2(null)} tabIndex="0" aria-label={`${labMes(d.k)}: ${fN(d.disp)} h disponibles, ${fN(d.sinCargar)} sin cargar`}>
+              <div className="est-stack" style={{ height: alto / top2 * H }}><b className="est-tot">{d.disp > 0 ? fN(d.disp) : ''}</b>{d.sinCargar > 0 && <div className="est-sin" style={{ height: d.sinCargar / Math.max(alto, 0.0001) * 100 + '%' }} />}{[...TE].reverse().map(k => d[k] > 0 && <div key={k} style={{ height: d[k] / Math.max(alto, 0.0001) * 100 + '%', background: COL_EST[k] }} />)}</div>
+              {d.disp > 0 && <i className="est-disp" style={{ bottom: d.disp / top2 * H }} />}
+              {hov2 === d.k && <div className="bc-tip"><b>{labMes(d.k)}</b><span>Disponibles <em>{fN(d.disp)} h</em></span>{TE.map(k => <span key={k}><i style={{ background: COL_EST[k] }} />{NOM_EST[k]} <em>{fN(d[k])} h · {pcE(pct(d[k], d.disp))}</em></span>)}<span><i className="est-sin" />Sin cargar <em>{fN(d.sinCargar)} h · {pcE(pct(d.sinCargar, d.disp))}</em></span>{d.exceso > 0.05 && <span className="c-bad">Cargadas de más: {fN(d.exceso)} h</span>}</div>}
+            </div>; })}</div>
+            <div className="bc-x">{dm.map(d => <span key={d.k}>{labMes(d.k)}</span>)}</div></div></div>; })()}
+      <p className="mut">El número de arriba y la raya son las horas disponibles del mes. «Sin cargar» es lo que cada operario tenía disponible y no tiene horas cargadas, sumado día por día (por ejemplo, un operario sin tarea asignada). Si la barra pasa la raya, hubo días con horas cargadas de más: revisalos en Operarios → Calendario mensual.</p>
     </section>
 
-    <section className="chart"><div className="sec-h"><h3>Mes a mes: cómo cambia cada tipo</h3>
-      <div className="seg">{[['pct', '% del mes'], ['h', 'Horas']].map(([k, l]) => <button key={k} className={modo === k ? 'on' : ''} onClick={() => setModo(k)}>{l}</button>)}</div></div>
-      <div className="lgd">{['rep', 'proy', 'pv'].map(k => <span key={k}><i style={{ background: COL_EST[k] }} />{NOM_EST[k]}</span>)}</div>
-      {(() => { const W = 600, Hh = 190, L = 34, Rr = 12, T = 12, B = 24; const val = (d, k) => modo === 'pct' ? (d.total > 0 ? d[k] / d.total * 100 : 0) : d[k];
-        const mx = modo === 'pct' ? 100 : Math.max(10, Math.ceil(Math.max(0, ...dm.flatMap(d => ['rep', 'proy', 'pv'].map(k => d[k]))) / 10) * 10);
-        const x = i => dm.length > 1 ? L + i * (W - L - Rr) / (dm.length - 1) : (W + L) / 2, y = v => T + (Hh - T - B) * (1 - v / mx);
-        return <svg className="est-line" viewBox={`0 0 ${W} ${Hh}`} role="img" aria-label="Evolución mensual">
-          {[0, .5, 1].map(f => <g key={f}><line x1={L} x2={W - Rr} y1={y(mx * f)} y2={y(mx * f)} stroke="currentColor" strokeOpacity=".15" /><text x={L - 4} y={y(mx * f) + 3} textAnchor="end" fontSize="10" fill="currentColor" opacity=".7">{Math.round(mx * f)}{modo === 'pct' ? '%' : ''}</text></g>)}
-          {['rep', 'proy', 'pv'].map(k => <g key={k}><polyline fill="none" stroke={COL_EST[k]} strokeWidth="2.5" points={dm.map((d, i) => `${x(i)},${y(val(d, k))}`).join(' ')} />
-            {dm.map((d, i) => <circle key={d.k} cx={x(i)} cy={y(val(d, k))} r="3.5" fill={COL_EST[k]}><title>{labMes(d.k)} · {NOM_EST[k]}: {fN(d[k])} h ({pcE(pct(d[k], d.total))})</title></circle>)}</g>)}
-          {dm.map((d, i) => <text key={d.k} x={x(i)} y={Hh - 8} textAnchor="middle" fontSize="10" fill="currentColor" opacity=".8">{labMes(d.k)}</text>)}</svg>; })()}
-      <p className="mut">Pasá el dedo o el mouse sobre un punto para ver las horas y el %.</p>
+    <section className="chart"><div className="sec-h"><h3>Reparto de las horas disponibles</h3><span className="mut">{ms.length > 1 ? 'El período elegido y los últimos meses' : 'El mes elegido'}</span></div>
+      <div className="est-pies">{[...(ms.length > 1 ? [{ ...per, k: 'per', tit: 'Período ' + (ms.length ? `${labMes(ms[0])} a ${labMes(ms[ms.length - 1])}` : '') }] : []), ...dm.slice(-3).reverse().map(d => ({ ...d, tit: labMes(d.k) }))].map(b => {
+        const LS = [...TE, 'sin'], hv = k => k === 'sin' ? b.sinCargar : b[k], base = b.total + b.sinCargar; let acc = 0;
+        const arcs = LS.map(k => { const v = base > 0 ? hv(k) / base * 100 : 0; const a = { k, v, off: 25 - acc }; acc += v; return a; });
+        return <div key={b.k} className={'est-pc2' + (b.k === 'per' ? ' per' : '')}><b className="est-pt">{b.tit}</b>
+          <svg viewBox="-1 -1 38 38" role="img" aria-label={`Reparto de ${b.tit}`}><circle cx="18" cy="18" r="15.9155" fill="none" stroke="var(--line, #8883)" strokeWidth="5" />
+            {arcs.map(a => a.v > 0 && <circle key={a.k} cx="18" cy="18" r="15.9155" fill="none" stroke={a.k === 'sin' ? 'var(--sinc)' : COL_EST[a.k]} strokeOpacity={a.k === 'sin' ? .55 : 1} strokeWidth="5" strokeDasharray={`${a.v} ${100 - a.v}`} strokeDashoffset={a.off}><title>{NOM_EST[a.k]}: {fN(hv(a.k))} h · {pcE(a.v)}</title></circle>)}
+            <text x="18" y="17.6" textAnchor="middle" fontSize="4.4" fontWeight="700" fill="currentColor">{fN(base)} h</text><text x="18" y="22" textAnchor="middle" fontSize="2.6" fill="currentColor" opacity=".7">disponibles</text></svg>
+          <div className="est-pl">{arcs.map(a => <div key={a.k}><i className={'est-dot' + (a.k === 'sin' ? ' est-sin' : '')} style={a.k === 'sin' ? undefined : { background: COL_EST[a.k] }} /><span className="est-pn">{NOM_EST[a.k]}</span><span>{fN(hv(a.k))} h</span><em>{pcE(a.v)}</em></div>)}</div>
+          {b.exceso > 0.05 && <p className="mut c-bad">{fN(b.exceso)} h cargadas de más</p>}</div>; })}</div>
     </section>
 
     <section><h3>Cómo leer estos gráficos</h3>
       <p className="mut"><b>Barras por mes:</b> cada barra es un mes y su altura son las horas-hombre (HH) de ese mes. Los colores muestran cuánto fue de cada tipo; el número de arriba es el total del mes. Si una barra es más alta que otra, se trabajó más ese mes; si cambian los colores, cambió el reparto.</p>
-      <p className="mut"><b>Torta:</b> reparte el 100 % de las horas del período (o del mes que elijas) entre Repuestos, Proyectos y Post Venta.</p>
-      <p className="mut"><b>Líneas:</b> siguen cada tipo mes a mes. En «% del mes» suben o bajan según su parte del total (las tres suman 100 % en cada mes); en «Horas» muestran las horas absolutas.</p>
-      <p className="mut"><b>Horas disponibles:</b> lo que los operarios activos podían trabajar en el mes (jornada normal más extras habilitadas, menos ausencias, feriados y días en que no vienen), hasta hoy. <b>Uso</b> = HH reales ÷ horas disponibles. Ojo: las HH reales son horas-hombre, así que si dos operarios hacen una pieza juntos cuentan las dos.</p>
+      <p className="mut"><b>Disponibles, en qué se usaron:</b> cada barra es todo lo que la planta podía trabajar en el mes, separado en lo que se dedicó a cada tipo y lo que quedó sin cargar. Sirve para ver cuánto se usó de la capacidad y si faltan horas por cargar.</p>
+      <p className="mut"><b>Tortas:</b> la primera es el período elegido y las otras, los últimos meses. Cada una reparte el 100 % de las horas disponibles entre Repuestos, Proyectos, Post Venta, Taller y lo que quedó sin cargar.</p>
+      <p className="mut"><b>Líneas (arriba de todo):</b> siguen cada tipo y las horas sin cargar mes a mes. En «% de las disponibles» las cinco suman 100 % en cada mes; en «Horas» muestran las horas absolutas y la línea punteada blanca son las disponibles.</p>
+      <p className="mut"><b>Horas disponibles:</b> lo que los operarios activos podían trabajar en el mes (jornada normal más extras habilitadas, menos ausencias, feriados y días en que no vienen), hasta hoy. Las cargas globales suman como horas reales de su destino. <b>Uso</b> = HH reales ÷ horas disponibles. Ojo: las HH reales son horas-hombre, así que si dos operarios hacen una pieza juntos cuentan las dos.</p>
     </section>
 
-    <section><div className="sec-h"><h2>Repuestos, proyectos y post venta</h2>
-      <div className="seg">{[['', 'Todos'], ['rep', 'Repuestos'], ['proy', 'Proyectos'], ['pv', 'Post Venta']].map(([k, l]) => <button key={k} className={ft === k ? 'on' : ''} onClick={() => setFt(k)}>{l}</button>)}</div></div>
+    <section><div className="sec-h"><h2>Repuestos, proyectos, post venta y taller</h2>
+      <div className="seg">{[['', 'Todos'], ['rep', 'Repuestos'], ['proy', 'Proyectos'], ['pv', 'Post Venta'], ['tl', 'Taller']].map(([k, l]) => <button key={k} className={ft === k ? 'on' : ''} onClick={() => setFt(k)}>{l}</button>)}</div></div>
       <p className="mut">El % es la parte de todas las horas de la planta que se llevó cada proyecto entre su primer inicio y su último fin. El desvío compara lo real contra lo proyectado, solo en piezas ya finalizadas.</p>
       <div className="scroll"><table className="tt"><thead><tr><th>Nombre</th><th>Período</th><th className="num">HH reales</th><th>% de la planta en su período</th><th className="num">Proyectado</th><th className="num">Desvío</th><th className="num">Mano de obra</th></tr></thead>
-        <tbody>{gr.map(g => <tr key={g.k}><td><i className="est-dot" style={{ background: COL_EST[g.tipo] }} />{g.nombre}{g.previas > 0 && <small className="mut"> · incluye {fN(g.previas)} h previas</small>}</td>
+        <tbody>{gr.map(g => <tr key={g.k}><td><i className="est-dot" style={{ background: COL_EST[g.tipo] }} />{g.nombre}{g.previas > 0 && <small className="mut"> · incluye {fN(g.previas)} h previas</small>}{g.glob > 0 && <small className="mut"> · incluye {fN(g.glob)} h de carga global</small>}</td>
           <td>{g.ini ? `${E.fD(g.ini)} → ${E.fD(g.fin)}` : '—'}</td><td className="num"><b>{fN(g.total)}</b></td>
           <td>{g.pct == null ? <span className="mut">{g.tipo === 'rep' ? `${pcE(pct(g.total, totPl))} del total histórico` : '—'}</span> : <span className="est-pc"><span className="pbar big"><i style={{ width: Math.min(100, g.pct) + '%', background: COL_EST[g.tipo] }} /></span><b>{pcE(g.pct)}</b></span>}</td>
           <td className="num">{g.plan > 0 ? fN(g.plan) : '—'}</td><td className={'num ' + (g.desvio == null ? '' : g.desvio > 2 ? 'c-bad' : g.desvio < -2 ? 'c-ok' : '')}>{g.desvio == null ? '—' : (g.desvio > 0 ? '+' : '') + pcE(g.desvio)}</td>
@@ -2238,7 +2389,7 @@ function Estadisticas() {
 }
 export function App({ db, ses, S0 }) {
   const [S, setS] = useState(() => S0 || db.inicial()); const ref = useRef(S); const hist = useRef([]); const fut = useRef([]); const local = useRef(false); const malas = useRef(null); const prevT = useRef(null); const [nh, setNh] = useState(0); const [nf, setNf] = useState(0);
-  const [tab, setTab] = useState(() => { const h = (location.hash || '').slice(1); return TABS.some(t => t[0] === h) ? h : 'resumen'; });
+  const [tab, setTab] = useState(() => { let h = (location.hash || '').slice(1); if (h === 'taller') h = 'operarios'; /* la pestaña Taller de antes ahora es Operarios */ return TABS.some(t => t[0] === h) ? h : 'resumen'; });
   const [modal, setModal] = useState(null); const [toast, setToast] = useState(null); const [aviso, setAviso] = useState(null);
   const [uid, setUid] = useState(() => { try { return localStorage.getItem(KEY + '-uid') || 'u1'; } catch (e) { return 'u1'; } });
   const yo = ses ? (S.usuarios.find(u => u.email === ses.email) || (ses.dueno ? { id: ses.email, email: ses.email, nombre: ses.nombre || 'Dueño', admin: true } : { id: ses.email, email: ses.email, nombre: ses.email, admin: false, rep: 'ver', proy: 'ver' }))
@@ -2287,7 +2438,7 @@ export function App({ db, ses, S0 }) {
           <button className="btn tema" onClick={() => { const n = tema === 'claro' ? 'oscuro' : 'claro'; setTema(n); try { localStorage.setItem(TEMA_K, n); } catch (e) { } }} title={tema === 'claro' ? 'Pasar al tema oscuro' : 'Pasar al tema claro (mejor con mucha luz en el taller)'} aria-label={tema === 'claro' ? 'Tema oscuro' : 'Tema claro'}>{tema === 'claro' ? '☾' : '☀'}<span className="tl">{tema === 'claro' ? ' Oscuro' : ' Claro'}</span></button>
           <span className="undo"><button className="btn" onClick={undo} disabled={!nh} title={nh ? 'Deshacer (Ctrl+Z): ' + hist.current[hist.current.length - 1].txt : 'Nada para deshacer'}>↶ Deshacer</button><button className="btn" onClick={redo} disabled={!nf} title={nf ? 'Rehacer (Ctrl+Y): ' + fut.current[fut.current.length - 1].txt : 'Nada para rehacer'} aria-label="Rehacer">↷</button></span></div>
       </header>
-      <main>{tabV === 'resumen' ? <Resumen /> : tabV === 'repuestos' ? <Repuestos /> : tabV === 'proyectos' ? <Proyectos key="proy" /> : tabV === 'postventa' ? <Proyectos key="pv" pv /> : tabV === 'taller' ? <Taller /> : tabV === 'tiempos' ? <Tiempos /> : tabV === 'estadisticas' ? <Estadisticas /> : <Config />}</main>
+      <main>{tabV === 'resumen' ? <Resumen /> : tabV === 'repuestos' ? <Repuestos /> : tabV === 'proyectos' ? <Proyectos key="proy" /> : tabV === 'postventa' ? <Proyectos key="pv" pv /> : tabV === 'internos' ? <Proyectos key="tl" tl /> : tabV === 'operarios' ? <Operarios /> : tabV === 'tiempos' ? <Tiempos /> : tabV === 'estadisticas' ? <Estadisticas /> : <Config />}</main>
       {modal && modal.k === 'task' && <TaskEditor key={modal.id || modal.draft.id} id={modal.id} draft={modal.draft} onClose={close} />}
       {modal && modal.k === 'op' && <OperarioPanel id={modal.id} onClose={close} />}
       {modal && modal.k === 'pick' && <Picker {...modal} onClose={close} />}
@@ -2299,6 +2450,7 @@ export function App({ db, ses, S0 }) {
       {aviso && <ExtrasAviso ids={aviso} onClose={() => setAviso(null)} />}
       {modal && modal.k === 'lote' && <LoteEditor ids={modal.ids} titulo={modal.titulo} onClose={close} />}
       {modal && modal.k === 'imp' && <Importer mode={modal.mode} proyId={modal.proyId} onClose={close} />}
+      {modal && modal.k === 'asig' && <AsigDlg {...modal} onClose={close} />}
       {modal && modal.k === 'plan' && <PlanificarDlg proyId={modal.proyId} alcance={modal.alcance} onClose={close} />}
       {conf && <ConfirmarDlg {...conf} onClose={() => setConf(null)} />}
       {toast && <div className="toast" role="status">{toast}</div>}

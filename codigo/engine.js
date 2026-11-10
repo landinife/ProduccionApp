@@ -338,6 +338,8 @@ export function unassign(S, id, op) {
   const ops = t.ops.filter(o => o !== op);
   return patchTask(S, id, { ops, inicio: ops.length ? t.inicio : null, empuje: ops.length ? t.empuje : null }, false);
 }
+// Clase de un proyecto: proyecto común, caso de Post Venta (pv) o caso de Taller (tl, trabajos para el propio taller)
+export const claseP = p => !p ? 'proy' : p.pv ? 'pv' : p.tl ? 'tl' : 'proy';
 export const blankTask = (tipo, proyId, pv) => ({ id: uid(), tipo, proyId: proyId || null, parentId: null, orden: '', cliente: '', entrega: '', creada: today(), codigo: '', nombre: '', cant: 1, prioridad: 'media', operacionId: '', ops: [], turno: 'normal', inicio: null, hh: 9, estado: 'pendiente', avance: 0, hhReal: 0, finReal: null, preds: [], empuje: null, ...(pv ? { origen: 'fabricada', motivo: '', cantEnv: 0, fechaEnvio: '', remito: '', destinatario: '', remitoOk: false } : {}) });
 
 // Habilita horas extra (para trabajo aparte) a los operarios de una tarea en turno extra, día por día desde su inicio, hasta que entre
@@ -825,6 +827,7 @@ export function sostener(S) {
 export const planificarProyecto = (S, proyId, horas, opts) => planificarGrupo(S, t => t.proyId === proyId, horas, opts);
 export const planificarRepuestos = (S, horas, opts) => planificarGrupo(S, t => t.tipo === 'rep', horas, opts);
 export const planificarPV = (S, horas, opts) => { const ids = new Set((S.proyectos || []).filter(p => p.pv).map(p => p.id)); return planificarGrupo(S, t => t.tipo === 'proy' && ids.has(t.proyId), horas, opts); };
+export const planificarTL = (S, horas, opts) => { const ids = new Set((S.proyectos || []).filter(p => p.tl).map(p => p.id)); return planificarGrupo(S, t => t.tipo === 'proy' && ids.has(t.proyId), horas, opts); };
 export function planificarGrupo(S, filtro, horas = {}, opts = {}) {
   const c = idx(S), nomOp = id => (S.operaciones.find(o => o.id === id) || {}).nombre || '?';
   const opDeT = t => t.operacionId || autoCompletar(S, t, false).operacionId || '';
@@ -911,7 +914,7 @@ export function sample() {
     ausencias: [{ id: 'a1', opId: 'o10', desde: day(3), hasta: day(4), motivo: 'Vacaciones' }],
     extras: {}, extraModo: {},
     usuarios: usuariosEjemplo(),
-    proyectos: [{ id: 'p1', nombre: 'Escaldadora 6000 aves/h', ini: 'ESC', color: '#e59a57', entrega: day(13) }, { id: 'p2', nombre: 'Transportador aéreo 120 m', ini: 'TRA', color: '#b08cf0', entrega: day(11) }],
+    proyectos: [{ id: 'p1', nombre: 'Escaldadora 6000 aves/h', ini: 'ESC', color: '#e59a57', entrega: day(13) }, { id: 'p2', nombre: 'Transportador aéreo 120 m', ini: 'TRA', color: '#b08cf0', entrega: day(11) }, { id: 'p3', nombre: 'Mantenimiento de la plegadora', ini: 'TL', color: '#3fb5a5', entrega: '', tl: true }],
     tareas: []
   };
   ['o8', 'o9'].forEach(o => [0, 1, 2, 3].forEach(n => { S.extras[o + '|' + day(n)] = 2; }));
@@ -963,9 +966,14 @@ export function sample() {
   [[5, 3], [4, 5], [3, 4], [2, 6], [1, 5]].forEach(([atras, n]) => { const b = pd(B); const m0 = ds(new Date(b.getFullYear(), b.getMonth() - atras, 1));
     for (let i = 0; i < n; i++) { const oc = i % 3 === 2, c = addDays(m0, 2 + i * 4), [nom, k, mat, kg] = prods[(atras + i) % prods.length], hh = 6 + ((atras * 3 + i * 5) % 13), f = addDays(c, 6 + ((atras + i * 3) % 5) * 6);
       mk('h' + atras + i, R, { orden: oc ? 'OC-0' + (nst++) : 'OV-' + (nro++), cliente: oc ? 'Stock' : clis[(atras + i) % 3], nombre: nom, cant: 5 + i * 10, operacionId: k, ops: ['o' + (1 + (atras + i) % 10)], inicio: `${addDays(c, 1)}T07:00`, hh, estado: 'terminada', avance: 100, hhReal: Math.round(hh * (0.85 + ((atras + i) % 4) * 0.12) * 2) / 2, finReal: `${f}T15:00`, creada: c, material: mat, peso: Math.round(kg * (5 + i * 10) * 10) / 10 }); } });
+  // Taller: trabajos para el propio taller
+  mk('l1', { tipo: 'proy', proyId: 'p3' }, { nombre: 'Cambio de cilindro hidráulico', operacionId: 'k6', ops: ['o5'], inicio: `${addDays(B, -6)}T07:00`, hh: 6, estado: 'terminada', avance: 100, hhReal: 7, finReal: `${addDays(B, -6)}T15:00` });
+  mk('l2', { tipo: 'proy', proyId: 'p3' }, { nombre: 'Engrase y ajuste de guías', operacionId: 'k6', hh: 4 });
   T.forEach(t => { if (!t.id.startsWith('h')) t.creada = t.estado === 'terminada' ? addDays(B, -7) : t.tipo === 'rep' ? addDays(B, -(2 + T.indexOf(t) % 5)) : addDays(B, -10); });
   T.forEach(t => { if (t.codigo) { t.nombre = `${t.codigo} ${t.nombre}`; t.codigo = ''; } });
   S.tareas = T;
+  { const b = pd(B), m1 = ds(new Date(b.getFullYear(), b.getMonth() - 1, 3));   // una carga global de ejemplo (el mes pasado, mientras el jefe estaba de viaje)
+    S.asignaciones = [{ id: 'g1', opId: 'o1', desde: m1, hasta: addDays(m1, 9), destino: 'p:p1', horas: 35, nota: 'Viaje: armado de la escaldadora' }, { id: 'g2', opId: 'o1', desde: m1, hasta: addDays(m1, 9), destino: 'tl', horas: 10, nota: 'Orden del depósito' }]; }
   // acomodar el ejemplo sin choques y dejar un empuje a la vista
   [...T].filter(t => t.inicio && t.estado !== 'terminada').sort((a, b) => a.inicio < b.inicio ? -1 : 1).forEach(t => { S = patchTask(S, t.id, {}, true); });
   S.tareas = S.tareas.map(t => ({ ...t, empuje: null }));
@@ -974,18 +982,59 @@ export function sample() {
   return S;
 }
 
+// ---- Horas disponibles y horas cargadas por operario y por día ----
+// Disponible = jornada normal + horas extra habilitadas (0 si falta, es feriado, aún no ingresó o no viene ese día)
+export const dispDia = (S, op, d) => ausenciaDe(S, op, d) ? 0 : capN(S, op, d) + extraDe(S, op, d);
+export const mesSig = k => { let [y, m] = k.split('-').map(Number); m++; if (m > 12) { m = 1; y++; } return `${y}-${pad(m)}`; };
+// Días en que se reparten las HH reales de una pieza: días hábiles entre su inicio y su fin (real o planificado); si no hay ninguno, el de inicio
+export function diasPieza(S, t, r) {
+  const ini = t.inicio && t.inicio.slice(0, 10); if (!ini) return [];
+  const fin = (t.finReal || (r && r.fin) || t.inicio || '').slice(0, 10);
+  const out = []; let d = ini; for (let i = 0; i < 400 && d <= (fin >= ini ? fin : ini); i++, d = addDays(d, 1)) if (isWork(S, d)) out.push(d);
+  return out.length ? out : [ini];
+}
+// ---- Carga global: horas que se asignan a mano a un operario en un rango de fechas (viajes, vacaciones, datos sin cargar) ----
+// destino: 'rep' (Repuestos en general), 'pv' (Post Venta en general), 'tl' (Taller en general) o 'p:<id>' (un proyecto o caso)
+export const destinoProy = (S, dst) => String(dst || '').startsWith('p:') ? (S.proyectos || []).find(p => p.id === dst.slice(2)) || null : null;
+export const destinoTipo = (S, dst) => dst === 'rep' || dst === 'pv' || dst === 'tl' ? dst : claseP(destinoProy(S, dst));
+export const destinoNom = (S, dst) => dst === 'rep' ? 'Repuestos (en general)' : dst === 'pv' ? 'Post Venta (en general)' : dst === 'tl' ? 'Taller (en general)' : (destinoProy(S, dst) || { nombre: 'Proyecto borrado' }).nombre;
+// Días entre los que se reparte una carga global: los que el operario tenía horas disponibles; si no tenía ninguno, los hábiles; si tampoco, el primero
+export function diasAsig(S, a) {
+  const out = [], hab = []; for (let d = a.desde, i = 0; d <= a.hasta && i < 400; d = addDays(d, 1), i++) { if (dispDia(S, a.opId, d) > 0) out.push(d); if (isWork(S, d)) hab.push(d); }
+  return out.length ? out : hab.length ? hab : [a.desde];
+}
+// Lo cargado a cada operario día por día (clave "op|día"): HH reales de las piezas y cargas globales, separado por tipo.
+// Una pieza de varios operarios reparte sus horas en partes iguales entre ellos; una pieza de varios días, entre sus días hábiles.
+// No entran: tercerizadas, finalizadas sin día puntual, piezas sin operario y el cronómetro que todavía corre.
+export function cargaDiaria(S, V) {
+  const R = {}; const C = (op, d) => R[op + '|' + d] = R[op + '|' + d] || { proy: 0, rep: 0, pv: 0, tl: 0, total: 0, glob: 0, items: [] };
+  const prs = new Map((S.proyectos || []).map(p => [p.id, p]));
+  S.tareas.forEach(t => { const r = V.D[t.id]; if (!r || r.parent || t.tercerizada || t.sinFecha) return;
+    const real = Math.max(0, Number(t.hhReal) || 0), os = t.ops || []; if (!(real > 0) || !os.length) return;
+    const ds_ = diasPieza(S, t, r); if (!ds_.length) return;
+    const tipo = t.tipo === 'proy' ? claseP(prs.get(t.proyId)) : 'rep', h = real / ds_.length / os.length;
+    os.forEach(o => ds_.forEach(d => { const c = C(o, d); c[tipo] += h; c.total += h; c.items.push({ t: t.id, tipo, h, dias: ds_.length, real }); })); });
+  (S.asignaciones || []).forEach(a => { const h0 = Math.max(0, Number(a.horas) || 0); if (!(h0 > 0) || !a.opId || !a.desde) return;
+    const ds_ = diasAsig(S, a), tipo = destinoTipo(S, a.destino), h = h0 / ds_.length;
+    ds_.forEach(d => { const c = C(a.opId, d); c[tipo] += h; c.total += h; c.glob += h; c.items.push({ a: a.id, tipo, h }); }); });
+  return R;
+}
+
 // ---- Estadísticas de horas-hombre (pestaña Estadísticas) ----
 // Reparte las HH reales de cada pieza entre los días hábiles que duró (inicio → fin real, o fin planificado) y de ahí saca meses, % y totales.
 // Quedan aparte, sin mes: las "HH reales previas" de los proyectos y las piezas finalizadas sin día puntual. Las tercerizadas no cuentan.
+// Las cargas globales suman a su destino como si fueran horas reales (repartidas entre los días con horas disponibles del operario).
+// Tipos: rep (Repuestos), proy (Proyectos), pv (Post Venta), tl (Taller).
 export function estadisticas(S, V, hoy = today()) {
-  const G = {}, dia = {}, ops = {}, opers = {}, cerr = {};
+  const G = {}, dia = {}, ops = {}, opers = {};
+  const prs = new Map((S.proyectos || []).map(p => [p.id, p]));
   const grupo = t => {
     if (t.tipo !== 'proy') return { k: 'rep', nombre: 'Repuestos', tipo: 'rep' };
-    const p = (S.proyectos || []).find(x => x.id === t.proyId);
-    return { k: t.proyId || '?', nombre: p ? p.nombre : 'Sin proyecto', tipo: p && p.pv ? 'pv' : 'proy' };
+    const p = prs.get(t.proyId);
+    return { k: t.proyId || '?', nombre: p ? p.nombre : 'Sin proyecto', tipo: claseP(p) };
   };
-  const nuevo = g => ({ ...g, hh: 0, plan: 0, previas: 0, sinFecha: 0, ini: null, fin: null, costo: 0, sinTarifa: 0, planCerr: 0, realCerr: 0, ops: {}, opers: {}, dias: {} });
-  (S.proyectos || []).forEach(p => { { const g = { k: p.id, nombre: p.nombre, tipo: p.pv ? 'pv' : 'proy' }; G[p.id] = nuevo(g); G[p.id].previas = Math.max(0, Number(p.hhPrevias) || 0); } });
+  const nuevo = g => ({ ...g, hh: 0, plan: 0, previas: 0, sinFecha: 0, glob: 0, ini: null, fin: null, costo: 0, sinTarifa: 0, planCerr: 0, realCerr: 0, ops: {}, opers: {}, dias: {} });
+  (S.proyectos || []).forEach(p => { G[p.id] = nuevo({ k: p.id, nombre: p.nombre, tipo: claseP(p) }); G[p.id].previas = Math.max(0, Number(p.hhPrevias) || 0); });
   S.tareas.forEach(t => {
     const r = V.D[t.id]; if (!r || r.parent || t.tercerizada) return;
     const g0 = grupo(t); const g = G[g0.k] = G[g0.k] || nuevo(g0);
@@ -1002,23 +1051,38 @@ export function estadisticas(S, V, hoy = today()) {
     const ok = t.operacionId || '_'; g.ops[ok] = (g.ops[ok] || 0) + real; ops[ok] = (ops[ok] || 0) + real;
     const os = (t.ops || []); os.forEach(o => { g.opers[o] = (g.opers[o] || 0) + real / os.length; opers[o] = (opers[o] || 0) + real / os.length; });
     if (t.sinFecha || !ini) { g.sinFecha += real; return; }
-    // días hábiles de la pieza (si no hay ninguno, cuenta el día de inicio)
-    const ds_ = []; let d = ini; for (let i = 0; i < 400 && d <= (fin >= ini ? fin : ini); i++, d = addDays(d, 1)) if (isWork(S, d)) ds_.push(d);
-    if (!ds_.length) ds_.push(ini);
+    const ds_ = diasPieza(S, t, r);
     ds_.forEach(x => { const h = real / ds_.length; g.dias[x] = (g.dias[x] || 0) + h; });
   });
+  // cargas globales
+  (S.asignaciones || []).forEach(a => {
+    const h = Math.max(0, Number(a.horas) || 0); if (!(h > 0) || !a.opId || !a.desde) return;
+    const pr = destinoProy(S, a.destino), tipo = destinoTipo(S, a.destino);
+    const k = String(a.destino).startsWith('p:') ? a.destino.slice(2) : a.destino === 'rep' ? 'rep' : a.destino + '-gral';
+    const g = G[k] = G[k] || nuevo({ k, nombre: pr ? pr.nombre : String(a.destino).startsWith('p:') ? 'Proyecto borrado' : destinoNom(S, a.destino), tipo });
+    g.glob += h; g.hh += h;
+    g.ops._glob = (g.ops._glob || 0) + h; ops._glob = (ops._glob || 0) + h;
+    g.opers[a.opId] = (g.opers[a.opId] || 0) + h; opers[a.opId] = (opers[a.opId] || 0) + h;
+    const ds_ = diasAsig(S, a); ds_.forEach(d => { g.dias[d] = (g.dias[d] || 0) + h / ds_.length; });
+    if (!g.ini || a.desde < g.ini) g.ini = a.desde; const af = a.hasta || a.desde; if (!g.fin || af > g.fin) g.fin = af;
+  });
+  // costo de las horas de carga global: el costo medio por HH de las piezas del mismo grupo (si no tiene, quedan sin tarifa)
+  Object.values(G).forEach(g => { if (!(g.glob > 0)) return; const hT = g.hh - g.glob - g.sinTarifa, vm = hT > 0 ? g.costo / hT : 0; if (vm > 0) g.costo += g.glob * vm; else g.sinTarifa += g.glob; });
   // meses y totales de planta
-  const mes = {}; const M = (k) => mes[k] = mes[k] || { rep: 0, proy: 0, pv: 0, total: 0, costo: 0, disp: 0 };
+  const mes = {}; const M = (k) => mes[k] = mes[k] || { rep: 0, proy: 0, pv: 0, tl: 0, total: 0, costo: 0, disp: 0, sinCargar: 0, exceso: 0, glob: 0 };
   Object.values(G).forEach(g => {
-    const vhMed = g.hh > 0 ? g.costo / Math.max(0.0001, g.hh - g.sinTarifa) : 0;   // costo medio por HH de este grupo, para repartir por mes
+    const vhMed = g.hh - g.sinTarifa > 0 ? g.costo / (g.hh - g.sinTarifa) : 0;   // costo medio por HH de este grupo, para repartir por mes
     Object.entries(g.dias).forEach(([d, h]) => { const m = M(d.slice(0, 7)); m[g.tipo] += h; m.total += h; m.costo += h * vhMed; dia[d] = (dia[d] || 0) + h; });
   });
-  // horas disponibles (operarios activos: jornada normal + extras), solo hasta hoy
+  (S.asignaciones || []).forEach(a => { const h = Math.max(0, Number(a.horas) || 0); if (!(h > 0) || !a.opId || !a.desde) return; const ds_ = diasAsig(S, a); ds_.forEach(d => { M(d.slice(0, 7)).glob += h / ds_.length; }); });
+  // horas disponibles, sin cargar y cargadas de más (operarios activos, día por día, solo hasta hoy). Se cuentan también los meses sin horas cargadas.
+  const ult = hoy.slice(0, 7), m0 = Object.keys(mes).sort()[0];
+  if (m0) for (let k = m0, i = 0; k <= ult && i < 240; k = mesSig(k), i++) M(k);
   const meses = Object.keys(mes).sort();
   if (meses.length) {
-    const ult = hoy.slice(0, 7); const act = (S.operarios || []).filter(o => o.activo !== false);
-    meses.forEach(k => { if (k > ult) return; const [y, mm] = k.split('-').map(Number); const tope = k === ult ? hoy : null;
-      for (let d = `${k}-01`; d.slice(0, 7) === k && (!tope || d <= tope); d = addDays(d, 1)) act.forEach(o => { mes[k].disp += capN(S, o.id, d) + (isWork(S, d) && !ausenciaDe(S, o.id, d) ? extraDe(S, o.id, d) : 0); }); });
+    const CD = cargaDiaria(S, V), act = (S.operarios || []).filter(o => o.activo !== false);
+    meses.forEach(k => { if (k > ult) return;
+      for (let d = `${k}-01`; d.slice(0, 7) === k && d <= hoy; d = addDays(d, 1)) act.forEach(o => { const dp = dispDia(S, o.id, d), c = CD[o.id + '|' + d], cg = c ? c.total : 0; mes[k].disp += dp; mes[k].sinCargar += Math.max(0, dp - cg); mes[k].exceso += Math.max(0, cg - dp); }); });
   }
   // ventana de cada proyecto: del primer inicio al último fin, qué % de las HH de toda la planta fue para él
   const grupos = Object.values(G).filter(g => g.hh > 0 || g.previas > 0 || g.plan > 0).map(g => {
@@ -1027,5 +1091,5 @@ export function estadisticas(S, V, hoy = today()) {
     const { dias, ...r } = g; return { ...r, total: g.hh + g.previas, ventana: vent, propio, pct: vent > 0 ? propio / vent * 100 : null, desvio: g.planCerr > 0 ? (g.realCerr - g.planCerr) / g.planCerr * 100 : null };
   }).sort((a, b) => b.total - a.total);
   const sumT = k => grupos.filter(g => g.tipo === k).reduce((a, g) => a + g.total, 0);
-  return { meses, mes, grupos, ops, opers, totales: { rep: sumT('rep'), proy: sumT('proy'), pv: sumT('pv') }, sinFecha: grupos.reduce((a, g) => a + g.sinFecha + g.previas, 0) };
+  return { meses, mes, grupos, ops, opers, totales: { rep: sumT('rep'), proy: sumT('proy'), pv: sumT('pv'), tl: sumT('tl') }, sinFecha: grupos.reduce((a, g) => a + g.sinFecha + g.previas, 0) };
 }

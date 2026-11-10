@@ -29,7 +29,7 @@ const C = {
   usuarios: collection(db, 'produccion_usuarios'),
   log: collection(db, 'produccion_log')
 };
-const CFG = ['cfg', 'operarios', 'operaciones', 'codigos', 'materiales', 'tarifas', 'cotizaciones', 'historico', 'feriados', 'ausencias', 'proyectos', 'ejemplo'];
+const CFG = ['cfg', 'operarios', 'operaciones', 'codigos', 'materiales', 'tarifas', 'cotizaciones', 'historico', 'feriados', 'ausencias', 'asignaciones', 'proyectos', 'ejemplo'];   // asignaciones = cargas globales de horas (solo las edita un administrador)
 const MAPAS = ['extras', 'extraModo'];
 const limpio = o => JSON.parse(JSON.stringify(o === undefined ? null : o));
 
@@ -68,7 +68,7 @@ export function iniciar() {
   const listo = snap => {
     if (partes.cfg === undefined || !partes.tareasOk || partes.usuarios === undefined || partes.log === undefined) return;
     if (partes.cfg === null) { emitir({ fase: 'sinconfig' }); return; }
-    const S = { v: 1, extras: {}, extraModo: {}, ausencias: [], proyectos: [], ...partes.cfg, tareas: [...partes.tareas.values()].sort((a, b) => (a._n || 0) - (b._n || 0)), usuarios: partes.usuarios, log: partes.log };
+    const S = { v: 1, extras: {}, extraModo: {}, ausencias: [], asignaciones: [], proyectos: [], ...partes.cfg, tareas: [...partes.tareas.values()].sort((a, b) => (a._n || 0) - (b._n || 0)), usuarios: partes.usuarios, log: partes.log };
     emitir({ fase: 'listo', S, remoto: !snap.metadata.hasPendingWrites });
   };
   desub.push(onSnapshot(C.usuarios, s => { partes.usuarios = s.docs.map(d => ({ ...d.data(), id: d.id, email: d.id })).sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '')); listo(s); }, falla));
