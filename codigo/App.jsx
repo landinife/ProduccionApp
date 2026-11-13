@@ -10,7 +10,7 @@ const PRI = { alta: 0, media: 1, baja: 2 };
 /* tema claro u oscuro: se recuerda en este navegador y se aplica antes de dibujar, así la pantalla de carga ya sale con el tema elegido */
 const TEMA_K = 'produccionapp-tema';
 const leerTema = () => { try { return localStorage.getItem(TEMA_K) === 'claro' ? 'claro' : 'oscuro'; } catch (e) { return 'oscuro'; } };
-const ponerTema = t => { try { document.documentElement.dataset.theme = t === 'claro' ? 'light' : 'dark'; const m = document.querySelector('meta[name=theme-color]'); if (m) m.content = t === 'claro' ? '#eef2f6' : '#151a20'; } catch (e) { } };
+const ponerTema = t => { try { document.documentElement.dataset.theme = t === 'claro' ? 'light' : 'glass'; /* glass = tema oscuro de vidrio (sección 8 de styles.css) */ const m = document.querySelector('meta[name=theme-color]'); if (m) m.content = t === 'claro' ? '#eef2f6' : '#0f1319'; } catch (e) { } };
 ponerTema(leerTema());
 const ACCENTS = ['#4fb0ff', '#5cc8c0', '#f08a4b', '#b08cf0', '#e37fa7', '#9bd05a'];
 export const loadState = () => { try { const r = JSON.parse(localStorage.getItem(KEY)); if (r && r.v === 1 && r.tareas) return { ...r, tareas: r.tareas.map(t => t.codigo ? { ...t, nombre: `${t.codigo} ${t.nombre}`.trim(), codigo: '' } : t).map(t => t.estado === 'en proceso' && !t.crono ? { ...t, crono: { acum: Number(t.hhReal) || 0, desde: E.nowDT() } } : t), usuarios: r.usuarios || E.usuariosEjemplo() }; } catch (e) { } return E.sample(); };
@@ -2042,7 +2042,7 @@ function Atajos() {
     <p className="mut">En la Mac, Alt es la tecla Opción (Option).</p></section>;
 }
 function Config() {
-  const { S, V, up, ui, ses } = useApp(); const [conf, setConf] = useState(false); const [prueba, setPrueba] = useState('');
+  const { S, V, up, ui, ses, tema, cambiarTema } = useApp(); const [conf, setConf] = useState(false); const [prueba, setPrueba] = useState(''); const tempAct = E.seasonNow(S), horAct = S.cfg.horarios[tempAct];
   const [ab, setAb] = useState(() => prefG('cfg-abiertas', [])); useEffect(() => { guardaG('cfg-abiertas', ab); }, [ab]);
   const PL = { c: t => ab.includes(t) ? ' plg on' : ' plg', h: t => <button className="plg-t" aria-expanded={ab.includes(t)} onClick={() => setAb(p => p.includes(t) ? p.filter(x => x !== t) : [...p, t])}><span className="car">{ab.includes(t) ? '▾' : '▸'}</span>{t}</button> };
   const aplicarCod = () => { let n = 0; up(s => ({ ...s, tareas: s.tareas.map(t => { if (s.tareas.some(x => x.parentId === t.id) || t.estado === 'terminada') return t; const a = E.autoCompletar(s, t, false); if (a.operacionId && a.operacionId !== t.operacionId) { n++; return { ...t, ...a }; } return t; }) })); ui.toast(n ? `Operación asignada a ${n} ${n === 1 ? 'pieza' : 'piezas'}` : 'No había piezas sin operación con código reconocido'); }; const [lq, setLq] = useState(''); const [ln, setLn] = useState(40);
@@ -2078,6 +2078,8 @@ function Config() {
     const fr = new FileReader(); fr.onload = () => { try { const d = leerPlanillaHist(window.XLSX.read(fr.result, { type: 'array', cellDates: true })); d.archivo = f.name; setImp(d); } catch (err) { ui.toast(err && err.message ? err.message : 'No se pudo leer el archivo'); } }; fr.readAsArrayBuffer(f); };
   const restaurar = e => { const f = e.target.files[0]; if (!f) return; const fr = new FileReader(); fr.onload = () => { try { const d = JSON.parse(fr.result); if (!d.tareas || !d.cfg) throw 0; up(s => ({ ...d, usuarios: ses ? s.usuarios : (d.usuarios || s.usuarios), log: s.log })); ui.toast('Copia restaurada'); } catch (err) { ui.toast('Ese archivo no es una copia de ProducciónApp'); } }; fr.readAsText(f); e.target.value = ''; };
   return <PlCtx.Provider value={PL}><div className="view cfg"><div className="cfg-top"><span className="mut">Tocá el título de cada sección para abrirla o cerrarla.</span><span className="sp" /><button className="btn sm" onClick={() => setAb(CFG_SECS)}>Abrir todas</button><button className="btn sm" onClick={() => setAb([])}>Cerrar todas</button></div>
+    <div className="card apar"><h3>Apariencia y horario</h3><div className="row"><span className="mut">Tema</span><div className="seg"><button className={tema === 'claro' ? '' : 'on'} onClick={() => cambiarTema('oscuro')}>☾ Oscuro</button><button className={tema === 'claro' ? 'on' : ''} onClick={() => cambiarTema('claro')} title="Mejor con mucha luz en el taller">☀ Claro</button></div></div>
+      <div className="row"><span className="mut">Horario en uso</span><span className="tag">Horario de {tempAct} · {horAct.entrada}–{horAct.salida}</span></div></div>
     <Atajos />
     <ListEdit title="Operarios" items={S.operarios.slice().sort(porApellido)} addLabel="+ Operario" onAdd={() => up(s => ({ ...s, operarios: [...s.operarios, { id: E.uid(), nom: 'Nuevo', apellido: 'operario', nombre: 'Nuevo operario', activo: true }] }))}
       onDel={o => up(s => ({ ...s, operarios: s.operarios.filter(x => x.id !== o.id), ausencias: s.ausencias.filter(a => a.opId !== o.id), tareas: s.tareas.map(t => t.ops.includes(o.id) ? { ...t, ops: t.ops.filter(x => x !== o.id) } : t) }))}
@@ -2397,6 +2399,9 @@ function CotEditor({ r, onClose }) {
 
 /* ================= APP ================= */
 const TABS = [['resumen', 'Producción', 'M4 5h16v15H4zM4 10h16M9 5v15M15 5v15'], ['repuestos', 'Repuestos', 'M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9zM12 9a3 3 0 100 6 3 3 0 000-6z'], ['proyectos', 'Proyectos', 'M4 6h9M8 12h11M5 18h8'], ['postventa', 'Post Venta', 'M3 7l9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10'], ['internos', 'Taller', 'M14.5 5.5a4 4 0 00-5.2 5.2L4 16l4 4 5.3-5.3a4 4 0 005.2-5.2l-2.7 2.7-2.3-.7-.7-2.3z'], ['operarios', 'Operarios', 'M9 11a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 4.5a3.5 3.5 0 010 6.5M18 14c1.8.8 3 2.6 3 4.7', 'Operar.'], ['tiempos', 'Tiempos', 'M12 7v5l3 2M12 3a9 9 0 100 18 9 9 0 000-18z'], ['estadisticas', 'Estadísticas', 'M4 20V10M10 20V4M16 20v-8M22 20H2', 'Estad.'], ['config', 'Configuración', 'M4 7h10M18 7h2M4 17h2M10 17h10M16 5v4M8 15v4', 'Config.']];
+// Teléfono: 4 pestañas fijas (las primeras de esta lista que el usuario puede ver) y el resto en "Más"
+const TABS_TEL = ['resumen', 'repuestos', 'proyectos', 'estadisticas', 'operarios'];
+const TAB_DESC = { postventa: 'Casos y envíos', internos: 'Trabajos propios', operarios: 'Trabajo del día', tiempos: 'Historial y costos', estadisticas: 'Uso de las horas', config: 'Datos, operarios y usuarios', resumen: 'Semana, carga y alertas', repuestos: 'Órdenes OV y OC', proyectos: 'Equipos y Gantt' };
 const AVC = ['#5cc8c0', '#e59a57', '#b08cf0', '#e37fa7', '#8fbf5a', '#6f9df5', '#d9c15a', '#d98a8a', '#58b7e8', '#c9a0dc'];
 const Av = ({ o, i, sm }) => <span className={'av' + (sm ? ' sm' : '')} style={{ '--c': AVC[i % AVC.length] }}>{(o.nombre || '?').trim().slice(0, 2).toUpperCase()}</span>;
 // Planificar un proyecto completo: reparte las piezas pendientes entre los operarios respetando dependencias y promedios
@@ -2430,6 +2435,53 @@ const pcE = v => v == null || isNaN(v) ? '—' : (Math.round(v * 10) / 10).toLoc
 const usdE = v => 'US$ ' + Math.round(v || 0).toLocaleString('es-AR');
 const labMes = k => `${E.MESES[Number(k.slice(5)) - 1]} ${k.slice(2, 4)}`;
 const TE = ['rep', 'proy', 'pv', 'tl'];
+// Estadísticas → Horas por operario: por mes, cuánto dedicó cada operario a cada tipo y cuánto le quedó sin cargar (h y % de sus horas disponibles).
+// Gráfico (por defecto) o tabla. "Todos": una barra por operario con el reparto del período. Un operario: su reparto del período y una barra por mes.
+function EstOperarios({ R, ms }) {
+  const { S } = useApp(); const [sel, setSel] = useState(''); const [tabla, setTabla] = useState(false); const [abierta, setAbierta] = useState(null); const [hov, setHov] = useState(null);
+  const Z = { rep: 0, proy: 0, pv: 0, tl: 0, total: 0, disp: 0, sinCargar: 0, exceso: 0 }; const LS = [...TE, 'sin'];
+  const hv = (d, k) => k === 'sin' ? d.sinCargar : d[k], base = d => d.total + d.sinCargar, pc = (d, k) => base(d) > 0 ? hv(d, k) / base(d) * 100 : null;
+  const sumar = l => l.reduce((a, d) => { const r = {}; Object.keys(Z).forEach(x => { r[x] = a[x] + d[x]; }); return r; }, { ...Z });
+  const ops = (S.operarios || []).map(o => { const pm = ms.map(k => ({ k, ...Z, ...((R.opMes || {})[o.id] || {})[k] })); return { o, pm, per: sumar(pm) }; }).filter(x => x.per.total > 0.005 || x.per.disp > 0.005);
+  const uno = ops.find(x => x.o.id === sel); const ver = id => { setSel(id); setAbierta(null); setHov(null); };
+  const filas = uno ? [...uno.pm.map(d => ({ ...d, id: d.k, nom: labMes(d.k) })), ...(uno.pm.length > 1 ? [{ ...uno.per, id: 'per', nom: 'Período', tot: true }] : [])] : [...ops.map(x => ({ ...x.per, id: x.o.id, nom: x.o.nombre, ir: true })), ...(ops.length > 1 ? [{ ...sumar(ops.map(x => x.per)), id: 'tot', nom: 'Todos', tot: true }] : [])];
+  const color = k => k === 'sin' ? undefined : COL_EST[k];
+  // detalle de una barra (se abre al tocarla): horas y % de cada tipo
+  const detalle = d => <div className="est-ohdet">{LS.map(k => <span key={k}><i className={'est-dot' + (k === 'sin' ? ' est-sin' : '')} style={{ background: color(k) }} />{NOM_EST[k]} <b>{fN(hv(d, k))} h</b> {pcE(pc(d, k))}</span>)}{d.exceso > 0.05 && <span className="c-bad">Cargadas de más: {fN(d.exceso)} h</span>}</div>;
+  // una fila de barra horizontal al 100 % de las disponibles
+  const barra = d => <div key={d.id} className={'est-ohr' + (d.tot ? ' tot' : '')}>
+    <span className="est-ohn">{d.ir ? <button className="lnk" onClick={() => ver(d.id)} title="Ver mes a mes">{d.nom}</button> : <b>{d.nom}</b>}</span>
+    <button className="est-ohb" onClick={() => setAbierta(a => a === d.id ? null : d.id)} aria-expanded={abierta === d.id} aria-label={`${d.nom}: ` + LS.map(k => `${NOM_EST[k]} ${fN(hv(d, k))} h (${pcE(pc(d, k))})`).join(', ')}>
+      {LS.map(k => hv(d, k) > 0.005 && <i key={k} className={k === 'sin' ? 'est-sin' : ''} style={{ width: pc(d, k) + '%', background: color(k) }}>{pc(d, k) >= 9 && <em>{Math.round(pc(d, k))} %</em>}</i>)}</button>
+    <span className="est-ohd"><b>{d.disp > 0 ? fN(d.disp) : '—'}</b> h</span>
+    {abierta === d.id && detalle(d)}</div>;
+  // una barra por mes (un operario): altura = horas disponibles del mes
+  const meses = () => { const pm = uno.pm, H = 170, top = Math.max(10, Math.ceil(Math.max(0, ...pm.map(d => Math.max(d.disp, base(d)))) / 20) * 20);
+    return <div className="bc"><div className="bc-y" style={{ height: H }}>{[top, top / 2, 0].map(v => <span key={v} style={{ bottom: v / top * H }}>{v}</span>)}</div>
+      <div className="bc-main"><div className="bc-plot" style={{ height: H }}>
+        {[top, top / 2].map(v => <i key={v} className="bc-grid" style={{ bottom: v / top * H }} />)}
+        {pm.map(d => { const alto = base(d); return <div key={d.k} className={'bc-g' + (hov === d.k ? ' on' : '')} onMouseEnter={() => setHov(d.k)} onMouseLeave={() => setHov(null)} onFocus={() => setHov(d.k)} onBlur={() => setHov(null)} tabIndex="0" aria-label={`${labMes(d.k)}: ${fN(d.disp)} h disponibles; ` + LS.map(k => `${NOM_EST[k]} ${fN(hv(d, k))} h`).join(', ')}>
+          <div className="est-stack" style={{ height: alto / top * H }}><b className="est-tot">{d.disp > 0 ? fN(d.disp) : ''}</b>{d.sinCargar > 0 && <div className="est-sin" style={{ height: d.sinCargar / Math.max(alto, 0.0001) * 100 + '%' }} />}{[...TE].reverse().map(k => d[k] > 0 && <div key={k} style={{ height: d[k] / Math.max(alto, 0.0001) * 100 + '%', background: COL_EST[k] }} />)}</div>
+          {d.disp > 0 && <i className="est-disp" style={{ bottom: d.disp / top * H }} />}
+          {hov === d.k && <div className="bc-tip"><b>{labMes(d.k)}</b><span>Disponibles <em>{fN(d.disp)} h</em></span>{LS.map(k => <span key={k}><i className={k === 'sin' ? 'est-sin' : ''} style={{ background: color(k) }} />{NOM_EST[k]} <em>{fN(hv(d, k))} h · {pcE(pc(d, k))}</em></span>)}{d.exceso > 0.05 && <span className="c-bad">Cargadas de más: {fN(d.exceso)} h</span>}</div>}
+        </div>; })}</div>
+        <div className="bc-x">{pm.map(d => <span key={d.k}>{labMes(d.k)}</span>)}</div></div></div>; };
+  return <section className="chart"><div className="sec-h"><h3>Horas por operario{uno ? ': ' + uno.o.nombre : ''}</h3>
+    <div className="row"><label className="row">Operario<select value={uno ? sel : ''} onChange={e => ver(e.target.value)} aria-label="Operario"><option value="">Todos</option>{ops.map(x => <option key={x.o.id} value={x.o.id}>{x.o.nombre}</option>)}</select></label>
+      <button className="btn sm" onClick={() => setTabla(!tabla)}>{tabla ? 'Ver gráfico' : 'Ver tabla'}</button></div></div>
+    <div className="lgd">{TE.map(k => <span key={k}><i style={{ background: COL_EST[k] }} />{NOM_EST[k]}</span>)}<span><i className="est-sin" />Sin cargar</span>{uno && !tabla && <span><i className="est-dl" />Disponibles</span>}</div>
+    {!ops.length ? <p className="mut">No hay horas ni disponibilidad de operarios en este período.</p>
+      : tabla ? <div className="scroll"><table className="tt est-ot"><thead><tr><th>{uno ? 'Mes' : 'Operario'}</th><th>Reparto</th><th className="num">Disponibles</th>{LS.map(k => <th key={k} className="num">{NOM_EST[k]}</th>)}<th className="num">Cargadas de más</th></tr></thead>
+        <tbody>{filas.map(d => <tr key={d.id} className={d.tot ? 'par' : ''}><td>{d.ir ? <button className="lnk" onClick={() => ver(d.id)} title="Ver mes a mes">{d.nom}</button> : d.tot ? <b>{d.nom}</b> : d.nom}</td>
+          <td><span className="est-ob" role="img" aria-label={LS.map(k => `${NOM_EST[k]} ${pcE(pc(d, k))}`).join(', ')}>{LS.map(k => hv(d, k) > 0 && <i key={k} className={k === 'sin' ? 'est-sin' : ''} style={{ width: pc(d, k) + '%', background: color(k) }} title={`${NOM_EST[k]}: ${fN(hv(d, k))} h · ${pcE(pc(d, k))}`} />)}</span></td>
+          <td className="num"><b>{d.disp > 0 ? fN(d.disp) : '—'}</b></td>{LS.map(k => <td key={k} className="num">{fN(hv(d, k))} h <small className="mut">{pcE(pc(d, k))}</small></td>)}
+          <td className={'num' + (d.exceso > 0.05 ? ' c-bad' : '')}>{d.exceso > 0.05 ? fN(d.exceso) + ' h' : '—'}</td></tr>)}</tbody></table></div>
+      : uno ? <><div className="est-oh"><div className="est-ohh"><span>Período</span><span /><span>Disponibles</span></div>{barra({ ...uno.per, id: 'per', nom: ms.length > 1 ? `${labMes(ms[0])} a ${labMes(ms[ms.length - 1])}` : labMes(ms[0] || '') , tot: false })}</div>
+          {uno.pm.length > 1 ? <><h3 className="est-oh-t">Mes a mes</h3>{meses()}</> : null}</>
+      : <div className="est-oh"><div className="est-ohh"><span>Operario</span><span>% de sus horas disponibles</span><span>Disponibles</span></div>{filas.map(barra)}</div>}
+    <p className="mut">{uno ? <button className="lnk" onClick={() => ver('')}>← Volver a todos los operarios</button> : 'Tocá el nombre de un operario para verlo mes a mes, o su barra para ver las horas de cada tipo.'} El % es sobre las horas disponibles de cada operario (lo cargado más lo que quedó sin cargar). Son las mismas horas del calendario mensual de Operarios, donde se ven día por día.</p>
+  </section>;
+}
 function Estadisticas() {
   const { S, V } = useApp(); const [n, setN] = useState(6); const [tabla, setTabla] = useState(false); const [hov, setHov] = useState(null); const [ft, setFt] = useState(''); const [mt, setMt] = useState(''); const [modo, setModo] = useState('pct');
   const R = useMemo(() => E.estadisticas(S, V), [S, V]); const [tabla2, setTabla2] = useState(false); const [hov2, setHov2] = useState(null);
@@ -2518,6 +2570,8 @@ function Estadisticas() {
           {b.exceso > 0.05 && <p className="mut c-bad">{fN(b.exceso)} h cargadas de más</p>}</div>; })}</div>
     </section>
 
+    <EstOperarios R={R} ms={ms} />
+
     <section><h3>Cómo leer estos gráficos</h3>
       <p className="mut"><b>Barras por mes:</b> cada barra es un mes y su altura son las horas-hombre (HH) de ese mes. Los colores muestran cuánto fue de cada tipo; el número de arriba es el total del mes. Si una barra es más alta que otra, se trabajó más ese mes; si cambian los colores, cambió el reparto.</p>
       <p className="mut"><b>Disponibles, en qué se usaron:</b> cada barra es todo lo que la planta podía trabajar en el mes, separado en lo que se dedicó a cada tipo y lo que quedó sin cargar. Sirve para ver cuánto se usó de la capacidad y si faltan horas por cargar.</p>
@@ -2581,20 +2635,24 @@ export function App({ db, ses, S0 }) {
   const ui = useMemo(() => ({ modal: setModal, toast: setToast, confirmar: setConf, tab: k => { setTab(k); try { history.replaceState(null, '', '#' + k); } catch (e) { } } }), []);
   const close = useCallback(() => setModal(null), []);
   const [tema, setTema] = useState(leerTema); useEffect(() => { ponerTema(tema); }, [tema]);
+  const cambiarTema = useCallback(n => { setTema(n); try { localStorage.setItem(TEMA_K, n); } catch (e) { } }, []); const [mas, setMas] = useState(false);
   const act = E.seasonNow(S), h = S.cfg.horarios[act];
   const verT = pm.admin || pm.rep || pm.proy;   // Tiempos: solo quienes planifican (no los de solo consulta)
   const soloT = k => k === 'tiempos' || k === 'estadisticas'; const tabs = TABS.filter(t => !soloT(t[0]) || verT); const tabV = soloT(tab) && !verT ? 'resumen' : tab;
-  return <Ctx.Provider value={{ S, V, up, ui, ses, pm }}>
+  const fijas = TABS_TEL.filter(k => tabs.some(t => t[0] === k)).slice(0, 4); const irA = k => { setMas(false); setTab(k); try { history.replaceState(null, '', '#' + k); } catch (e) { } };
+  return <Ctx.Provider value={{ S, V, up, ui, ses, pm, tema, cambiarTema }}>
     <div className="app" style={{ '--accent': S.cfg.accent }}>
       <header className="top">
         <h1><Logo />Producción<span>App</span></h1>
-        <nav className="tabs">{tabs.map(([k, l, d, c]) => <button key={k} className={tabV === k ? 'on' : ''} onClick={() => { setTab(k); try { history.replaceState(null, '', '#' + k); } catch (e) { } }}><svg viewBox="0 0 24 24" aria-hidden="true"><path d={d} /></svg><span className="tl">{l}</span><span className="ts">{c || l}</span></button>)}</nav>
+        <nav className="tabs">{tabs.map(([k, l, d, c]) => <button key={k} className={(tabV === k ? 'on' : '') + (fijas.includes(k) ? '' : ' nf')} onClick={() => irA(k)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d={d} /></svg><span className="tl">{l}</span><span className="ts">{c || l}</span></button>)}
+          <button className={'mas' + (fijas.includes(tabV) ? '' : ' on') + (mas ? ' ab' : '')} onClick={() => setMas(m => !m)} aria-expanded={mas} aria-label="Más secciones"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h.01M12 6h.01M19 6h.01M5 12h.01M12 12h.01M19 12h.01M5 18h.01M12 18h.01M19 18h.01" /></svg><span className="tl">Más</span></button></nav>
         <div className="top-r">{S.ejemplo !== false && <span className="tag ej">Datos de ejemplo</span>}
           {ses ? <span className="tag yo" title={yo.email}>{yo.nombre}</span> : <label className="inl vercomo" title="En esta vista previa elegís el usuario a mano para probar los permisos. En la etapa 2 lo decide el mail con el que cada uno inicia sesión.">Ver como<select id="ver-como" value={yo.id} onChange={e => { setUid(e.target.value); try { localStorage.setItem(KEY + '-uid', e.target.value); } catch (err) { } }}>{S.usuarios.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}</select></label>}
-          {!pm.admin && <span className="tag warn">{pm.rep && pm.proy ? 'Edita todo, sin configuración' : pm.rep ? 'Edita Repuestos y Producción' : pm.proy ? 'Edita Proyectos' : 'Solo consulta'}</span>}<span className="tag">Horario de {act} · {h.entrada}–{h.salida}</span>
-          <button className="btn tema" onClick={() => { const n = tema === 'claro' ? 'oscuro' : 'claro'; setTema(n); try { localStorage.setItem(TEMA_K, n); } catch (e) { } }} title={tema === 'claro' ? 'Pasar al tema oscuro' : 'Pasar al tema claro (mejor con mucha luz en el taller)'} aria-label={tema === 'claro' ? 'Tema oscuro' : 'Tema claro'}>{tema === 'claro' ? '☾' : '☀'}<span className="tl">{tema === 'claro' ? ' Oscuro' : ' Claro'}</span></button>
-          <span className="undo"><button className="btn" onClick={undo} disabled={!nh} title={nh ? 'Deshacer (Ctrl+Z): ' + hist.current[hist.current.length - 1].txt : 'Nada para deshacer'}>↶ Deshacer</button><button className="btn" onClick={redo} disabled={!nf} title={nf ? 'Rehacer (Ctrl+Y): ' + fut.current[fut.current.length - 1].txt : 'Nada para rehacer'} aria-label="Rehacer">↷</button></span></div>
+          {!pm.admin && <span className="tag warn">{pm.rep && pm.proy ? 'Edita todo, sin configuración' : pm.rep ? 'Edita Repuestos y Producción' : pm.proy ? 'Edita Proyectos' : 'Solo consulta'}</span>}
+          <span className="undo"><button className="btn" onClick={undo} disabled={!nh} title={nh ? 'Deshacer (Ctrl+Z): ' + hist.current[hist.current.length - 1].txt : 'Nada para deshacer'} aria-label="Deshacer">↶</button><button className="btn" onClick={redo} disabled={!nf} title={nf ? 'Rehacer (Ctrl+Y): ' + fut.current[fut.current.length - 1].txt : 'Nada para rehacer'} aria-label="Rehacer">↷</button></span></div>
       </header>
+      {mas && <div className="mas-ovl" onClick={() => setMas(false)}><div className="mas-hoja" role="dialog" aria-label="Más secciones" onClick={e => e.stopPropagation()}><i className="mas-grab" /><h3>Más secciones</h3>
+        {tabs.filter(t => !fijas.includes(t[0])).map(([k, l, d]) => <button key={k} className={'mas-it' + (tabV === k ? ' on' : '')} onClick={() => irA(k)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d={d} /></svg><span><b>{l}</b><small>{TAB_DESC[k]}</small></span></button>)}</div></div>}
       <main>{tabV === 'resumen' ? <Resumen /> : tabV === 'repuestos' ? <Repuestos /> : tabV === 'proyectos' ? <Proyectos key="proy" /> : tabV === 'postventa' ? <Proyectos key="pv" pv /> : tabV === 'internos' ? <Proyectos key="tl" tl /> : tabV === 'operarios' ? <Operarios /> : tabV === 'tiempos' ? <Tiempos /> : tabV === 'estadisticas' ? <Estadisticas /> : <Config />}</main>
       {modal && modal.k === 'task' && <TaskEditor key={modal.id || modal.draft.id} id={modal.id} draft={modal.draft} onClose={close} />}
       {modal && modal.k === 'op' && <OperarioPanel id={modal.id} onClose={close} />}

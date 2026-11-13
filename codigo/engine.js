@@ -1086,10 +1086,14 @@ export function estadisticas(S, V, hoy = today()) {
   const ult = hoy.slice(0, 7), m0 = Object.keys(mes).sort()[0];
   if (m0) for (let k = m0, i = 0; k <= ult && i < 240; k = mesSig(k), i++) M(k);
   const meses = Object.keys(mes).sort();
+  // por operario y por mes: lo cargado en cada tipo (mismo reparto que el calendario mensual de Operarios), lo disponible, lo sin cargar y lo cargado de más
+  const opMes = {}; const OM = (o, k) => { const a = opMes[o] = opMes[o] || {}; return a[k] = a[k] || { rep: 0, proy: 0, pv: 0, tl: 0, total: 0, disp: 0, sinCargar: 0, exceso: 0 }; };
   if (meses.length) {
     const CD = cargaDiaria(S, V), act = (S.operarios || []).filter(o => o.activo !== false);
+    Object.entries(CD).forEach(([key, c]) => { const i = key.lastIndexOf('|'), om = OM(key.slice(0, i), key.slice(i + 1, i + 8)); om.rep += c.rep; om.proy += c.proy; om.pv += c.pv; om.tl += c.tl; om.total += c.total; });
     meses.forEach(k => { if (k > ult) return;
-      for (let d = `${k}-01`; d.slice(0, 7) === k && d <= hoy; d = addDays(d, 1)) act.forEach(o => { const dp = dispDia(S, o.id, d), c = CD[o.id + '|' + d], cg = c ? c.total : 0; mes[k].disp += dp; mes[k].sinCargar += Math.max(0, dp - cg); mes[k].exceso += Math.max(0, cg - dp); }); });
+      for (let d = `${k}-01`; d.slice(0, 7) === k && d <= hoy; d = addDays(d, 1)) act.forEach(o => { const dp = dispDia(S, o.id, d), c = CD[o.id + '|' + d], cg = c ? c.total : 0; mes[k].disp += dp; mes[k].sinCargar += Math.max(0, dp - cg); mes[k].exceso += Math.max(0, cg - dp);
+        const om = OM(o.id, k); om.disp += dp; om.sinCargar += Math.max(0, dp - cg); om.exceso += Math.max(0, cg - dp); }); });
   }
   // ventana de cada proyecto: del primer inicio al último fin, qué % de las HH de toda la planta fue para él
   const grupos = Object.values(G).filter(g => g.hh > 0 || g.previas > 0 || g.plan > 0).map(g => {
@@ -1098,5 +1102,5 @@ export function estadisticas(S, V, hoy = today()) {
     const { dias, ...r } = g; return { ...r, total: g.hh + g.previas, ventana: vent, propio, pct: vent > 0 ? propio / vent * 100 : null, desvio: g.planCerr > 0 ? (g.realCerr - g.planCerr) / g.planCerr * 100 : null };
   }).sort((a, b) => b.total - a.total);
   const sumT = k => grupos.filter(g => g.tipo === k).reduce((a, g) => a + g.total, 0);
-  return { meses, mes, grupos, ops, opers, totales: { rep: sumT('rep'), proy: sumT('proy'), pv: sumT('pv'), tl: sumT('tl') }, sinFecha: grupos.reduce((a, g) => a + g.sinFecha + g.previas, 0) };
+  return { meses, mes, opMes, grupos, ops, opers, totales: { rep: sumT('rep'), proy: sumT('proy'), pv: sumT('pv'), tl: sumT('tl') }, sinFecha: grupos.reduce((a, g) => a + g.sinFecha + g.previas, 0) };
 }
