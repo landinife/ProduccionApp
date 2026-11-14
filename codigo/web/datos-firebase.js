@@ -29,7 +29,7 @@ const C = {
   usuarios: collection(db, 'produccion_usuarios'),
   log: collection(db, 'produccion_log')
 };
-const CFG = ['cfg', 'operarios', 'operaciones', 'codigos', 'materiales', 'tarifas', 'cotizaciones', 'historico', 'feriados', 'ausencias', 'asignaciones', 'proyectos', 'ejemplo'];   // asignaciones = cargas globales de horas (solo las edita un administrador)
+const CFG = ['cfg', 'operarios', 'operaciones', 'codigos', 'materiales', 'tarifas', 'cotizaciones', 'historico', 'fichas', 'feriados', 'ausencias', 'asignaciones', 'proyectos', 'ejemplo'];   // asignaciones = cargas globales de horas (solo las edita un administrador)
 const MAPAS = ['extras', 'extraModo'];
 const limpio = o => JSON.parse(JSON.stringify(o === undefined ? null : o));
 

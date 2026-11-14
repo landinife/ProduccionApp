@@ -697,6 +697,13 @@ export function fabricaciones(S) {
   let c;
   const hijos = {}; S.tareas.forEach(t => { if (t.parentId) (hijos[t.parentId] = hijos[t.parentId] || []).push(t); });
   c = [];
+  // trabajo propio de una pieza hija: las horas reales (o la suma de sus partes si se hizo en partes)
+  const hhProp = t => { const ps = t.partes ? (hijos[t.id] || []).filter(x => x.parte) : null; return ps && ps.length ? ps.reduce((a, x) => a + (Number(x.hhReal) || 0), 0) : Number(t.hhReal) || 0; };
+  const desglose = (t, nivel, out) => (hijos[t.id] || []).filter(x => !x.parte).forEach(x => {
+    const h = hhProp(x), hoja = !(hijos[x.id] || []).some(y => !y.parte);
+    if (h > 0 || x.tercerizada || (hoja && !x.agrupa)) out.push({ id: x.id, k: claveCod(x.nombre), nombre: x.nombre.replace(/\s*\(parte \d+\)\s*$/i, ''), nivel, cant: Math.max(1, Number(x.cant) || 1), hh: x.tercerizada ? 0 : h,
+      operacionId: x.operacionId, material: x.material || '', peso: x.peso, terc: !!x.tercerizada, estado: x.estado });
+    desglose(x, nivel + 1, out); });
   S.tareas.forEach(t => {
     if (t.parte) return;
     const ps = t.partes ? (hijos[t.id] || []).filter(x => x.parte) : null;
@@ -707,8 +714,12 @@ export function fabricaciones(S) {
       c.push(regFab(t, hh, fin, [...new Set(ps.flatMap(x => x.ops || []))]));
       return;
     }
-    if (t.estado !== 'terminada' || t.tercerizada || t.sinFecha || !(Number(t.hhReal) > 0) || hijos[t.id]) return;   // las tercerizadas no se fabricaron en planta: no entran al promedio ni al costo
-    c.push(regFab(t, Number(t.hhReal), t.finReal || t.inicio || t.creada, t.ops || []));
+    // ensamblaje (por ejemplo una pieza soldada): pieza con trabajo propio que tiene piezas hijas; su costo suma el de todas sus hijas
+    const ens = !!t.parentId && !t.agrupa && !t.partes && (hijos[t.id] || []).some(x => !x.parte);
+    if (t.estado !== 'terminada' || t.tercerizada || t.sinFecha || !(Number(t.hhReal) > 0) || (hijos[t.id] && !ens)) return;   // las tercerizadas no se fabricaron en planta: no entran al promedio ni al costo
+    const r = regFab(t, Number(t.hhReal), t.finReal || t.inicio || t.creada, t.ops || []);
+    if (ens) { const out = []; desglose(t, 1, out); r.ens = true; r.desg = out; }
+    c.push(r);
   });
   // historial importado de la planilla de tiempos: cuenta en el promedio igual que una tarea finalizada
   (S.historico || []).forEach(h => { const hh = Number(h.hh) || 0; if (!(hh > 0)) return; const cant = Math.max(1, Number(h.cant) || 1);
@@ -730,10 +741,16 @@ export function valorHora(S, nombre, operacionId) {
   return vhDe(o && tarifaDe(S, o.tarifaId));
 }
 export const materialDe = (S, id) => (S.materiales || []).find(m => m.id === id) || null;
+// Ficha de la pieza: material y peso por unidad, cargados una sola vez por código (S.fichas[código]).
+// Todas sus fabricaciones y cotizaciones los heredan; si una tiene su propio material o peso total, ese manda.
+export const fichaDe = (S, k) => (S.fichas || {})[k] || null;
 // costo de una fabricación o cotización: material (peso total × USD/kg) + mano de obra.
+// Todo se calcula al mostrarlo con el precio del material y la tarifa vigentes: al cambiarlos en Configuración, los costos se actualizan solos.
 // Mano de obra: si viene el detalle por tarifa (historial importado), suma cada parte × su tarifa; si no, HH × la tarifa de la operación.
-export function costo(S, r) {
-  const m = materialDe(S, r.material), peso = Number(r.peso) || 0, hh = Number(r.hh) || 0, cant = Math.max(1, Number(r.cant) || 1);
+function costoProp(S, r) {
+  const f = fichaDe(S, r.k || claveCod(r.nombre)), cant = Math.max(1, Number(r.cant) || 1);
+  const matId = r.material || (f && f.material) || '', m = materialDe(S, matId), hh = Number(r.hh) || 0;
+  const pesoProp = Number(r.peso) || 0, pesoFicha = f && Number(f.pesoU) > 0 ? Number(f.pesoU) * cant : 0, peso = pesoProp > 0 ? pesoProp : pesoFicha;
   let mo = 0, vh = null, det = null; const falta = [];
   if (r.hhCat && Object.keys(r.hhCat).length) {
     det = Object.entries(r.hhCat).map(([id, h]) => { const t = vhDe(tarifaDe(S, id)); return { id, h: Number(h) || 0, t, nombre: (tarifaDe(S, id) || {}).nombre || '?' }; });
@@ -741,7 +758,25 @@ export function costo(S, r) {
   } else { vh = valorHora(S, r.nombre, r.operacionId); if (vh) mo = hh * vh.valor; else falta.push('tarifa'); }
   const mat = m && peso > 0 ? peso * (Number(m.precio) || 0) : 0, total = mo + mat;
   if (!m) falta.push('material'); else if (!(peso > 0)) falta.push('peso'); else if (!(Number(m.precio) > 0)) falta.push('precio del material');
-  return { mo, mat, total, unit: total / cant, vh, det, m, falta };
+  return { mo, mat, total, unit: total / cant, vh, det, m, peso, falta, deFicha: { material: !r.material && !!(f && f.material), peso: !(pesoProp > 0) && pesoFicha > 0 } };
+}
+// Costo de una fabricación. Un ensamblaje (pieza con hijas, por ejemplo soldada) suma su trabajo propio más el costo de todas sus hijas,
+// con el desglose en `hijas`; su propio material es opcional (normalmente está en las hijas).
+export function costo(S, r) {
+  const c = costoProp(S, r); if (!r.desg || !r.desg.length) return c;
+  const propio = { mo: c.mo, mat: c.mat, total: c.total, falta: c.falta.filter(x => x !== 'material' || c.m) };
+  const hijas = r.desg.map(d => { const x = costoProp(S, d); if (!d.terc && !(Number(d.hh) > 0)) x.falta = [...x.falta, 'horas']; if (d.terc) x.falta = []; return { ...d, c: x }; });
+  const mo = c.mo + hijas.reduce((a, h) => a + h.c.mo, 0), mat = c.mat + hijas.reduce((a, h) => a + h.c.mat, 0), total = mo + mat, cant = Math.max(1, Number(r.cant) || 1);
+  const faltaH = [...new Set(hijas.flatMap(h => h.c.falta))].map(x => x + ' de las hijas');
+  return { ...c, mo, mat, total, unit: total / cant, falta: [...propio.falta, ...faltaH], propio, hijas };
+}
+// costo por unidad de una pieza (grupo de Tiempos): promedio de sus fabricaciones con costo completo;
+// si ninguna está completa, el promedio de lo que se pudo calcular, marcado como parcial con lo que falta
+export function costoGrupo(S, g) {
+  const cs = g.regs.filter(r => !r.cot && !r.fuera).map(r => costo(S, r)), ok = cs.filter(c => !c.falta.length);
+  const base = ok.length ? ok : cs.filter(c => c.total > 0);
+  if (!base.length) return { cu: null, parcial: false, falta: [...new Set(cs.flatMap(c => c.falta))] };
+  return { cu: base.reduce((a, c) => a + c.unit, 0) / base.length, parcial: !ok.length, falta: ok.length ? [] : [...new Set(base.flatMap(c => c.falta))] };
 }
 // a qué tarifa corresponde una operación por su nombre (para vincular solas las operaciones al importar)
 export function tarifaSugerida(S, nombreOp) {

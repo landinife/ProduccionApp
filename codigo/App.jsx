@@ -134,7 +134,7 @@ function Desvio({ real, plan }) { const d = real - plan; if (!(plan > 0)) return
 // Qué puede cambiar cada usuario. Las mismas reglas están también en Firebase (codigo/reglas-produccionapp.txt).
 function permiso(p, n, pm) {
   if (pm.admin) return null;
-  if (['cfg', 'operarios', 'operaciones', 'feriados', 'usuarios', 'codigos', 'materiales', 'cotizaciones', 'tarifas', 'historico'].some(k => p[k] !== n[k])) return 'Solo un administrador puede cambiar la configuración.';
+  if (['cfg', 'operarios', 'operaciones', 'feriados', 'usuarios', 'codigos', 'materiales', 'cotizaciones', 'tarifas', 'historico', 'fichas'].some(k => p[k] !== n[k])) return 'Solo un administrador puede cambiar la configuración.';
   if (p.asignaciones !== n.asignaciones) return 'Solo un administrador puede cargar horas globales.';
   const DEF = ['nombre', 'cant', 'prioridad', 'operacionId', 'hh', 'preds', 'parentId', 'entrega', 'proyId'];
   const old = Object.fromEntries(p.tareas.map(t => [t.id, t])); const seen = new Set(); let rep = false, proyDef = p.proyectos !== n.proyectos, proyProg = false;
@@ -162,7 +162,7 @@ function describir(p, n) {
     if (add.length) out.push('Agregó ' + lista(add)); if (del.length) out.push('Borró ' + lista(del));
     if (chg.length) out.push(chg.slice(0, 3).map(t => `"${t.nombre}": ${dif(old[t.id], t).map(f => `${CAMPOS[f]} ${val(p, f, old[t.id][f])} → ${val(n, f, t[f])}`).join(', ')}`).join(' · ') + (chg.length > 3 ? ` · y ${chg.length - 3} tareas más` : ''));
     if (out.length) k = 't:' + [...add, ...del, ...chg].slice(0, 4).map(t => t.id).join() + ':' + (chg[0] ? dif(old[chg[0].id], chg[0]).join() : ''); }
-  [['proyectos', 'Cambió proyectos'], ['asignaciones', 'Cambió cargas globales de horas'], ['extras', 'Cambió horas extra'], ['extraModo', 'Cambió el uso de una extra'], ['ausencias', 'Cambió ausencias'], ['operarios', 'Cambió operarios'], ['operaciones', 'Cambió operaciones'], ['codigos', 'Cambió códigos de operación'], ['materiales', 'Cambió materiales'], ['tarifas', 'Cambió tarifas de mano de obra'], ['historico', 'Cambió el historial importado'], ['cotizaciones', 'Cambió cotizaciones'], ['feriados', 'Cambió feriados'], ['usuarios', 'Cambió usuarios o permisos'], ['cfg', 'Cambió horarios o apariencia']]
+  [['proyectos', 'Cambió proyectos'], ['asignaciones', 'Cambió cargas globales de horas'], ['extras', 'Cambió horas extra'], ['extraModo', 'Cambió el uso de una extra'], ['ausencias', 'Cambió ausencias'], ['operarios', 'Cambió operarios'], ['operaciones', 'Cambió operaciones'], ['codigos', 'Cambió códigos de operación'], ['materiales', 'Cambió materiales'], ['tarifas', 'Cambió tarifas de mano de obra'], ['historico', 'Cambió el historial importado'], ['fichas', 'Cambió la ficha de una pieza (material y peso)'], ['cotizaciones', 'Cambió cotizaciones'], ['feriados', 'Cambió feriados'], ['usuarios', 'Cambió usuarios o permisos'], ['cfg', 'Cambió horarios o apariencia']]
     .forEach(([key, txt]) => { if (p[key] !== n[key] && !(key === 'extraModo' && p.extras !== n.extras)) { out.push(txt); k += '|' + key; } });
   return out.length ? { k, txt: out.join(' · ') } : null;
 }
@@ -2307,10 +2307,18 @@ function Tiempos() {
   // sub-pestañas TPFR / TPFD (y "Otros" y "Sin código" solo si hay piezas de ese tipo) y filtro por operación
   const [serie, setSerie] = useState(() => prefG('tiempos-serie', 'TPFR')); const [fop, setFop] = useState(() => prefG('tiempos-op', ''));
   useEffect(() => { guardaG('tiempos-serie', serie); guardaG('tiempos-op', fop); }, [serie, fop]);
+  const [dab, setDab] = useState([]);   // fabricaciones con el desglose de hijas abierto
+  const [orden, setOrden] = useState(() => prefG('tiempos-orden', 'num')); const [soloInc, setSoloInc] = useState(false);
+  useEffect(() => { guardaG('tiempos-orden', orden); }, [orden]);
+  // costo por unidad de cada pieza: se recalcula solo al cambiar precios de materiales, tarifas o fichas
+  const CG = useMemo(() => { const m = {}; G.forEach(g => { m[g.k] = E.costoGrupo(S, g); }); return m; }, [G, S.materiales, S.tarifas, S.operaciones, S.codigos, S.fichas]);
+  const setFicha = (k, patch) => up(s => { const f = { ...((s.fichas || {})[k] || {}), ...patch }, fs = { ...(s.fichas || {}) }; if (!f.material && !(Number(f.pesoU) > 0)) delete fs[k]; else fs[k] = f; return { ...s, fichas: fs }; });
   const series = [['TPFR', 'TPFR'], ['TPFD', 'TPFD'], ...(G.some(g => g.serie === 'Otros') ? [['Otros', 'Otros']] : []), ...(G.some(g => !g.serie) ? [['', 'Sin código']] : [])];
   const enSerie = G.filter(g => g.serie === serie);
   const opsSerie = S.operaciones.map(o => [o, enSerie.filter(g => g.operacionId === o.id).length]).filter(([, n]) => n > 0);
-  const qq = q.trim().toLowerCase(); const vis = enSerie.filter(g => (!fop || g.operacionId === fop) && (!qq || g.nombre.toLowerCase().includes(qq) || g.k.toLowerCase().includes(qq)));
+  const incompleto = g => g.n > 0 && (CG[g.k].cu == null || CG[g.k].parcial); const nInc = enSerie.filter(incompleto).length;
+  const qq = q.trim().toLowerCase(); const vis0 = enSerie.filter(g => (!fop || g.operacionId === fop) && (!soloInc || incompleto(g)) && (!qq || g.nombre.toLowerCase().includes(qq) || g.k.toLowerCase().includes(qq)));
+  const cuDe = g => CG[g.k].cu; const vis = orden === 'num' ? vis0 : [...vis0].sort((a, b) => orden === 'falta' ? (incompleto(b) - incompleto(a)) || a.k.localeCompare(b.k) : (cuDe(a) == null) - (cuDe(b) == null) || (orden === 'costo-d' ? cuDe(b) - cuDe(a) : cuDe(a) - cuDe(b)));
   const tog = k => setAb(a => a.includes(k) ? a.filter(x => x !== k) : [...a, k]);
   // cambiar material, peso o descarte: en la tarea (fabricación) o en la cotización
   const setReg = (r, patch) => r.hist ? up(s => ({ ...s, historico: (s.historico || []).map(x => x.id === r.id ? { ...x, ...patch } : x) })) : r.cot ? up(s => ({ ...s, cotizaciones: (s.cotizaciones || []).map(x => x.id === r.id ? { ...x, ...patch } : x) })) : up(s => ({ ...s, tareas: s.tareas.map(t => t.id === r.id ? { ...t, ...patch } : t) }));
@@ -2327,39 +2335,53 @@ function Tiempos() {
       <div className="sec-h"><h2>Tiempos</h2><div className="row">
         <input id="ti-q" type="search" placeholder="Buscar código o pieza" value={q} onChange={e => setQ(e.target.value)} />
         <button className="btn sm" onClick={() => setAb(ab.length ? [] : vis.map(g => g.k))}>{ab.length ? 'Cerrar todas' : 'Abrir todas'}</button>
+        <select id="ti-ord" aria-label="Ordenar" value={orden} onChange={e => setOrden(e.target.value)}><option value="num">Orden: número de pieza</option><option value="costo-d">Orden: mayor costo</option><option value="costo-a">Orden: menor costo</option><option value="falta">Orden: costo incompleto primero</option></select>
         {pm.admin && <button className="btn pri-b" onClick={() => setCot({})}>+ Cotizar</button>}
       </div></div>
+      {nInc > 0 && <div className="togs tops" aria-label="Filtrar por costo"><button className={'togb' + (soloInc ? ' on' : '')} onClick={() => setSoloInc(v => !v)}>Costo incompleto <small>{nInc}</small></button></div>}
       {opsSerie.length > 1 && <div className="togs tops" aria-label="Filtrar por operación"><button className={'togb' + (!fop ? ' on' : '')} onClick={() => setFop('')}>Todas <small>{enSerie.length}</small></button>
         {opsSerie.map(([o, n]) => <button key={o.id} className={'togb' + (fop === o.id ? ' on' : '')} onClick={() => setFop(fop === o.id ? '' : o.id)}>{o.nombre} <small>{n}</small></button>)}</div>}
-      <p className="mut">{serie || 'Sin código'}: ordenadas por número de pieza. {conDatos} {conDatos === 1 ? 'pieza' : 'piezas'} con historial · {nFab} {nFab === 1 ? 'vez fabricada' : 'veces fabricadas'}. El promedio por unidad es el que se sugiere al cargar la pieza de nuevo. Los costos usan los precios de Configuración (con su fecha).</p>
+      <p className="mut">{serie || 'Sin código'}: ordenadas por número de pieza. {conDatos} {conDatos === 1 ? 'pieza' : 'piezas'} con historial · {nFab} {nFab === 1 ? 'vez fabricada' : 'veces fabricadas'}. El promedio por unidad es el que se sugiere al cargar la pieza de nuevo. Los costos se calculan con los precios de materiales y las tarifas vigentes de Configuración: al cambiarlos, se actualizan solos. Material y peso por unidad se cargan una vez en la ficha de cada pieza (abrila con ▸); el peso total de cada pedido sale solo (peso por unidad × cantidad). En las piezas con hijas (por ejemplo soldadas) el costo suma el trabajo propio más el de todas sus hijas, con el desglose.</p>
       {faltan.length > 0 && <p className="note">Para ver costos falta cargar en Configuración: {faltan.join(' y ')}.</p>}
       {vis.length === 0 ? <Vacio ic={qq ? 'buscar' : 'reloj'} t={qq || fop ? 'Ninguna pieza coincide con el filtro' : `Todavía no hay tiempos ${serie === 'Otros' ? 'de otros códigos' : serie ? 'de piezas ' + serie : 'de piezas sin código'}`}>{qq || fop ? 'Probá con otra búsqueda u otra operación.' : 'Aparecen solos cuando se finaliza una tarea con horas reales cargadas.'}</Vacio>
         : <div className="tgrupos">{vis.map(g => { const on = ab.includes(g.k) || (!!qq && vis.length <= 3);
-          const cs = g.regs.filter(r => !r.cot && !r.fuera).map(r => E.costo(S, r)).filter(c => !c.falta.length); const cu = cs.length ? cs.reduce((a, c) => a + c.unit, 0) / cs.length : null;
+          const { cu, parcial, falta: fl } = CG[g.k], fi = (S.fichas || {})[g.k] || {};
           return <div key={g.k} className={'dgrp tgrp' + (on ? ' on' : '')}>
             <div className="dgrp-h"><button className="dgrp-t" aria-expanded={on} onClick={() => tog(g.k)}><span className="car">{on ? '▾' : '▸'}</span><b>{g.nombre}</b></button></div>
             <div className="tg-res" onClick={() => tog(g.k)}>
               {g.n ? <span><b className="tg-prom">{fHM(g.prom)}</b> por unidad <span className="mut">· promedio de {g.n} {g.n === 1 ? 'vez' : 'veces'}</span></span> : <span className="mut">Sin fabricaciones todavía</span>}
               {g.n > 0 && g.n < 3 && <span className="tag warn" title="Con 1 o 2 veces el promedio todavía no es confiable">pocos datos</span>}
-              {cu != null && <span>≈ <b>{fPlata(cu)}</b> <span className="mut">por unidad</span></span>}
+              {cu != null && <span title={parcial ? `Costo parcial: falta ${fl.join(', ')}` : 'Material + mano de obra, con los precios y tarifas de hoy'}>≈ <b>{fPlata(cu)}</b>{parcial && '*'} <span className="mut">por unidad</span></span>}
+              {g.n > 0 && parcial && <span className="tag warn" title="Completá la ficha de la pieza (abrila con ▸)">falta {fl.join(', ')}</span>}
+              {g.n > 0 && cu == null && <span className="tag warn" title="Completá la ficha de la pieza (abrila con ▸)">sin costo: falta {fl.join(', ') || 'tarifa'}</span>}
               {g.nCot > 0 && <span className="tag">{g.nCot} {g.nCot === 1 ? 'cotización' : 'cotizaciones'}</span>}
               <span className="mut">{g.operacionId ? operName(S, g.operacionId) : [...new Set(g.regs.flatMap(r => r.hhCat ? Object.keys(r.hhCat).map(id => (E.tarifaDe(S, id) || {}).nombre).filter(Boolean) : []))].join(' + ') || '—'}{g.ult ? ` · última ${fFecha(g.ult)}` : ''}</span>
             </div>
-            {on && <div className="scroll"><table className="tt ttiem"><thead><tr><th>Fecha</th><th>Origen</th><th className="num">Cant.</th><th>Operarios</th><th className="num">HH</th><th className="num">Por unidad</th><th>Material</th><th className="num">Peso kg</th><th className="num">Costo total</th><th className="num">Costo unit.</th><th></th></tr></thead>
-              <tbody>{g.regs.map(r => { const c = E.costo(S, r), d = !r.cot && r.plan > 0 ? (r.hh - r.plan) / r.plan * 100 : null;
-                return <tr key={(r.cot ? 'q' : 't') + r.id} className={(r.fuera ? 'fuera ' : '') + (r.cot ? 'cot' : '')}>
+            {on && <div className="ficha"><b>Ficha de la pieza</b>
+              <label>Material<select className="ci" aria-label="Material de la pieza" value={fi.material || ''} disabled={!pm.admin} onChange={e => setFicha(g.k, { material: e.target.value })}><option value="">—</option>{(S.materiales || []).map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}</select></label>
+              <label>Peso por unidad (kg)<EdIn className="num" type="number" min="0" step="0.01" value={fi.pesoU ?? ''} disabled={!pm.admin} onCommit={v => setFicha(g.k, { pesoU: v === '' ? null : Number(v) })} /></label>
+              {(() => { const m = E.materialDe(S, fi.material), pu = Number(fi.pesoU) || 0; return m && pu > 0 ? <span className="mut">Material por unidad: <b>{fPlata(pu * (Number(m.precio) || 0))}</b> ({fN(pu)} kg × {fPlata(m.precio)}/kg · al {fFecha(m.fecha)})</span> : <span className="mut">Se aplica a todas las fabricaciones de esta pieza. {pm.admin ? 'Si una salió distinta, cargale su propio material o peso en la tabla.' : 'Solo un administrador la edita.'}</span>; })()}
+            </div>}
+            {on && <div className="scroll"><table className="tt ttiem"><thead><tr><th>Fecha</th><th>Origen</th><th className="num">Cant.</th><th>Operarios</th><th className="num">HH</th><th className="num">Por unidad</th><th>Material</th><th className="num">Peso total kg</th><th className="num">Costo total</th><th className="num">Costo unit.</th><th></th></tr></thead>
+              <tbody>{g.regs.map(r => { const c = E.costo(S, r), d = !r.cot && r.plan > 0 ? (r.hh - r.plan) / r.plan * 100 : null, abre = dab.includes(r.id);
+                return <React.Fragment key={(r.cot ? 'q' : 't') + r.id}><tr className={(r.fuera ? 'fuera ' : '') + (r.cot ? 'cot' : '')}>
                   <td>{fFecha(r.fecha)}</td><td>{origen(r)}</td><td className="num">{fN(r.cant)}</td>
                   <td>{r.ops.length ? r.ops.map(o => opName(S, o)).join(', ') : r.opsTxt ? r.opsTxt : <span className="mut">—</span>}</td>
                   <td className="num" title={r.det || undefined}>{fN(r.hh)}{d != null && Math.abs(d) >= 1 && <small className={'tdes ' + (d > 0 ? 'c-bad' : 'c-ok')} title={`Planificado: ${fN(r.plan)} HH`}>{d > 0 ? '+' : ''}{Math.round(d)}%</small>}</td>
                   <td className="num"><b>{fHM(r.hu)}</b></td>
-                  <td><select className="ci" aria-label="Material" value={r.material || ''} disabled={(r.cot || r.hist) && !pm.admin} onChange={e => setReg(r, { material: e.target.value })}><option value="">—</option>{(S.materiales || []).map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}</select></td>
-                  <td className="num"><EdIn className="num" type="number" min="0" step="0.1" value={r.peso ?? ''} disabled={(r.cot || r.hist) && !pm.admin} onCommit={v => setReg(r, { peso: v === '' ? null : Number(v) })} /></td>
-                  <td className="num" title={`Material ${fPlata(c.mat)} + mano de obra ${fPlata(c.mo)}${c.det ? ` (${c.det.map(x => `${x.nombre} ${fN(x.h)} h × ${x.t ? fPlata(x.t.valor) : '?'}/h`).join(' + ')})` : c.vh ? ` (${fN(r.hh)} HH × ${fPlata(c.vh.valor)}/h)` : ''}`}>{c.total > 0 ? fPlata(c.total) : '—'}{c.falta.length > 0 && <small className="mut tfal">falta {c.falta.join(', ')}</small>}</td>
+                  <td><select className="ci" aria-label="Material" value={r.material || ''} disabled={(r.cot || r.hist) && !pm.admin} onChange={e => setReg(r, { material: e.target.value })}><option value="">{c.deFicha.material && c.m ? `${c.m.nombre} (de la ficha)` : '—'}</option>{(S.materiales || []).map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}</select></td>
+                  <td className="num"><EdIn className="num" type="number" min="0" step="0.1" value={r.peso ?? ''} placeholder={c.deFicha.peso ? fN(c.peso) : undefined} title={c.deFicha.peso ? 'Peso total tomado de la ficha (por unidad × cantidad)' : undefined} disabled={(r.cot || r.hist) && !pm.admin} onCommit={v => setReg(r, { peso: v === '' ? null : Number(v) })} /></td>
+                  <td className="num" title={`Material ${fPlata(c.mat)} + mano de obra ${fPlata(c.mo)}${c.det ? ` (${c.det.map(x => `${x.nombre} ${fN(x.h)} h × ${x.t ? fPlata(x.t.valor) : '?'}/h`).join(' + ')})` : c.vh ? ` (${fN(r.hh)} HH × ${fPlata(c.vh.valor)}/h)` : ''}`}>{c.total > 0 ? fPlata(c.total) : '—'}{c.falta.length > 0 && <small className="mut tfal">falta {c.falta.join(', ')}</small>}{c.hijas && <button type="button" className="lnk sm tdesg" aria-expanded={abre} onClick={() => setDab(a => a.includes(r.id) ? a.filter(x => x !== r.id) : [...a, r.id])}>{abre ? '▾' : '▸'} incluye {c.hijas.length} {c.hijas.length === 1 ? 'pieza hija' : 'piezas hijas'}</button>}</td>
                   <td className="num"><b>{c.total > 0 ? fPlata(c.unit) : '—'}</b></td>
                   <td><div className="acts">{r.hist ? <>{pm.admin && <button onClick={() => borrarHist(r)} title="Borrar esta fabricación del historial">🗑</button>}<button className={r.fuera ? 'on' : ''} onClick={() => { setReg(r, { tiempoFuera: !r.fuera }); ui.toast(r.fuera ? 'Vuelve a contar en el promedio' : 'Descartada: ya no cuenta en el promedio'); }} title={r.fuera ? 'Volver a contarla en el promedio' : 'Descartar del promedio (por ejemplo, si está mal cargada)'}>{r.fuera ? 'Incluir' : 'Descartar'}</button></>
                     : r.cot ? pm.admin && <><button onClick={() => setCot(r)} title="Editar la cotización">✎</button><button onClick={() => borrarCot(r)} title="Borrar la cotización">🗑</button></>
                     : <><button onClick={() => ui.modal({ k: 'task', id: r.id })} title="Abrir la tarea">✎</button><button className={r.fuera ? 'on' : ''} onClick={() => { setReg(r, { tiempoFuera: !r.fuera }); ui.toast(r.fuera ? 'Vuelve a contar en el promedio' : 'Descartada: ya no cuenta en el promedio'); }} title={r.fuera ? 'Volver a contarla en el promedio' : 'Descartar del promedio (por ejemplo, si salió mal)'}>{r.fuera ? 'Incluir' : 'Descartar'}</button></>}</div></td>
-                </tr>; })}</tbody></table></div>}
+                </tr>
+                </React.Fragment>; })}</tbody></table></div>}
+            {on && g.regs.filter(r => dab.includes(r.id)).map(r => { const c = E.costo(S, r); return c.hijas && <div key={'d' + r.id} className="desgbox"><div className="mut desgt">Desglose de {r.nombre} · {fFecha(r.fecha)} · {fN(r.cant)} u.</div><table className="tt tdg"><thead><tr><th>Pieza hija</th><th className="num">Cant.</th><th className="num">HH</th><th>Material</th><th className="num">Peso total kg</th><th className="num">Material US$</th><th className="num">Mano de obra US$</th><th className="num">Total US$</th></tr></thead>
+                  <tbody><tr className="tdg-p"><td><b>Trabajo propio de {r.nombre.replace(/^TPF[\w\-./]*\s*/i, '') || 'la pieza'}</b></td><td className="num">{fN(r.cant)}</td><td className="num">{fN(r.hh)}</td><td>{c.m ? c.m.nombre : <span className="mut">—</span>}</td><td className="num">{c.propio.mat > 0 ? fN(c.peso) : '—'}</td><td className="num">{fPlata(c.propio.mat)}</td><td className="num">{fPlata(c.propio.mo)}</td><td className="num"><b>{fPlata(c.propio.total)}</b></td></tr>
+                    {c.hijas.map(h => <tr key={h.id}><td style={{ paddingLeft: 8 + h.nivel * 14 }}>{h.nombre}{h.terc && <small className="mut"> · tercerizada (sin costo)</small>}</td><td className="num">{fN(h.cant)}</td><td className="num">{fN(h.hh)}</td><td>{h.c.m ? h.c.m.nombre : <span className="mut">—</span>}</td><td className="num">{h.c.mat > 0 ? fN(h.c.peso) : '—'}</td><td className="num">{fPlata(h.c.mat)}</td><td className="num">{fPlata(h.c.mo)}{h.c.falta.length > 0 && <small className="mut tfal">falta {h.c.falta.join(', ')}</small>}</td><td className="num">{fPlata(h.c.total)}</td></tr>)}
+                    <tr className="tdg-t"><td colSpan={5}><b>Total del ensamblaje</b> <span className="mut">(propio + hijas) · {fPlata(c.unit)} por unidad</span></td><td className="num">{fPlata(c.mat)}</td><td className="num">{fPlata(c.mo)}</td><td className="num"><b>{fPlata(c.total)}</b></td></tr></tbody></table></div>; })}
           </div>; })}</div>}
     </section>
     {cot && <CotEditor r={cot} onClose={() => setCot(null)} />}
