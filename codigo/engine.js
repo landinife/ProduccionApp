@@ -941,16 +941,6 @@ export function planificarGrupo(S, filtro, horas = {}, opts = {}) {
 }
 
 // ---- Métricas ----
-export function monthHH(S, V, filtro, mes) {
-  let h = 0; S.tareas.forEach(t => { const r = V.D[t.id]; if (r.parent || !filtro(t)) return; const n = Math.max(1, t.ops.length); r.segs.forEach(s => { if (s.d.startsWith(mes)) h += (s.h + (s.xe || 0)) * n; }); });
-  return h;
-}
-export function monthCap(S, mes) {
-  const [y, m] = mes.split('-').map(Number); const dias = new Date(y, m, 0).getDate(); let h = 0;
-  S.operarios.filter(o => o.activo).forEach(o => { for (let i = 1; i <= dias; i++) h += capN(S, o.id, `${mes}-${pad(i)}`); });
-  return h;
-}
-
 export const usuariosEjemplo = () => [{ id: 'u1', nombre: 'Dueño', email: '', admin: true, rep: 'editar', proy: 'editar' }, { id: 'u2', nombre: 'Carga de repuestos', email: 'repuestos@ejemplo.com', admin: false, rep: 'editar', proy: 'ver' }, { id: 'u3', nombre: 'Oficina técnica', email: 'tecnica@ejemplo.com', admin: false, rep: 'ver', proy: 'editar' }, { id: 'u4', nombre: 'Solo consulta', email: 'consulta@ejemplo.com', admin: false, rep: 'ver', proy: 'ver' }];
 // ===== Datos de ejemplo =====
 export function sample() {

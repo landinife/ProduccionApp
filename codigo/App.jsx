@@ -36,6 +36,27 @@ const estDe = t => E.esProximo(t) ? 'proximo' : t.estado;   // estado a mostrar 
 // en pausa = empezada y parada, pausada o frenada; después próximo a realizar y pendientes.
 const SECC = [['curso', 'En proceso', 'var(--accent)'], ['pausa', 'En pausa', 'var(--warn)'], ['proximo', 'Próximo a realizar', 'var(--prox)'], ['pendiente', 'Pendientes', 'var(--mut)']];
 const claseT = t => t.estado === 'terminada' ? 'terminada' : E.corriendo(t) ? 'curso' : (t.pausada || t.estado === 'en proceso' || E.estaFrenada(t)) ? 'pausa' : E.esProximo(t) ? 'proximo' : 'pendiente';
+// ---- Piezas compartidas por Producción, Repuestos, Proyectos, Post Venta y Taller: secciones por estado y tablero por proceso ----
+const ORD_CLASE = { curso: 0, pausa: 1, proximo: 2, pendiente: 3 };
+// Piezas con trabajo propio (hojas) y sin finalizar de un conjunto de raíces, respetando el filtro vis
+function hojasActivas(V, roots, vis) { const h = []; const junta = t => { if (!vis || vis(t)) { if (!V.D[t.id].parent && t.estado !== 'terminada') h.push(t); (V.kids[t.id] || []).forEach(junta); } }; roots.forEach(junta); return h; }
+// Plegado de los grupos de estado; se recuerda en este equipo con la clave de cada pestaña
+function usePlegados(clave, inicial = {}) { const [plg, setPlg] = useState(() => prefG(clave, inicial)); const tog = k => { const n = { ...plg, [k]: !plg[k] }; setPlg(n); guardaG(clave, n); }; return [plg, tog]; }
+// Un grupo plegable de estado (En proceso, En pausa, Próximo a realizar, Pendientes...)
+function GrupoEstado({ k, l, c, n, plg, tog, nota, children }) {
+  return <div className={'repg' + (plg[k] ? '' : ' on')} style={{ '--c': c }}>
+    <button className="dgrp-t repg-t" onClick={() => tog(k)}><span className="car">{plg[k] ? '▸' : '▾'}</span><b>{l}</b><span className="cnt">{n}</span>{nota}</button>
+    {!plg[k] && children}</div>;
+}
+// Tablero por proceso: una columna por operación (más "Sin operación"); cada pestaña dibuja su propia tarjeta con card
+function TableroCols({ tareas, card, vacio, desempate }) {
+  const { S } = useApp(); const g = {};
+  tareas.forEach(t => { const k = t.operacionId && S.operaciones.some(o => o.id === t.operacionId) ? t.operacionId : '_'; (g[k] = g[k] || []).push(t); });
+  const cols = [...S.operaciones.map(o => [o.id, o.nombre]), ['_', 'Sin operación']].filter(([k]) => g[k]);
+  if (!cols.length) return vacio;
+  return <div className="tabp">{cols.map(([k, nom]) => { const l = g[k].slice().sort((a, b) => ORD_CLASE[claseT(a)] - ORD_CLASE[claseT(b)] || PRI[a.prioridad] - PRI[b.prioridad] || (desempate ? desempate(a, b) : 0));
+    return <div key={k} className="tabp-c"><div className="tabp-h"><b>{nom}</b><span className="cnt">{l.length}</span><span className="mut">{fH(l.reduce((a, t) => a + (Number(t.hh) || 0), 0))}</span></div>{l.map(t => card(t))}</div>; })}</div>;
+}
 // Tercerizada: pieza hecha por un proveedor (capacidad de planta). Cuenta como finalizada pero no ocupa operarios ni horas de planta.
 const esTerc = t => !!(t && t.tercerizada && t.estado === 'terminada');
 // Finalizada sin día ni hora puntual (datos migrados de una planilla): tilde verde + signo de admiración amarillo
@@ -268,25 +289,6 @@ const ordenProy = S => l => l.map((t, i) => [t, i]).sort((a, b) => ((a[0].pos ??
 const useSet = () => { const [s, set] = useState(() => new Set()); const tog = id => set(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; }); return [s, tog, set]; };
 
 /* ================= RESUMEN ================= */
-function OpStrip() {
-  const { S, V, ui } = useApp(); const hoy = E.today(), now = E.nowDT();
-  if (!S.operarios.some(o => o.activo)) return <Vacio ic="gente" t="Todavía no hay operarios cargados">Agregalos en Configuración para empezar a programar.</Vacio>;
-  return <div className="opstrip">
-    {S.operarios.filter(o => o.activo).map((o, oi) => {
-      const mine = S.tareas.filter(t => t.ops.includes(o.id) && !V.D[t.id].parent && t.estado !== 'terminada' && !E.estaFrenada(t));
-      const curDe = l => l.find(t => E.corriendo(t)) || l.find(t => t.estado === 'en proceso' || t.pausada) || l.find(t => t.inicio && t.inicio <= now && V.D[t.id].fin > now); const nom = t => t.nombre + (t.pausada || (t.estado === 'en proceso' && !E.corriendo(t)) ? ' (en pausa)' : '');
-      const ex = mine.filter(t => t.turno === 'extra'), cn = curDe(mine.filter(t => t.turno !== 'extra')), ce = curDe(ex);
-      const aus = E.ausenciaDe(S, o.id, hoy);
-      return <button key={o.id} className={'opchip' + (aus ? ' aus' : cn || ce ? ' busy' : '')} onClick={() => ui.modal({ k: 'op', id: o.id })}>
-        <Av o={o} i={S.operarios.indexOf(o)} /><b>{o.nombre}</b>
-        {aus ? <span>{aus.motivo}</span> : <>
-          <span><em>N</em>{cn ? nom(cn) : 'Libre'}</span>
-          {ex.length > 0 && <span><em>E</em>{ce ? nom(ce) : ex[0].nombre + ' (en cola)'}</span>}</>}
-        {!aus && (() => { const c = E.capN(S, o.id, hoy) + E.extraDe(S, o.id, hoy), l = ((V.load[`${o.id}|${hoy}|normal`] || {}).h || 0) + ((V.load[`${o.id}|${hoy}|extra`] || {}).h || 0); return <span className="opload"><Bar v={c ? l / c * 100 : 0} color={l > c + 0.01 ? 'var(--bad)' : undefined} /><small>{fN(l)}/{fN(c)} h hoy</small></span>; })()}
-      </button>;
-    })}
-  </div>;
-}
 function PushBanner() {
   const { S, V, up } = useApp(); const [open, setOpen] = useState(false);
   const ps = S.tareas.filter(t => t.empuje); if (!ps.length) return null;
@@ -479,7 +481,7 @@ function Resumen() {
       </div> : !aus && <button className="addx" {...dnd(o.id, d, 'extra')} onClick={() => nuevaExtra(o.id, d)}>+ extra</button>}
     </td>;
   };
-  const [plgP, setPlgP] = useState(() => prefG('prod-grupos', {})); const togP = k => { const n = { ...plgP, [k]: !plgP[k] }; setPlgP(n); guardaG('prod-grupos', n); };
+  const [plgP, togP] = usePlegados('prod-grupos');
   const base = S.tareas.filter(t => !V.D[t.id].parent && t.estado !== 'terminada' && (!fp || t.prioridad === fp) && (!fo || (fo === '_' ? !t.ops.length : t.ops.includes(fo))));
   const deClase = (k, tipo) => base.filter(t => t.tipo === tipo && claseT(t) === k)
     .sort(k === 'proximo' ? (a, b) => ((a.proximo || '9') < (b.proximo || '9') ? -1 : (a.proximo || '9') > (b.proximo || '9') ? 1 : 0)
@@ -496,20 +498,11 @@ function Resumen() {
   </div>; };
   // Vista "Por proceso": una columna por operación, con las mismas tarjetas (y acciones) que la vista por estado
   const prxL = base.filter(t => claseT(t) === 'proximo').sort((a, b) => ((a.proximo || '9') < (b.proximo || '9') ? -1 : (a.proximo || '9') > (b.proximo || '9') ? 1 : 0));
-  const porProc = (() => { const g = {}; base.forEach(t => { const k = t.operacionId && S.operaciones.some(o => o.id === t.operacionId) ? t.operacionId : '_'; (g[k] = g[k] || []).push(t); });
-    const cols = [...S.operaciones.map(o => [o.id, o.nombre]), ['_', 'Sin operación']].filter(([k]) => g[k]); const ORD = { curso: 0, pausa: 1, proximo: 2, pendiente: 3 };
-    if (!cols.length) return <Vacio ic="buscar" chico t="No hay tareas pendientes con este filtro" />;
-    return <div className="tabp">{cols.map(([k, nom]) => { const l = g[k].slice().sort((a, b) => ORD[claseT(a)] - ORD[claseT(b)] || PRI[a.prioridad] - PRI[b.prioridad] || ((a.inicio || '9') < (b.inicio || '9') ? -1 : 1));
-      return <div key={k} className="tabp-c"><div className="tabp-h"><b>{nom}</b><span className="cnt">{l.length}</span><span className="mut">{fH(l.reduce((a, t) => a + (Number(t.hh) || 0), 0))}</span></div>{l.map(t => pitem(t, claseT(t), prxL.indexOf(t) + 1, true))}</div>; })}</div>; })();
+  const porProc = <TableroCols tareas={base} vacio={<Vacio ic="buscar" chico t="No hay tareas pendientes con este filtro" />} desempate={(a, b) => (a.inicio || '9') < (b.inicio || '9') ? -1 : 1} card={t => pitem(t, claseT(t), prxL.indexOf(t) + 1, true)} />;
   const grupos = SECC.map(([k, l, c]) => { const n = deClase(k, 'rep').length + deClase(k, 'proy').length; if (!n && k !== 'pendiente') return null;
-    return <div key={k} className={'repg' + (plgP[k] ? '' : ' on')} style={{ '--c': c }}>
-      <button className="dgrp-t repg-t" onClick={() => togP(k)}><span className="car">{plgP[k] ? '▸' : '▾'}</span><b>{l}</b><span className="cnt">{n}</span>{k === 'proximo' && <span className="mut">en el orden en que se marcaron · salen solas al iniciarlas</span>}{k === 'pausa' && <span className="mut">empezadas que no se están haciendo ahora, pausadas o frenadas</span>}</button>
-      {!plgP[k] && (n ? <div className="pcols">{lista(k, 'Repuestos', 'rep')}{lista(k, 'Proyectos, Post Venta y Taller', 'proy')}</div> : <Vacio ic="buscar" chico t="No hay tareas pendientes con este filtro" />)}</div>; });
+    return <GrupoEstado key={k} k={k} l={l} c={c} n={n} plg={plgP} tog={togP} nota={<>{k === 'proximo' && <span className="mut">en el orden en que se marcaron · salen solas al iniciarlas</span>}{k === 'pausa' && <span className="mut">empezadas que no se están haciendo ahora, pausadas o frenadas</span>}</>}>
+      {n ? <div className="pcols">{lista(k, 'Repuestos', 'rep')}{lista(k, 'Proyectos, Post Venta y Taller', 'proy')}</div> : <Vacio ic="buscar" chico t="No hay tareas pendientes con este filtro" />}</GrupoEstado>; });
   return <div className="view">
-    <section>
-      <div className="sec-h"><h2>Operarios</h2><span className="mut">Tocá uno para ver qué está haciendo, finalizarle la tarea o darle otra.</span></div>
-      <OpStrip />
-    </section>
     <PushBanner />
     <section>
       <div className="sec-h">
@@ -864,7 +857,7 @@ function OrdChart({ ord, mes }) {
 function Repuestos() {
   const { S, V, ui } = useApp();
   const [mes, setMes] = useState(E.today().slice(0, 7)); const [f, setF] = useState({ e: '', c: '', o: '', p: '', q: '' });
-  const [vp, setVp] = useVistaProc(); const [plg, setPlg] = useState(() => prefG('rep-grupos', { terminada: true })); const togG = k => { const n = { ...plg, [k]: !plg[k] }; setPlg(n); guardaG('rep-grupos', n); };
+  const [vp, setVp] = useVistaProc(); const [plg, togG] = usePlegados('rep-grupos', { terminada: true });
   const roots = S.tareas.filter(t => t.tipo === 'rep' && !t.parentId);
   const ord = {}; roots.forEach(r => { (ord[r.orden || 'S/N'] = ord[r.orden || 'S/N'] || []).push(r); });
   const C = { OV: { p: 0, e: 0, t: 0 }, OC: { p: 0, e: 0, t: 0 } };
@@ -872,7 +865,8 @@ function Repuestos() {
     if (es.every(e => e === 'terminada')) { const fin = rs.flatMap(r => [r.id, ...E.descendants(S, r.id)]).map(id => V.byId[id].finReal || V.D[id].fin).filter(Boolean).sort().pop(); if (fin && fin.startsWith(mes)) c.t++; }
     else if (es.every(e => e === 'pendiente' || e === 'proximo')) c.p++; else c.e++; });
   const mesTxt = `${E.MESES[Number(mes.slice(5)) - 1]} ${mes.slice(0, 4)}`;
-  const hh = E.monthHH(S, V, t => t.tipo === 'rep', mes), cap = E.monthCap(S, mes);
+  // Mismos números que la pestaña Estadísticas: HH reales de Repuestos del mes y horas disponibles (con ausencias y extras) hasta hoy
+  const mm = useMemo(() => E.estadisticas(S, V), [S, V]).mes[mes] || {}, hh = mm.rep || 0, cap = mm.disp || 0;
   const match = t => (!f.e || (f.e === 'activas' ? t.estado !== 'terminada' : f.e === 'proximo' ? E.esProximo(t) : f.e === 'pendiente' ? estDe(t) === 'pendiente' : t.estado === f.e)) && (!f.o || t.ops.includes(f.o)) && (!f.p || t.prioridad === f.p);
   const q = f.q.trim().toLowerCase();
   const vis = t => { const rt = V.rootOf(t); if (f.c && rt.cliente !== f.c) return false; if (q && !t.parentId && ![rt.orden, rt.cliente, rt.nombre, ...E.descendants(S, rt.id).map(i => V.byId[i].nombre)].join(' ').toLowerCase().includes(q)) return false; const ch = V.kids[t.id] || []; return ch.length ? ch.some(vis) : match(t); };
@@ -885,7 +879,7 @@ function Repuestos() {
         <div className="mcard"><span className="mt">Órdenes de venta · OV</span><div className="mpair"><div><b>{C.OV.p}</b><em>Pendientes</em></div><div className="m-acc"><b>{C.OV.e}</b><em>En proceso</em></div></div></div>
         <div className="mcard"><span className="mt">Órdenes de stock · OC</span><div className="mpair"><div><b>{C.OC.p}</b><em>Pendientes</em></div><div className="m-acc"><b>{C.OC.e}</b><em>En proceso</em></div></div></div>
         <div className="mcard"><span className="mt">Finalizadas en {mesTxt}</span><div className="mpair m-ok"><div><b>{C.OV.t}</b><em>OV</em></div><div><b>{C.OC.t}</b><em>OC</em></div></div></div>
-        <div className="mcard"><span className="mt">Horas dedicadas a repuestos · {mesTxt}</span><div className="mpair"><div><b>{fN(hh)}<small> h</small></b><em>{cap ? `${Math.round(hh / cap * 100)}% de las ${fN(cap)} h disponibles` : 'Sin horas disponibles en el mes'}</em></div></div>
+        <div className="mcard"><span className="mt">Horas dedicadas a repuestos · {mesTxt}</span><div className="mpair"><div><b>{fN(hh)}<small> h</small></b><em>{cap ? `${Math.round(hh / cap * 100)}% de las ${fN(cap)} h disponibles${mes === E.today().slice(0, 7) ? ' hasta hoy' : ''}` : 'Sin horas disponibles en el mes'}</em></div></div>
           <span className="pbar big"><i style={{ width: Math.min(100, cap ? hh / cap * 100 : 0) + '%' }} /></span></div>
       </div>
       <OrdChart ord={ord} mes={mes} />
@@ -908,9 +902,8 @@ function Repuestos() {
             const G = [...SECC, ['terminada', 'Finalizadas', 'var(--ok)']];
             const ord_ = roots.slice().sort((a, b) => PRI[a.prioridad] - PRI[b.prioridad]);
             return G.map(([k, l, c]) => { if (vp === 'proceso' && k !== 'terminada') return k === 'curso' ? <TableroProc key="tab" roots={ord_.filter(r => grupo(r) !== 'terminada')} vis={vis} /> : null; const rs = ord_.filter(r => grupo(r) === k && vis(r)); if (!rs.length && k !== 'curso') return null;
-              return <div key={k} className={'repg' + (plg[k] ? '' : ' on')} style={{ '--c': c }}>
-                <button className="dgrp-t repg-t" onClick={() => togG(k)}><span className="car">{plg[k] ? '▸' : '▾'}</span><b>{l}</b><span className="cnt">{rs.length}</span>{k === 'pausa' && <span className="mut">empezadas que no se están haciendo ahora</span>}{k === 'proximo' && <span className="mut">órdenes con piezas marcadas para hacer primero</span>}</button>
-                {!plg[k] && (rs.length ? <TaskTable roots={rs} tipo="rep" vis={vis} universo={ord_} /> : <p className="mut pad">Ningún repuesto en curso en este momento.</p>)}</div>; }); })()}
+              return <GrupoEstado key={k} k={k} l={l} c={c} n={rs.length} plg={plg} tog={togG} nota={<>{k === 'pausa' && <span className="mut">empezadas que no se están haciendo ahora</span>}{k === 'proximo' && <span className="mut">órdenes con piezas marcadas para hacer primero</span>}</>}>
+                {rs.length ? <TaskTable roots={rs} tipo="rep" vis={vis} universo={ord_} /> : <p className="mut pad">Ningún repuesto en curso en este momento.</p>}</GrupoEstado>; }); })()}
     </section>
   </div>;
 }
@@ -1197,36 +1190,25 @@ function VistaSel({ v, set }) {
   </div>;
 }
 function TableroProc({ roots, vis }) {
-  const { S, V, ui } = useApp();
-  const hojas = []; const junta = t => { if (!vis || vis(t)) { if (!V.D[t.id].parent && t.estado !== 'terminada') hojas.push(t); (V.kids[t.id] || []).forEach(junta); } }; roots.forEach(junta);
-  const ORD = { curso: 0, pausa: 1, proximo: 2, pendiente: 3 }, COL = Object.fromEntries(SECC.map(x => [x[0], x[2]])), LBL = Object.fromEntries(SECC.map(x => [x[0], x[1]]));
-  const grupos = {}; hojas.forEach(t => { const k = t.operacionId && S.operaciones.some(o => o.id === t.operacionId) ? t.operacionId : '_'; (grupos[k] = grupos[k] || []).push(t); });
-  const cols = [...S.operaciones.map(o => [o.id, o.nombre]), ['_', 'Sin operación']].filter(([k]) => grupos[k]);
-  if (!cols.length) return <Vacio ic="ok" chico t="No hay piezas pendientes ni en proceso" />;
-  return <div className="tabp">{cols.map(([k, nom]) => {
-    const l = grupos[k].slice().sort((a, b) => ORD[claseT(a)] - ORD[claseT(b)] || PRI[a.prioridad] - PRI[b.prioridad]);
-    const hh = l.reduce((a, t) => a + (Number(t.hh) || 0), 0);
-    return <div key={k} className="tabp-c">
-      <div className="tabp-h"><b>{nom}</b><span className="cnt">{l.length}</span><span className="mut">{fH(hh)}</span></div>
-      {l.map(t => { const c = claseT(t), r = V.rootOf(t), ens = t.parentId && V.byId[t.parentId]; return <button key={t.id} className={'tabp-t k-' + c} style={{ '--c': COL[c] }} title="Abrir la pieza" onClick={() => ui.modal({ k: 'task', id: t.id })}>
-        <span className="tabp-r"><Chip t={t} small /><Pri p={t.prioridad} /></span>
-        <span className="tabp-e"><i>{c === 'curso' ? '● ' : c === 'proximo' ? '⏭ ' : ''}{LBL[c]}</i></span>
-        <b>{t.nombre}</b>
-        <span className="mut">{ens && ens.id !== r.id && !ens.partes ? ens.nombre + ' · ' : ''}{r.orden || r.nombre} · cant. {t.cant} · {fH(t.hh)}</span>
-        <span className="mut">{t.ops.length ? t.ops.map(o => opName(S, o)).join(', ') : 'sin operario'}</span>
-      </button>; })}
-    </div>; })}</div>;
+  const { V, ui, S } = useApp();
+  const COL = Object.fromEntries(SECC.map(x => [x[0], x[2]])), LBL = Object.fromEntries(SECC.map(x => [x[0], x[1]]));
+  const card = t => { const c = claseT(t), r = V.rootOf(t), ens = t.parentId && V.byId[t.parentId]; return <button key={t.id} className={'tabp-t k-' + c} style={{ '--c': COL[c] }} title="Abrir la pieza" onClick={() => ui.modal({ k: 'task', id: t.id })}>
+    <span className="tabp-r"><Chip t={t} small /><Pri p={t.prioridad} /></span>
+    <span className="tabp-e"><i>{c === 'curso' ? '● ' : c === 'proximo' ? '⏭ ' : ''}{LBL[c]}</i></span>
+    <b>{t.nombre}</b>
+    <span className="mut">{ens && ens.id !== r.id && !ens.partes ? ens.nombre + ' · ' : ''}{r.orden || r.nombre} · cant. {t.cant} · {fH(t.hh)}</span>
+    <span className="mut">{t.ops.length ? t.ops.map(o => opName(S, o)).join(', ') : 'sin operario'}</span>
+  </button>; };
+  return <TableroCols tareas={hojasActivas(V, roots, vis)} card={card} vacio={<Vacio ic="ok" chico t="No hay piezas pendientes ni en proceso" />} />;
 }
 
 /* Pendientes y en proceso de un proyecto o caso, en secciones por estado. Cada sección muestra sus piezas con los ensamblajes que las contienen. */
 function SeccEstado({ roots, vis, tabla }) {
-  const { V } = useApp(); const [plg, setPlg] = useState(() => prefG('proy-grupos', {})); const tog = k => { const n = { ...plg, [k]: !plg[k] }; setPlg(n); guardaG('proy-grupos', n); };
-  const hojas = []; const junta = t => { if (!vis || vis(t)) { if (!V.D[t.id].parent && t.estado !== 'terminada') hojas.push(t); (V.kids[t.id] || []).forEach(junta); } }; roots.forEach(junta);
+  const { V } = useApp(); const [plg, tog] = usePlegados('proy-grupos');
+  const hojas = hojasActivas(V, roots, vis);
   const secs = SECC.map(([k, l, c]) => { const n = hojas.filter(t => claseT(t) === k).length; if (!n) return null;
     const memo = new Map(); const tiene = t => { if (memo.has(t.id)) return memo.get(t.id); const r = (!vis || vis(t)) && ((!V.D[t.id].parent && t.estado !== 'terminada' && claseT(t) === k) || (V.kids[t.id] || []).some(tiene)); memo.set(t.id, r); return r; };
-    return <div key={k} className={'repg' + (plg[k] ? '' : ' on')} style={{ '--c': c }}>
-      <button className="dgrp-t repg-t" onClick={() => tog(k)}><span className="car">{plg[k] ? '▸' : '▾'}</span><b>{l}</b><span className="cnt">{n}</span>{k === 'pausa' && <span className="mut">empezadas que no se están haciendo ahora, pausadas o frenadas</span>}</button>
-      {!plg[k] && tabla(tiene)}</div>; }).filter(Boolean);
+    return <GrupoEstado key={k} k={k} l={l} c={c} n={n} plg={plg} tog={tog} nota={k === 'pausa' && <span className="mut">empezadas que no se están haciendo ahora, pausadas o frenadas</span>}>{tabla(tiene)}</GrupoEstado>; }).filter(Boolean);
   return secs.length ? <>{secs}</> : <Vacio ic="ok" chico t="No hay piezas pendientes ni en proceso" />;
 }
 
@@ -1330,26 +1312,8 @@ function Proyectos({ pv = false, tl = false }) {
     <section>
       <div className="sec-h"><div className="row"><span className="chip" style={{ '--c': p.color }}>{p.ini}</span><h2>{p.nombre}</h2>{p.terminado && <span className="tag ok">✓ Terminado{p.terminadoEl ? ` el ${fD(p.terminadoEl)}` : ''}</span>}</div>
         <div className="row"><button className="btn" onClick={() => ui.modal({ k: 'imp', mode: 'proy', proyId: p.id })}>Importar árbol .xlsx</button><button className="btn" onClick={() => ui.modal({ k: 'plan', proyId: p.id })}>Planificar proyecto</button><button className="btn pri-b" onClick={() => ui.modal({ k: 'task', draft: E.blankTask('proy', p.id, pv) })}>+ Pieza</button></div></div>
-      <div className="form inline">
-        <label>Nombre<input id="p-nom" value={p.nombre} onChange={e => setP('nombre', e.target.value)} /></label>
-        <label>Iniciales<input id="p-ini" className="w4" maxLength="4" value={p.ini} onChange={e => setP('ini', e.target.value.toUpperCase())} /></label>
-        <label>Color<input id="p-col" type="color" value={p.color} onChange={e => setP('color', e.target.value)} /></label>
-        <label>{pv ? 'Fecha comprometida de envío' : 'Entrega comprometida'}<input id="p-ent" type="date" value={p.entrega || ''} onChange={e => setP('entrega', e.target.value)} /></label>
-        {p.terminado && <label>Terminado el<input id="p-term" type="date" value={p.terminadoEl || ''} max={E.today()} onChange={e => setP('terminadoEl', e.target.value)} /></label>}
-        <label title="Horas-hombre reales que el proyecto ya llevaba antes de cargarlas en la app (punto de partida). Se suman a las HH reales; las que cargues en las piezas se suman encima.">HH reales previas<input id="p-hprev" className="w4" style={{ width: 110 }} type="number" min="0" step="0.5" placeholder="0" value={p.hhPrevias ?? ''} onChange={e => setP('hhPrevias', e.target.value)} onBlur={e => { const n = Math.max(0, Number(e.target.value) || 0); if (typeof p.hhPrevias === 'string' || n !== (p.hhPrevias || 0)) setP('hhPrevias', n); }} /></label>
-        {pv && pvForm}
-        <label className="chk etp" title="Dentro de cada ensamblaje, cada etapa (corte, lijado, plegado, mecanizado, soldadura…) espera a que terminen las anteriores. El orden de las etapas se define en Configuración → Operaciones."><input type="checkbox" checked={!!p.etapas} onChange={e => setP('etapas', e.target.checked)} /> Desplazar por etapas de fabricación</label>
-        {p.etapas && <button className="btn" onClick={() => { let n = 0; up(s => { const r = E.acomodarEtapas(s, p.id); n = r.n; return r.S; }); ui.toast(n ? `${n} ${n === 1 ? 'tarea corrida' : 'tareas corridas'} para respetar el orden de las etapas` : 'Ya estaba todo en orden de etapas'); }}>Acomodar por etapas</button>}
-        {i.ts.some(t => t.pos !== undefined && t.pos !== null) && <button className="btn" title="Borra el orden manual (▲▼) y vuelve a ordenar por etapa" onClick={() => up(s => ({ ...s, tareas: s.tareas.map(t => t.proyId === p.id && t.pos !== undefined && t.pos !== null ? { ...t, pos: null } : t) }))}>Ordenar por etapa</button>}
-        <button className={'btn ' + (p.terminado ? 'warn-b' : 'ok-b')} title={p.terminado ? 'Vuelve a mostrarlo en las pestañas' : 'Lo saca de las pestañas y lo guarda en Terminados; no se pierde ningún dato'} onClick={() => { const nt = !p.terminado; ui.confirmar({ titulo: nt ? (caso ? '¿Marcar el caso como terminado?' : '¿Marcar el proyecto como terminado?') : (caso ? '¿Reabrir el caso?' : '¿Reabrir el proyecto?'), texto: nt ? `“${p.nombre}” se va a la sección Terminados y deja de aparecer entre los activos. Los datos no se pierden y lo podés reabrir cuando quieras.` : `“${p.nombre}” vuelve a la lista de activos.`, si: nt ? 'Sí, marcar como terminado' : 'Sí, reabrir', fecha: nt ? E.today() : undefined, onSi: f => { up(s => ({ ...s, proyectos: s.proyectos.map(x => x.id === p.id ? { ...x, terminado: nt, terminadoEl: nt ? (f || E.today()) : '' } : x) })); if (nt) setPid(null); ui.toast(nt ? `${p.nombre} pasó a Terminados. Podés deshacerlo arriba.` : `${p.nombre} volvió a los activos.`); } }); }}>{p.terminado ? '↩ Reabrir' : '✓ Marcar como terminado'}</button>
-        <button className="btn danger" onClick={() => { const nt = S.tareas.filter(t => t.proyId === p.id).length; ui.confirmar({ titulo: caso ? '¿Borrar el caso?' : '¿Borrar el proyecto?', texto: `Se borra “${p.nombre}”${nt ? ` y sus ${nt} tarea${nt === 1 ? '' : 's'}` : ''}. Si solo terminó, mejor usá “Marcar como terminado”. Podés deshacerlo arriba.`, si: 'Sí, borrar', peligro: true, onSi: () => { up(s => ({ ...s, proyectos: s.proyectos.filter(x => x.id !== p.id), tareas: s.tareas.filter(t => t.proyId !== p.id) })); setPid(null); ui.toast('Proyecto borrado. Podés deshacerlo arriba.'); } }); }}>Borrar proyecto</button>
-      </div>
-      <div className="kpis">
-        <Kpi l="Avance" v={Math.round(i.av) + '%'} s={`${fN(i.hh * i.av / 100)} de ${fN(i.hh)} HH`} onClick={() => setDet(det === 'av' ? null : 'av')} on={det === 'av'} />
-        <Kpi l="Inicio proyectado" v={fD(i.ini && i.ini.slice(0, 10))} /><Kpi l="Fin proyectado" v={fD(i.fin && i.fin.slice(0, 10))} tone={late ? 'bad' : ''} s={late ? `${E.diffDays(p.entrega, i.fin.slice(0, 10))} d después de la entrega` : p.entrega ? `entrega ${fD(p.entrega)}` : ''} />
-        <Kpi l="HH reales cargadas" v={fH(i.real)} s={`plan a la fecha ${fN(i.hh * i.av / 100)} h${i.prev > 0 ? ` · incluye ${fN(i.prev)} h previas` : ''}`} onClick={() => setDet(det === 'hh' ? null : 'hh')} on={det === 'hh'} />
-        <div className="kpi grow"><span>Horas-hombre por mes</span><div className="mbars">{mk.length === 0 && <em>Sin tareas programadas</em>}{mk.map(m => <div key={m} title={`${fN(meses[m])} HH`}><i style={{ height: Math.max(4, meses[m] / mmax * 44), background: p.color }} /><small>{E.MESES[Number(m.slice(5)) - 1]}</small><small className="v">{Math.round(meses[m])}</small></div>)}</div></div>
-      </div>
+      {datosForm}
+      {kpis}
     </section>
     <div className="pbusca"><input type="search" placeholder="Buscar pieza por código o descripción" value={q} onChange={e => setQ(e.target.value)} aria-label="Buscar pieza" />{qn && <span className="mut">{nQ ? `${nQ} ${nQ === 1 ? 'pieza encontrada' : 'piezas encontradas'}` : 'Ninguna pieza coincide'}</span>}{qn && <button className="btn sm" onClick={() => setQ('')}>Limpiar</button>}
       {lotes.map(g => <button key={g.k} className="btn sm pri-b" title="Editar a la vez todas las veces que aparece esta pieza en el proyecto" onClick={() => ui.modal({ k: 'lote', ids: g.ids, titulo: g.nom })}>✎ Editar en lote: {g.nom} (×{g.ids.length})</button>)}</div>
@@ -1672,18 +1636,25 @@ function ExtrasAviso({ ids, onClose }) {
     <p className="mut">Esas extras quedan para trabajo aparte (no siguen lo del turno normal). Las podés ajustar después en Producción, tocando al operario.</p>
   </Modal>;
 }
+// Cola de trabajo de un operario: la usan la ventana del operario (Producción) y Operarios → Trabajo del día
+function colaOperario(S, V, id, hoy) {
+  const todas = S.tareas.filter(t => t.ops.includes(id) && !V.D[t.id].parent && t.estado !== 'terminada').sort((a, b) => (a.inicio || '9') < (b.inicio || '9') ? -1 : 1);
+  return { todas, mine: todas.filter(t => !E.estaFrenada(t)), frenadas: todas.filter(E.estaFrenada),
+    hechas: S.tareas.filter(t => t.ops.includes(id) && t.estado === 'terminada' && !t.tercerizada && (t.finReal || '').startsWith(hoy) && !V.D[t.id].parent),
+    aus: E.ausenciaDe(S, id, hoy) };
+}
+// Divide una lista de tareas en lo que está haciendo, en pausa y lo que sigue
+const seccionesCola = l => ({ en: l.filter(t => E.corriendo(t)), pau: l.filter(t => t.pausada || (t.estado === 'en proceso' && !E.corriendo(t))), sig: l.filter(t => E.esPend(t) && !t.pausada) });
+// Refresca la pantalla cada 30 s (cronómetros)
+function useReloj() { const [, setTick] = useState(0); useEffect(() => { const i = setInterval(() => setTick(x => x + 1), 30000); return () => clearInterval(i); }, []); }
 function OperarioPanel({ id, onClose }) {
-  const { S, V, up, ui } = useApp(); const [, setTick] = useState(0);
-  useEffect(() => { const i = setInterval(() => setTick(x => x + 1), 30000); return () => clearInterval(i); }, []);
+  const { S, V, up, ui } = useApp(); useReloj();
   const o = S.operarios.find(x => x.id === id); if (!o) return null;
   const hoy = E.today();
-  const todas = S.tareas.filter(t => t.ops.includes(id) && !V.D[t.id].parent && t.estado !== 'terminada').sort((a, b) => (a.inicio || '9') < (b.inicio || '9') ? -1 : 1);
-  const mine = todas.filter(t => !E.estaFrenada(t)), frenadas = todas.filter(E.estaFrenada);
-  const hechas = S.tareas.filter(t => t.ops.includes(id) && t.estado === 'terminada' && !t.tercerizada && (t.finReal || '').startsWith(hoy) && !V.D[t.id].parent);
-  const aus = E.ausenciaDe(S, id, hoy);
+  const { mine, frenadas, hechas, aus } = colaOperario(S, V, id, hoy);
   const prox = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].map(i => E.addDays(hoy, i)).filter(d => E.extraDe(S, id, d) > 0);
   const camino = (turno, tit) => {
-    const l = mine.filter(t => turno === 'extra' ? t.turno === 'extra' : t.turno !== 'extra'), en = l.filter(t => E.corriendo(t)), pau = l.filter(t => t.pausada || (t.estado === 'en proceso' && !E.corriendo(t))), sig = l.filter(t => E.esPend(t) && !t.pausada);
+    const l = mine.filter(t => turno === 'extra' ? t.turno === 'extra' : t.turno !== 'extra'), { en, pau, sig } = seccionesCola(l);
     const ld = (V.load[`${id}|${hoy}|${turno}`] || {}).h || 0, cap = turno === 'extra' ? E.extraDe(S, id, hoy) : E.capN(S, id, hoy);
     const cola = l.reduce((a, t) => a + V.D[t.id].durCal * (1 - V.D[t.id].avance / 100), 0), fin = l.map(t => V.D[t.id].fin).filter(Boolean).sort().pop();
     return <div className={'opcol' + (turno === 'extra' ? ' ex' : '')}>
@@ -1768,9 +1739,8 @@ function TallerTask({ t }) {
   </div>;
 }
 function Taller({ cab }) {
-  const { S, V } = useApp(); const [, setTick] = useState(0);
+  const { S, V } = useApp(); useReloj();
   const [oid, setOid] = useState(() => { try { return localStorage.getItem(KEY + '-taller') || ''; } catch (e) { return ''; } });
-  useEffect(() => { const i = setInterval(() => setTick(x => x + 1), 30000); return () => clearInterval(i); }, []);
   const ops = S.operarios.filter(o => o.activo), o = ops.find(x => x.id === oid), hoy = E.today();
   const elegir = id => { setOid(id); try { localStorage.setItem(KEY + '-taller', id); } catch (e) { } };
   useTopH(); const tref = useRef(null);
@@ -1781,11 +1751,8 @@ function Taller({ cab }) {
   if (!o) return <div className="view taller">{cab}<section><div className="sec-h"><h2>¿Quién sos?</h2><span className="mut">Tocá tu nombre</span></div>
     {ops.length === 0 && <Vacio ic="gente" t="Todavía no hay operarios cargados">Se agregan en Configuración.</Vacio>}
     {tira}</section></div>;
-  const todas = S.tareas.filter(t => t.ops.includes(o.id) && !V.D[t.id].parent && t.estado !== 'terminada').sort((a, b) => (a.inicio || '9') < (b.inicio || '9') ? -1 : 1);
-  const mine = todas.filter(t => !E.estaFrenada(t)), fren = todas.filter(E.estaFrenada);
-  const en = mine.filter(t => E.corriendo(t)), pau = mine.filter(t => t.pausada || (t.estado === 'en proceso' && !E.corriendo(t))), sig = mine.filter(t => E.esPend(t) && !t.pausada).sort((a, b) => E.esProximo(b) - E.esProximo(a));   // las marcadas como próximo a realizar van primero
-  const hechas = S.tareas.filter(t => t.ops.includes(o.id) && t.estado === 'terminada' && !t.tercerizada && (t.finReal || '').startsWith(hoy) && !V.D[t.id].parent);
-  const aus = E.ausenciaDe(S, o.id, hoy);
+  const { mine, frenadas: fren, hechas, aus } = colaOperario(S, V, o.id, hoy);
+  const { en, pau, sig: sigL } = seccionesCola(mine), sig = sigL.sort((a, b) => E.esProximo(b) - E.esProximo(a));   // las marcadas como próximo a realizar van primero
   return <div className="view taller">{cab}{tira}<section>
     <div className="sec-h"><div className="row"><Av o={o} i={S.operarios.indexOf(o)} /><h2>{o.nombre}</h2></div></div>
     <p className="mut">{fDia(hoy)}{aus ? ` · hoy figura ausente (${aus.motivo})` : ` · ${fN(((V.load[`${o.id}|${hoy}|normal`] || {}).h || 0) + ((V.load[`${o.id}|${hoy}|extra`] || {}).h || 0))} h programadas hoy`}</p>
