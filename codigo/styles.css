@@ -854,6 +854,7 @@ select.ci.est.e-pendiente { background: transparent; }
 .ficha { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 10px 8px; padding: 8px 12px; border: 1px dashed var(--line); border-radius: var(--r); font-size: 13px; }
 .ficha label { display: flex; align-items: center; gap: 6px; } .ficha .ci.num { width: 84px; } .ficha select.ci { min-width: 170px; }
 #ti-ord { max-width: 230px; }
+.fhbar { gap: 10px 16px; flex-wrap: wrap; margin: 8px 0; } .tfh tr.fh-no td { opacity: .5; } .tfh td:nth-child(2) { white-space: normal; min-width: 260px; }
 .tdesg { display: block; margin-top: 2px; font-size: 12px; }
 .desgbox { margin: 0 10px 10px; padding: 8px; border: 1px solid var(--line); border-radius: var(--r); background: var(--bg); } .desgt { font-size: 12px; margin: 0 0 6px 2px; }
 .tdg { width: 100%; table-layout: fixed; font-size: 13px; } .tdg td:first-child { overflow-wrap: anywhere; } .tdg th:nth-child(1) { width: 28%; } .tdg th:nth-child(2), .tdg th:nth-child(3) { width: 6%; } .tdg th:nth-child(4) { width: 17%; } .tdg th:nth-child(5) { width: 10%; } .tdg th:nth-child(6) { width: 11%; } .tdg th:nth-child(7) { width: 12%; } .tdg th:nth-child(8) { width: 10%; } .tdg th, .tdg td { padding: 6px 8px; white-space: normal; } .tdg th { font-size: 11px; letter-spacing: .03em; } .ttiem tr.desg .scroll { margin: 0; } .tdg-p td { background: color-mix(in srgb, var(--accent) 7%, transparent); }

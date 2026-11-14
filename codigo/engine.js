@@ -778,6 +778,23 @@ export function costoGrupo(S, g) {
   if (!base.length) return { cu: null, parcial: false, falta: [...new Set(cs.flatMap(c => c.falta))] };
   return { cu: base.reduce((a, c) => a + c.unit, 0) / base.length, parcial: !ok.length, falta: ok.length ? [] : [...new Set(base.flatMap(c => c.falta))] };
 }
+// Propone fichas (material y peso por unidad) a partir del historial importado de la planilla (Costeador) y de las tareas de la app:
+// material = el más usado en las fabricaciones de la pieza; peso por unidad = la mediana de kg ÷ cantidad.
+// "varia" marca las piezas cuyas fabricaciones tienen pesos por unidad muy distintos (más de 15 % de la mediana) o más de un material.
+export function fichasDesdeHist(S) {
+  const G = new Map();
+  fabricaciones(S).forEach(f => { if (f.fuera || !f.k) return; const peso = Number(f.peso) || 0;
+    if (!f.material && !(peso > 0)) return;
+    let g = G.get(f.k); if (!g) { g = { k: f.k, nombre: f.nombre, mats: {}, pus: [], n: 0 }; G.set(f.k, g); }
+    g.n++; if (f.material) g.mats[f.material] = (g.mats[f.material] || 0) + 1; if (peso > 0) g.pus.push(peso / Math.max(1, Number(f.cant) || 1)); });
+  const med = a => { const b = [...a].sort((x, y) => x - y), m = b.length >> 1; return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; };
+  return [...G.values()].map(g => {
+    const mats = Object.keys(g.mats).sort((a, b) => g.mats[b] - g.mats[a]), pu = g.pus.length ? Math.round(med(g.pus) * 1000) / 1000 : null;
+    const varia = mats.length > 1 || (pu > 0 && g.pus.some(x => Math.abs(x - pu) / pu > 0.15));
+    const actual = fichaDe(S, g.k);
+    return { k: g.k, nombre: g.nombre, n: g.n, material: mats[0] || '', pesoU: pu, min: g.pus.length ? Math.min(...g.pus) : null, max: g.pus.length ? Math.max(...g.pus) : null, varia, actual };
+  }).filter(x => x.material || x.pesoU > 0).sort((a, b) => a.k.localeCompare(b.k));
+}
 // a qué tarifa corresponde una operación por su nombre (para vincular solas las operaciones al importar)
 export function tarifaSugerida(S, nombreOp) {
   const n = (nombreOp || '').toLowerCase(), T = S.tarifas || [], f = re => T.find(t => re.test(t.nombre.toLowerCase()));

@@ -2307,7 +2307,7 @@ function Tiempos() {
   // sub-pestañas TPFR / TPFD (y "Otros" y "Sin código" solo si hay piezas de ese tipo) y filtro por operación
   const [serie, setSerie] = useState(() => prefG('tiempos-serie', 'TPFR')); const [fop, setFop] = useState(() => prefG('tiempos-op', ''));
   useEffect(() => { guardaG('tiempos-serie', serie); guardaG('tiempos-op', fop); }, [serie, fop]);
-  const [dab, setDab] = useState([]);   // fabricaciones con el desglose de hijas abierto
+  const [dab, setDab] = useState([]); const [ffich, setFfich] = useState(false);   // fabricaciones con el desglose de hijas abierto
   const [orden, setOrden] = useState(() => prefG('tiempos-orden', 'num')); const [soloInc, setSoloInc] = useState(false);
   useEffect(() => { guardaG('tiempos-orden', orden); }, [orden]);
   // costo por unidad de cada pieza: se recalcula solo al cambiar precios de materiales, tarifas o fichas
@@ -2336,6 +2336,7 @@ function Tiempos() {
         <input id="ti-q" type="search" placeholder="Buscar código o pieza" value={q} onChange={e => setQ(e.target.value)} />
         <button className="btn sm" onClick={() => setAb(ab.length ? [] : vis.map(g => g.k))}>{ab.length ? 'Cerrar todas' : 'Abrir todas'}</button>
         <select id="ti-ord" aria-label="Ordenar" value={orden} onChange={e => setOrden(e.target.value)}><option value="num">Orden: número de pieza</option><option value="costo-d">Orden: mayor costo</option><option value="costo-a">Orden: menor costo</option><option value="falta">Orden: costo incompleto primero</option></select>
+        {pm.admin && <button className="btn" onClick={() => setFfich(true)} title="Toma material y peso por unidad de las fabricaciones ya cargadas (historial del Costeador y tareas de la app)">Completar fichas desde el historial</button>}
         {pm.admin && <button className="btn pri-b" onClick={() => setCot({})}>+ Cotizar</button>}
       </div></div>
       {nInc > 0 && <div className="togs tops" aria-label="Filtrar por costo"><button className={'togb' + (soloInc ? ' on' : '')} onClick={() => setSoloInc(v => !v)}>Costo incompleto <small>{nInc}</small></button></div>}
@@ -2385,7 +2386,34 @@ function Tiempos() {
           </div>; })}</div>}
     </section>
     {cot && <CotEditor r={cot} onClose={() => setCot(null)} />}
+    {ffich && <FichasHist onClose={() => setFfich(false)} />}
   </div>;
+}
+// Completar fichas desde el historial: vista previa por pieza y se aplica solo con "Aplicar"
+function FichasHist({ onClose }) {
+  const { S, up, ui } = useApp();
+  const L = useMemo(() => E.fichasDesdeHist(S), [S]);
+  const [pisar, setPisar] = useState(false); const [q, setQ] = useState(''); const [fuera, setFuera] = useState([]);
+  const nueva = x => !x.actual, cambia = x => x.actual && (x.actual.material !== x.material || Number(x.actual.pesoU) !== Number(x.pesoU));
+  const vale = x => (nueva(x) || (pisar && cambia(x))) && !fuera.includes(x.k);
+  const nN = L.filter(x => nueva(x) && !fuera.includes(x.k)).length, nC = L.filter(x => pisar && cambia(x) && !fuera.includes(x.k)).length, nV = L.filter(x => x.varia && vale(x)).length;
+  const qq = q.trim().toLowerCase(); const vis = L.filter(x => !qq || x.k.toLowerCase().includes(qq) || x.nombre.toLowerCase().includes(qq));
+  const mN = id => (E.materialDe(S, id) || {}).nombre || '—';
+  const fK = v => (Number(v) || 0).toLocaleString('es-AR', { maximumFractionDigits: 3 });
+  const aplicar = () => { const ok = L.filter(vale); if (!ok.length) return;
+    up(s => { const fs = { ...(s.fichas || {}) }; ok.forEach(x => { fs[x.k] = { ...(fs[x.k] || {}), material: x.material || (fs[x.k] || {}).material || '', pesoU: x.pesoU > 0 ? x.pesoU : (fs[x.k] || {}).pesoU ?? null }; }); return { ...s, fichas: fs }; });
+    ui.toast(`Fichas completadas: ${ok.length} ${ok.length === 1 ? 'pieza' : 'piezas'}. Se deshace con Ctrl+Z.`); onClose(); };
+  return <Modal title="Completar fichas desde el historial" wide onClose={onClose} foot={<><span className="mut">{nN} nuevas{pisar ? ` · ${nC} se reemplazan` : ''}{nV ? ` · ${nV} con pesos que varían` : ''}</span><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!(nN + nC)} onClick={aplicar}>Aplicar a {nN + nC} {nN + nC === 1 ? 'pieza' : 'piezas'}</button></>}>
+    <p className="mut">Sale de las fabricaciones ya cargadas (historial del Costeador y tareas de la app): el material más usado y la mediana de kg ÷ cantidad como peso por unidad. Las descartadas no cuentan. Destildá las piezas que no quieras tomar; después se corrigen a mano en cada ficha.</p>
+    <div className="row fhbar"><input type="search" placeholder="Buscar código o pieza" value={q} onChange={e => setQ(e.target.value)} />
+      <label className="chk"><input type="checkbox" checked={pisar} onChange={e => setPisar(e.target.checked)} /> Reemplazar también las fichas ya cargadas ({L.filter(cambia).length} distintas)</label></div>
+    {!L.length ? <p className="note">No hay fabricaciones con material o kg cargados.</p> : <div className="scroll"><table className="tt tfh"><thead><tr><th></th><th>Pieza</th><th className="num">Fabric.</th><th>Material</th><th className="num">Peso por unidad (kg)</th><th>Ficha actual</th></tr></thead>
+      <tbody>{vis.map(x => { const v = vale(x), bloq = !nueva(x) && !(pisar && cambia(x));
+        return <tr key={x.k} className={bloq ? 'fh-no' : ''}><td><input type="checkbox" aria-label={'Tomar ' + x.k} disabled={bloq} checked={v} onChange={() => setFuera(f => f.includes(x.k) ? f.filter(y => y !== x.k) : [...f, x.k])} /></td>
+          <td>{x.nombre}</td><td className="num">{x.n}</td><td>{x.material ? mN(x.material) : <span className="mut">—</span>}</td>
+          <td className="num">{x.pesoU > 0 ? fK(x.pesoU) : '—'}{x.varia && <small className="tfal c-bad" title="Las fabricaciones tienen pesos por unidad distintos o más de un material">varía {x.min != null && x.max != null && x.max > x.min ? `(${fK(x.min)} a ${fK(x.max)})` : ''}</small>}</td>
+          <td>{x.actual ? <span className={cambia(x) ? '' : 'mut'}>{mN(x.actual.material)} · {x.actual.pesoU != null ? fK(x.actual.pesoU) + ' kg' : '—'}{!cambia(x) && ' (igual)'}</span> : <span className="mut">sin ficha</span>}</td></tr>; })}</tbody></table></div>}
+  </Modal>;
 }
 // Cotizar una pieza no fabricada (o volver a cotizar una conocida): costos con los precios de hoy
 function CotEditor({ r, onClose }) {
