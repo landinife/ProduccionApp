@@ -1356,3 +1356,13 @@ select.ci.est.e-proximo { background: transparent; }
 .tabp-t.k-curso .tabp-e i, .tabp-t.k-proximo .tabp-e i { background: var(--c); color: #fff; padding: 2px 8px; border-radius: 999px; }
 .tabp-t.k-curso .tabp-e i { animation: tabpl 1.6s ease-in-out infinite; }
 @keyframes tabpl { 50% { opacity: .65; } } @media (prefers-reduced-motion: reduce) { .tabp-t.k-curso .tabp-e i { animation: none; } }
+/* Producción, vista por proceso: mismas tarjetas de siempre, con En proceso y Próximo a realizar resaltadas */
+.tabp-c .pitem { margin-bottom: 6px; } .tabp-c .pitem .tabp-e { margin-right: 6px; }
+.tabp-c .pitem.crs { border-color: var(--accent); border-left-width: 5px; background: color-mix(in srgb, var(--accent) 16%, var(--panel2)); }
+.tabp-c .pitem.prx { border-color: var(--prox); border-left-width: 5px; background: color-mix(in srgb, var(--prox) 16%, var(--panel2)); }
+.tabp-c .pitem.crs .tabp-e i, .tabp-c .pitem.prx .tabp-e i { background: var(--c); color: #fff; padding: 2px 8px; border-radius: 999px; }
+.tabp-c .pitem.crs .tabp-e i { animation: tabpl 1.6s ease-in-out infinite; } @media (prefers-reduced-motion: reduce) { .tabp-c .pitem.crs .tabp-e i { animation: none; } }
+.tabp-c .pitem .pn { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; min-width: 0; }
+.tabp-c .pitem { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.tabp-c .pitem > .chip, .tabp-c .pitem > .proxn { order: 0; } .tabp-c .pitem > .pri { order: 1; margin-left: auto; }
+.tabp-c .pitem > .pn { order: 2; flex: 1 1 100%; } .tabp-c .pitem > .mut { order: 3; flex: 1 1 100%; } .tabp-c .pitem > .sug { order: 4; flex: 1 1 100%; } .tabp-c .pitem > .btn { order: 5; }

@@ -431,7 +431,7 @@ function Proximas({ filtro, donde }) {
 function Resumen() {
   const { S, V, up, ui } = useApp();
   const [w0, setW0] = useState(() => E.today());   // la semana arranca siempre en hoy (primera columna)
-  const [fp, setFp] = useState(''); const [fo, setFo] = useState(''); const [vista, setVista] = useState('sem');
+  const [fp, setFp] = useState(''); const [fo, setFo] = useState(''); const [vista, setVista] = useState('sem'); const [vp, setVp] = useVistaProc();
   const days = [0, 1, 2, 3, 4, 5, 6].map(i => E.addDays(w0, i)); const hoy = E.today();
   const ops = S.operarios.filter(o => o.activo);
   const setExtra = (op, d, v, modo) => up(s => E.setExtraDia(s, op, d, v, modo));
@@ -484,16 +484,23 @@ function Resumen() {
   const deClase = (k, tipo) => base.filter(t => t.tipo === tipo && claseT(t) === k)
     .sort(k === 'proximo' ? (a, b) => ((a.proximo || '9') < (b.proximo || '9') ? -1 : (a.proximo || '9') > (b.proximo || '9') ? 1 : 0)
       : (a, b) => PRI[a.prioridad] - PRI[b.prioridad] || ((a.inicio || '9') < (b.inicio || '9') ? -1 : 1));
-  const pitem = (t, k, n) => <div key={t.id} className={'pitem' + (k === 'proximo' ? ' prx' : '')} draggable={k === 'pendiente' || k === 'proximo'} onDragStart={e => e.dataTransfer.setData('text/plain', JSON.stringify({ id: t.id }))} onClick={() => ui.modal({ k: 'task', id: t.id })}>
+  const pitem = (t, k, n, ver) => <div key={t.id} className={'pitem' + (k === 'proximo' ? ' prx' : '') + (k === 'curso' ? ' crs' : '')} draggable={k === 'pendiente' || k === 'proximo'} onDragStart={e => e.dataTransfer.setData('text/plain', JSON.stringify({ id: t.id }))} onClick={() => ui.modal({ k: 'task', id: t.id })}>
       {k === 'proximo' ? <b className="proxn">{n}</b> : <Chip t={t} small />}<span className="pn">{k === 'proximo' && <Chip t={t} small />} {etiqueta(V, t)}</span><Pri p={t.prioridad} />
       {k === 'proximo' && <button className="btn sm" title="Sacarla de Próximo a realizar (vuelve a pendiente)" onClick={e => { e.stopPropagation(); up(s => E.setProximo(s, t.id, false)); ui.toast('Volvió a pendiente'); }}>Quitar</button>}
-      <span className="mut">{k === 'curso' || k === 'pausa' ? `${fHM(E.llevado(S, t))} de ${fH(t.hh)}` : fH(t.hh)} · {t.ops.length ? t.ops.map(o => opName(S, o)).join(', ') + (k === 'curso' ? '' : ' · ' + fDT(t.inicio)) : 'Sin asignar'}{E.estaFrenada(t) ? ' · ⏸ frenada: ' + txtFreno(t) : ''}</span>
+      <span className="mut">{ver && <span className="tabp-e" style={{ '--c': (SECC.find(x => x[0] === k) || [])[2] }}><i>{k === 'curso' ? '● ' : k === 'proximo' ? '⏭ ' : ''}{(SECC.find(x => x[0] === k) || [])[1]}</i></span>}{k === 'curso' || k === 'pausa' ? `${fHM(E.llevado(S, t))} de ${fH(t.hh)}` : fH(t.hh)} · {t.ops.length ? t.ops.map(o => opName(S, o)).join(', ') + (k === 'curso' ? '' : ' · ' + fDT(t.inicio)) : 'Sin asignar'}{E.estaFrenada(t) ? ' · ⏸ frenada: ' + txtFreno(t) : ''}</span>
       {(k === 'pendiente' || k === 'proximo') && !t.ops.length && (() => { const r = E.recomendar(S, t)[0]; return r && <span className="sug">Sugerido: <b>{r.nombre}</b> desde {fDT(r.ini)} <button className="btn sm" onClick={e => { e.stopPropagation(); up(s => E.darA(s, t.id, r.op, r.ini)); ui.toast(`Asignada a ${r.nombre}`); }}>Dársela</button></span>; })()}
     </div>;
   const lista = (k, tit, tipo) => { const l = deClase(k, tipo); return <div className="pcol">
     <h3>{tit} <span className="cnt">{l.length}</span></h3>
     {l.length === 0 ? <p className="mut">Ninguna.</p> : l.map((t, i) => pitem(t, k, i + 1))}
   </div>; };
+  // Vista "Por proceso": una columna por operación, con las mismas tarjetas (y acciones) que la vista por estado
+  const prxL = base.filter(t => claseT(t) === 'proximo').sort((a, b) => ((a.proximo || '9') < (b.proximo || '9') ? -1 : (a.proximo || '9') > (b.proximo || '9') ? 1 : 0));
+  const porProc = (() => { const g = {}; base.forEach(t => { const k = t.operacionId && S.operaciones.some(o => o.id === t.operacionId) ? t.operacionId : '_'; (g[k] = g[k] || []).push(t); });
+    const cols = [...S.operaciones.map(o => [o.id, o.nombre]), ['_', 'Sin operación']].filter(([k]) => g[k]); const ORD = { curso: 0, pausa: 1, proximo: 2, pendiente: 3 };
+    if (!cols.length) return <Vacio ic="buscar" chico t="No hay tareas pendientes con este filtro" />;
+    return <div className="tabp">{cols.map(([k, nom]) => { const l = g[k].slice().sort((a, b) => ORD[claseT(a)] - ORD[claseT(b)] || PRI[a.prioridad] - PRI[b.prioridad] || ((a.inicio || '9') < (b.inicio || '9') ? -1 : 1));
+      return <div key={k} className="tabp-c"><div className="tabp-h"><b>{nom}</b><span className="cnt">{l.length}</span><span className="mut">{fH(l.reduce((a, t) => a + (Number(t.hh) || 0), 0))}</span></div>{l.map(t => pitem(t, claseT(t), prxL.indexOf(t) + 1, true))}</div>; })}</div>; })();
   const grupos = SECC.map(([k, l, c]) => { const n = deClase(k, 'rep').length + deClase(k, 'proy').length; if (!n && k !== 'pendiente') return null;
     return <div key={k} className={'repg' + (plgP[k] ? '' : ' on')} style={{ '--c': c }}>
       <button className="dgrp-t repg-t" onClick={() => togP(k)}><span className="car">{plgP[k] ? '▸' : '▾'}</span><b>{l}</b><span className="cnt">{n}</span>{k === 'proximo' && <span className="mut">en el orden en que se marcaron · salen solas al iniciarlas</span>}{k === 'pausa' && <span className="mut">empezadas que no se están haciendo ahora, pausadas o frenadas</span>}</button>
@@ -543,12 +550,13 @@ function Resumen() {
       </> : vista === 'cap' ? <Capacidad w0={w0} irA={d => { setW0(d); setVista('sem'); }} /> : <CalGeneral />}
     </section>
     <section>
-      <div className="sec-h"><h2>Tareas por estado</h2>
+      <div className="sec-h"><h2>{vp === 'proceso' ? 'Tareas por proceso' : 'Tareas por estado'}</h2>
         <div className="row">
+          <VistaSel v={vp} set={setVp} />
           <select id="f-pri" value={fp} onChange={e => setFp(e.target.value)} aria-label="Prioridad"><option value="">Toda prioridad</option><option value="alta">Alta</option><option value="media">Media</option><option value="baja">Baja</option></select>
           <select id="f-op" value={fo} onChange={e => setFo(e.target.value)} aria-label="Operario"><option value="">Todos los operarios</option><option value="_">Sin asignar</option>{ops.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select>
         </div></div>
-      {grupos}
+      {vp === 'proceso' ? porProc : grupos}
     </section>
   </div>;
 }
