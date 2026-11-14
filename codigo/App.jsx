@@ -542,6 +542,8 @@ function Resumen() {
       <p className="legend"><i className="lg g" />con lugar <i className="lg y" />completo <i className="lg r" />sobrecargado · N turno normal · E horas extra (sigue: continúa lo del turno normal ese día; aparte: otro trabajo) · arrastrá una tarea para moverla de día o de operario · si la pasás de extra a normal (o al revés) en el mismo operario, lo anterior queda y sigue desde ese día; también con el + de la celda</p>
       </> : vista === 'cap' ? <Capacidad w0={w0} irA={d => { setW0(d); setVista('sem'); }} /> : <CalGeneral />}
     </section>
+    {(() => { const repA = new Set(S.tareas.filter(t => t.tipo === 'rep' && !t.parentId && V.D[t.id].estado !== 'terminada').map(t => t.id)), proyA = new Set(S.proyectos.filter(x => !x.terminado).map(x => x.id));
+      return <PendProc donde={'en lo abierto (repuestos, proyectos, post venta y taller)' + (fp || fo ? ' · con los filtros de abajo' : '')} ts={S.tareas.filter(t => (t.tipo === 'rep' ? repA.has(V.rootOf(t).id) : proyA.has(t.proyId)) && (!fp || t.prioridad === fp) && (!fo || (fo === '_' ? !t.ops.length : t.ops.includes(fo))))} />; })()}
     <section>
       <div className="sec-h"><h2>{vp === 'proceso' ? 'Tareas por proceso' : 'Tareas por estado'}</h2>
         <div className="row">
@@ -867,9 +869,9 @@ function Repuestos() {
   const mesTxt = `${E.MESES[Number(mes.slice(5)) - 1]} ${mes.slice(0, 4)}`;
   // Mismos números que la pestaña Estadísticas: HH reales de Repuestos del mes y horas disponibles (con ausencias y extras) hasta hoy
   const mm = useMemo(() => E.estadisticas(S, V), [S, V]).mes[mes] || {}, hh = mm.rep || 0, cap = mm.disp || 0;
-  const match = t => (!f.e || (f.e === 'activas' ? t.estado !== 'terminada' : f.e === 'proximo' ? E.esProximo(t) : f.e === 'pendiente' ? estDe(t) === 'pendiente' : t.estado === f.e)) && (!f.o || t.ops.includes(f.o)) && (!f.p || t.prioridad === f.p);
+  const match = (t, e = f.e) => (!e || (e === 'activas' ? t.estado !== 'terminada' : e === 'proximo' ? E.esProximo(t) : e === 'pendiente' ? estDe(t) === 'pendiente' : t.estado === e)) && (!f.o || t.ops.includes(f.o)) && (!f.p || t.prioridad === f.p);
   const q = f.q.trim().toLowerCase();
-  const vis = t => { const rt = V.rootOf(t); if (f.c && rt.cliente !== f.c) return false; if (q && !t.parentId && ![rt.orden, rt.cliente, rt.nombre, ...E.descendants(S, rt.id).map(i => V.byId[i].nombre)].join(' ').toLowerCase().includes(q)) return false; const ch = V.kids[t.id] || []; return ch.length ? ch.some(vis) : match(t); };
+  const vis = (t, e = f.e) => { const rt = V.rootOf(t); if (f.c && rt.cliente !== f.c) return false; if (q && !t.parentId && ![rt.orden, rt.cliente, rt.nombre, ...E.descendants(S, rt.id).map(i => V.byId[i].nombre)].join(' ').toLowerCase().includes(q)) return false; const ch = V.kids[t.id] || []; return ch.length ? ch.some(c => vis(c, e)) : match(t, e); };
   const clientes = [...new Set(roots.map(r => r.cliente).filter(Boolean))].sort();
   const sel = (k, opts, lab) => <select id={'rf-' + k} value={f[k]} onChange={e => setF({ ...f, [k]: e.target.value })} aria-label={lab}><option value="">{lab}</option>{opts.map(o => <option key={o[0]} value={o[0]}>{o[1]}</option>)}</select>;
   return <div className="view">
@@ -884,6 +886,7 @@ function Repuestos() {
       </div>
       <OrdChart ord={ord} mes={mes} />
     </section>
+    <PendProc donde={'en las órdenes abiertas' + (f.c || f.o || f.p || q ? ' · con los filtros de abajo, sin el de estado' : '')} ts={roots.filter(r => V.D[r.id].estado !== 'terminada').flatMap(r => [r, ...E.descendants(S, r.id).map(id => V.byId[id])]).filter(t => vis(t, ''))} />
     <section>
       <div className="sec-h"><div className="row">
         {sel('e', [['activas', 'Sin las finalizadas'], ['pendiente', 'Pendiente'], ['proximo', 'Próximo a realizar'], ['en proceso', 'En proceso'], ['terminada', 'Finalizada']], 'Todo estado')}<button className="btn sm" onClick={() => { const todos = ['curso', 'pausa', 'proximo', 'pendiente', 'terminada'].every(k => plg[k]); const n = Object.fromEntries(['curso', 'pausa', 'proximo', 'pendiente', 'terminada'].map(k => [k, !todos])); setPlg(n); guardaG('rep-grupos', n); }}>{['curso', 'pausa', 'proximo', 'pendiente', 'terminada'].every(k => plg[k]) ? 'Abrir grupos' : 'Cerrar grupos'}</button>
@@ -1202,6 +1205,35 @@ function TableroProc({ roots, vis }) {
   return <TableroCols tareas={hojasActivas(V, roots, vis)} card={card} vacio={<Vacio ic="ok" chico t="No hay piezas pendientes ni en proceso" />} />;
 }
 
+/* Pendientes por proceso: por operación, piezas (tipos de pieza, sin mirar la cantidad) sin finalizar sobre el total, con el color de cada estado.
+   Cuenta las piezas con trabajo propio (una pieza hecha en partes cuenta una vez); las tercerizadas no entran. */
+function PendProc({ ts, donde }) {
+  const { S, V } = useApp(); const [ab, setAb] = useState(() => prefG('pend-proc', true)); const tog = () => { setAb(!ab); guardaG('pend-proc', !ab); };
+  const K = ['curso', 'pausa', 'proximo', 'pendiente'], ORD = { curso: 0, pausa: 1, proximo: 2, pendiente: 3, terminada: 4 };
+  const COL = Object.fromEntries(SECC.map(x => [x[0], x[2]])), LBL = Object.fromEntries(SECC.map(x => [x[0], x[1]]));
+  const g = {}, tot = { n: 0, c: {}, hh: 0 };
+  ts.forEach(t => { if (!t || !V.D[t.id] || t.tercerizada || t.parte || (V.D[t.id].parent && !t.partes)) return;
+    let k, hh;
+    if (t.partes) { const ps = (V.kids[t.id] || []).filter(x => !x.tercerizada), ab_ = ps.filter(x => x.estado !== 'terminada');
+      k = ab_.length ? ab_.map(claseT).sort((a, b) => ORD[a] - ORD[b])[0] : 'terminada'; hh = ab_.reduce((a, x) => a + (Number(x.hh) || 0), 0); }
+    else { k = claseT(t); hh = k === 'terminada' ? 0 : Number(t.hh) || 0; }
+    const u = 1, op = t.operacionId && S.operaciones.some(o => o.id === t.operacionId) ? t.operacionId : '_';
+    const x = g[op] = g[op] || { n: 0, c: {}, hh: 0 }; [x, tot].forEach(y => { y.n += u; y.c[k] = (y.c[k] || 0) + u; y.hh += hh; }); });
+  const cols = [...S.operaciones.map(o => [o.id, o.nombre]), ['_', 'Sin operación']].filter(([k]) => g[k]);
+  if (!cols.length) return null;
+  const pend = y => K.reduce((a, k) => a + (y.c[k] || 0), 0);
+  const fila = (nom, y, total) => { const p = pend(y), pc = !y.n ? 0 : p === y.n ? 100 : !p ? 0 : Math.min(99, Math.max(1, Math.round(p / y.n * 100)));   // 99,9 % no se muestra como 100 %
+    return <div key={nom} className={'pproc-f' + (total ? ' tot' : '') + (p ? '' : ' listo')}>
+      <div className="pproc-l"><span>{nom}</span><span className="mut"><b>{fN(p)}</b> de {fN(y.n)} {y.n === 1 ? 'pieza' : 'piezas'} · {pc}%{p ? ` · ${fH(y.hh)} plan` : ' · todo finalizado'}</span></div>
+      <div className="pproc-b" role="img" aria-label={`${nom}: ${fN(p)} de ${fN(y.n)} piezas sin finalizar`}>{K.map(k => y.c[k] ? <i key={k} style={{ width: y.c[k] / y.n * 100 + '%', background: COL[k] }} title={`${LBL[k]}: ${fN(y.c[k])} ${y.c[k] === 1 ? 'pieza' : 'piezas'}`} /> : null)}</div>
+    </div>; };
+  return <section className="pproc">
+    <div className="sec-h"><button className="dgrp-t" onClick={tog} aria-expanded={ab}><span className="car">{ab ? '▾' : '▸'}</span><b>Pendientes por proceso</b></button><span className="mut">{fN(pend(tot))} de {fN(tot.n)} piezas sin finalizar {donde}</span></div>
+    {ab && <><div className="pproc-g">{cols.map(([k, nom]) => fila(nom, g[k]))}{cols.length > 1 && fila('Total', tot, true)}</div>
+      <p className="legend pproc-ley">{K.map(k => <span key={k}><i style={{ background: COL[k] }} />{LBL[k]}</span>)}<span><i className="fin" />Finalizadas</span> · la barra completa es el total de piezas de cada proceso (cada pieza cuenta una vez, sin importar la cantidad)</p></>}
+  </section>;
+}
+
 /* Pendientes y en proceso de un proyecto o caso, en secciones por estado. Cada sección muestra sus piezas con los ensamblajes que las contienen. */
 function SeccEstado({ roots, vis, tabla }) {
   const { V } = useApp(); const [plg, tog] = usePlegados('proy-grupos');
@@ -1235,7 +1267,7 @@ function Proyectos({ pv = false, tl = false }) {
       {lista.length > 0 && activos.length === 0 && <Vacio ic="caja" chico t={caso ? 'Todos los casos están terminados' : 'Todos los proyectos están terminados'} />}</div>
     {terminados.length > 0 && <div className="termsec"><div className="sec-h"><button className="dgrp-t fin-t" onClick={() => { setVerTerm(!verTerm); guardaG('verterm' + (caso ? '-' + clase : ''), !verTerm); }}><span className="car">{verTerm ? '▾' : '▸'}</span><h2>Terminados <span className="cnt ok">{terminados.length}</span></h2></button></div>
       {verTerm && <div className="pcards">{terminados.map(tarjeta)}</div>}</div>}
-  </section>{pv && <RegistroPV ts={S.tareas.filter(t => t.tipo === 'proy' && lista.some(x => x.id === t.proyId))} conCaso />}<Proximas filtro={t => t.tipo === 'proy' && lista.some(x => x.id === t.proyId)} donde={pv ? 'en post venta' : tl ? 'en el taller' : 'en proyectos'} /></div>;
+  </section><PendProc donde={caso ? 'en los casos sin terminar' : 'en los proyectos sin terminar'} ts={S.tareas.filter(t => t.tipo === 'proy' && activos.some(x => x.id === t.proyId))} />{pv && <RegistroPV ts={S.tareas.filter(t => t.tipo === 'proy' && lista.some(x => x.id === t.proyId))} conCaso />}<Proximas filtro={t => t.tipo === 'proy' && lista.some(x => x.id === t.proyId)} donde={pv ? 'en post venta' : tl ? 'en el taller' : 'en proyectos'} /></div>;
   const i = info(p); const setP = (k, v) => up(s => ({ ...s, proyectos: s.proyectos.map(x => x.id === p.id ? { ...x, [k]: v } : x) }));
   const roots = i.ts.filter(t => !t.parentId);
   const qn = q.trim().toLowerCase(); let visQ = null, nQ = 0;
@@ -1304,6 +1336,7 @@ function Proyectos({ pv = false, tl = false }) {
     </section>
     {det && <Desglose roots={roots} ts={i.ts} vista={det} hhv={hhv} setHhv={setHhv} color={p.color} prev={i.prev} cerrar={() => setDet(null)} />}
     {buscador}
+    <PendProc donde={(caso ? 'en este caso' : 'en este proyecto') + (qn ? ' · con la búsqueda' : '')} ts={visQ ? i.ts.filter(visQ) : i.ts} />
     <div className="seg vistam">{[['lista', 'Lista', 'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01'], ['gantt', 'Gantt', 'M4 6h9M8 12h10M6 18h7'], ['tabla', 'Tabla', 'M4 4h16v16H4zM4 10h16M10 4v16']].map(([k, l, d]) => <button key={k} className={vistaM === k ? 'on' : ''} onClick={() => vistaMov(k)}><svg viewBox="0 0 24 24"><path d={d} /></svg>{l}</button>)}</div>
     {pv && <RegistroPV ts={i.ts} />}
         {vistaM === 'lista' ? <ProyLista roots={roots} ts={i.ts} p={p} rango={rango} visQ={visQ} q={qn} /> : vistaM === 'gantt' ? ganttSec : tablasMovil}
@@ -1323,6 +1356,7 @@ function Proyectos({ pv = false, tl = false }) {
       {altoG === 'oculto' ? <p className="mut">Oculto ({rows.length} {rows.length === 1 ? 'fila' : 'filas'}). Elegí Compacto o Completo para verlo.</p>
         : <Gantt rows={rows} ts={i.ts} entrega={p.entrega} color={p.color} collapsed={colV} toggle={tog} alto={altoG} todo={c => setCol(c ? new Set(i.ts.filter(t => (V.kids[t.id] || []).length).map(t => t.id)) : new Set())} />}</section>
     {pv && <RegistroPV ts={i.ts} />}
+        <PendProc donde={(caso ? 'en este caso' : 'en este proyecto') + (qn ? ' · con la búsqueda' : '')} ts={visQ ? i.ts.filter(visQ) : i.ts} />
         <section><div className="sec-h"><h2>Pendientes y en proceso <span className="cnt">{nAct}</span></h2><VistaSel v={vp} set={setVp} /><span className="mut">{vp === 'proceso' ? 'Tocá una pieza para abrirla' : 'Mayús + Espacio (Shift + Space) marca la fila · en la casilla alcanza con Espacio'}</span></div>{vp === 'proceso' ? <TableroProc roots={roots} vis={visAct} /> : <SeccEstado roots={roots} vis={visAct} tabla={v => <TaskTable roots={roots} tipo="proy" vis={v} collapsed={colV} toggle={tog} orden={ord} />} />}</section>
     <section className="finsec"><div className="sec-h"><button className="dgrp-t fin-t" onClick={() => { setVerFin(!verFin); guardaG('verfin', !verFin); }}><span className="car">{verFin ? '▾' : '▸'}</span><h2>Finalizadas <span className="cnt ok">{nFin}</span></h2></button></div>
       {verFin && (nFin ? <TaskTable roots={roots} tipo="proy" vis={visFin} collapsed={colV} toggle={tog} orden={ord} /> : <Vacio ic="reloj" chico t="Todavía no hay piezas finalizadas en este proyecto" />)}</section>

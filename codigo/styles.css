@@ -1366,3 +1366,21 @@ select.ci.est.e-proximo { background: transparent; }
 .tabp-c .pitem { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .tabp-c .pitem > .chip, .tabp-c .pitem > .proxn { order: 0; } .tabp-c .pitem > .pri { order: 1; margin-left: auto; }
 .tabp-c .pitem > .pn { order: 2; flex: 1 1 100%; } .tabp-c .pitem > .mut { order: 3; flex: 1 1 100%; } .tabp-c .pitem > .sug { order: 4; flex: 1 1 100%; } .tabp-c .pitem > .btn { order: 5; }
+
+/* Pendientes por proceso (barras: unidades sin finalizar sobre el total de cada operación) */
+.pproc .sec-h .dgrp-t { flex: 0 1 auto; }
+.pproc-g { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px 28px; margin-top: 8px; }
+.pproc-f { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.pproc-f.tot { grid-column: 1 / -1; border-top: 1px solid var(--line); padding-top: 10px; }
+.pproc-f.tot .pproc-l > span:first-child, .pproc-l b { font-weight: 600; color: var(--ink); }
+.pproc-l { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
+.pproc-l > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pproc-l .mut { white-space: nowrap; }
+.pproc-b { display: flex; height: 12px; border-radius: 4px; overflow: hidden; background: color-mix(in srgb, var(--ink) 13%, transparent); }
+.pproc-b i { display: block; height: 100%; }
+.pproc-b i + i { border-left: 1px solid var(--panel); }
+.pproc-f.listo .pproc-b { background: color-mix(in srgb, var(--ok) 35%, transparent); }
+.pproc-ley { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 10px; }
+.pproc-ley i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.pproc-ley i.fin { background: color-mix(in srgb, var(--ink) 13%, transparent); }
+@media (max-width: 760px) { .pproc-g { grid-template-columns: 1fr; } .pproc-l { flex-wrap: wrap; } }
