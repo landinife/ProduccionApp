@@ -1339,3 +1339,20 @@ select.ci.est.e-proximo { background: transparent; }
   .est-ohh { display: none; }
   .est-ohr { grid-template-columns: minmax(0, 1fr) auto; } .est-ohb { grid-column: 1 / -1; order: 3; }
 }
+
+/* Vista por proceso (tablero): una columna por operación */
+.vsel { display: inline-flex; gap: 0; } .vsel .btn { border-radius: 0; } .vsel .btn:first-child { border-radius: 8px 0 0 8px; } .vsel .btn:last-child { border-radius: 0 8px 8px 0; margin-left: -1px; }
+.vsel .btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tabp { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; align-items: start; }
+.tabp-c { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; min-width: 0; }
+.tabp-h { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; } .tabp-h b { font: 600 16px var(--f-d); letter-spacing: .05em; text-transform: uppercase; flex: 1; min-width: 0; }
+.tabp-t { display: flex; flex-direction: column; gap: 3px; width: 100%; text-align: left; background: var(--panel2); color: var(--ink); border: 1px solid var(--line); border-left: 3px solid var(--c, var(--mut)); border-radius: 8px; padding: 8px 10px; margin: 0 0 8px; cursor: pointer; font: inherit; }
+.tabp-t:hover { border-color: var(--c, var(--accent)); } .tabp-t:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tabp-t b { font-weight: 600; overflow-wrap: anywhere; } .tabp-t .mut { font-size: 12px; }
+.tabp-r { display: flex; align-items: center; justify-content: space-between; gap: 6px; } .tabp-r .chip { flex: 0 1 auto; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tabp-e { font: 600 11px var(--f-d); letter-spacing: .06em; text-transform: uppercase; color: var(--c); } .tabp-e i { font-style: normal; }
+
+.tabp-t.k-curso, .tabp-t.k-proximo { background: color-mix(in srgb, var(--c) 16%, var(--panel2)); border-color: var(--c); border-left-width: 6px; }
+.tabp-t.k-curso .tabp-e i, .tabp-t.k-proximo .tabp-e i { background: var(--c); color: #fff; padding: 2px 8px; border-radius: 999px; }
+.tabp-t.k-curso .tabp-e i { animation: tabpl 1.6s ease-in-out infinite; }
+@keyframes tabpl { 50% { opacity: .65; } } @media (prefers-reduced-motion: reduce) { .tabp-t.k-curso .tabp-e i { animation: none; } }
