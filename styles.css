@@ -1384,3 +1384,19 @@ select.ci.est.e-proximo { background: transparent; }
 .pproc-ley i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
 .pproc-ley i.fin { background: color-mix(in srgb, var(--ink) 13%, transparent); }
 @media (max-width: 760px) { .pproc-g { grid-template-columns: 1fr; } .pproc-l { flex-wrap: wrap; } }
+
+/* Pendientes por proceso → OV/OC (anillos por proceso actual de cada orden) */
+.pproc .sec-h .vsel { margin-left: 4px; }
+.pproc-ag { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px 28px; margin-top: 8px; }
+.pproc-a { min-width: 0; }
+.pproc-at { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-bottom: 6px; }
+.pproc-ac { display: flex; align-items: center; gap: 16px; }
+.pproc-ac svg { flex: none; }
+.pproc-an { font-size: 26px; font-weight: 600; fill: var(--ink); }
+.pproc-as { font-size: 10px; fill: var(--mut); }
+.pproc-al { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; min-width: 0; flex: 1; }
+.pproc-al li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto 38px; align-items: center; gap: 8px; }
+.pproc-al li i { width: 10px; height: 10px; border-radius: 2px; }
+.pproc-al li span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pproc-al li .mut { text-align: right; }
+@media (max-width: 760px) { .pproc-ag { grid-template-columns: 1fr; } }

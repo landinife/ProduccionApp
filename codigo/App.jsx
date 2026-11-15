@@ -886,7 +886,10 @@ function Repuestos() {
       </div>
       <OrdChart ord={ord} mes={mes} />
     </section>
-    <PendProc donde={'en las órdenes abiertas' + (f.c || f.o || f.p || q ? ' · con los filtros de abajo, sin el de estado' : '')} ts={roots.filter(r => V.D[r.id].estado !== 'terminada').flatMap(r => [r, ...E.descendants(S, r.id).map(id => V.byId[id])]).filter(t => vis(t, ''))} />
+    {(() => { const abr = roots.filter(r => V.D[r.id].estado !== 'terminada'), por = {};
+      abr.forEach(r => { const k = String(r.orden || '').toUpperCase().replace(/[^A-Z0-9]/g, '') || '#' + r.id; (por[k] = por[k] || { orden: r.orden, ts: [] }).ts.push(r, ...E.descendants(S, r.id).map(id => V.byId[id]).filter(Boolean)); });
+      const ordenes = Object.values(por).map(o => ({ ...o, ts: o.ts.filter(t => vis(t, '')) }));
+      return <PendProc donde={'en las órdenes abiertas' + (f.c || f.o || f.p || q ? ' · con los filtros de abajo, sin el de estado' : '')} ts={ordenes.flatMap(o => o.ts)} ordenes={ordenes} />; })()}
     <section>
       <div className="sec-h"><div className="row">
         {sel('e', [['activas', 'Sin las finalizadas'], ['pendiente', 'Pendiente'], ['proximo', 'Próximo a realizar'], ['en proceso', 'En proceso'], ['terminada', 'Finalizada']], 'Todo estado')}<button className="btn sm" onClick={() => { const todos = ['curso', 'pausa', 'proximo', 'pendiente', 'terminada'].every(k => plg[k]); const n = Object.fromEntries(['curso', 'pausa', 'proximo', 'pendiente', 'terminada'].map(k => [k, !todos])); setPlg(n); guardaG('rep-grupos', n); }}>{['curso', 'pausa', 'proximo', 'pendiente', 'terminada'].every(k => plg[k]) ? 'Abrir grupos' : 'Cerrar grupos'}</button>
@@ -1206,31 +1209,77 @@ function TableroProc({ roots, vis }) {
 }
 
 /* Pendientes por proceso: por operación, piezas (tipos de pieza, sin mirar la cantidad) sin finalizar sobre el total, con el color de cada estado.
-   Cuenta las piezas con trabajo propio (una pieza hecha en partes cuenta una vez); las tercerizadas no entran. */
-function PendProc({ ts, donde }) {
+   Cuenta las piezas con trabajo propio (una pieza hecha en partes cuenta una vez); las tercerizadas no entran.
+   Con "ordenes" (solo Repuestos) suma el selector Piezas | OV/OC: un anillo para las OV y otro para las OC abiertas, por el proceso en el que está cada orden. */
+const PP_ORD = { curso: 0, pausa: 1, proximo: 2, pendiente: 3, terminada: 4 };
+const PP_PAL = ['#4E79A7', '#F28E2B', '#59A14F', '#B07AA1', '#EDC948', '#76B7B2', '#E15759', '#9C755F', '#FF9DA7', '#2F9E9E', '#C17D11', '#7A6FCB'];
+/* Estado y horas plan pendientes de una pieza con trabajo propio (null = no cuenta: tercerizada, parte suelta o ensamblaje). */
+const ppHoja = (V, t) => {
+  if (!t || !V.D[t.id] || t.tercerizada || t.parte || (V.D[t.id].parent && !t.partes)) return null;
+  if (t.partes) { const ab = (V.kids[t.id] || []).filter(x => !x.tercerizada && x.estado !== 'terminada');
+    return { k: ab.length ? ab.map(claseT).sort((a, b) => PP_ORD[a] - PP_ORD[b])[0] : 'terminada', hh: ab.reduce((a, x) => a + (Number(x.hh) || 0), 0) }; }
+  const k = claseT(t); return { k, hh: k === 'terminada' ? 0 : Number(t.hh) || 0 };
+};
+/* Tipo de orden según cómo empieza el número: OV…, OC… u otra. */
+const ppTipoOrd = o => { const x = String(o || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); return x.startsWith('OV') ? 'OV' : x.startsWith('OC') ? 'OC' : 'otra'; };
+
+function PendProc({ ts, donde, ordenes }) {
   const { S, V } = useApp(); const [ab, setAb] = useState(() => prefG('pend-proc', true)); const tog = () => { setAb(!ab); guardaG('pend-proc', !ab); };
-  const K = ['curso', 'pausa', 'proximo', 'pendiente'], ORD = { curso: 0, pausa: 1, proximo: 2, pendiente: 3, terminada: 4 };
+  const [modo, setModo_] = useState(() => prefG('pend-proc-modo', 'piezas')); const setModo = m => { setModo_(m); guardaG('pend-proc-modo', m); };
+  const ovoc = !!ordenes && modo === 'ovoc';
+  const K = ['curso', 'pausa', 'proximo', 'pendiente'];
   const COL = Object.fromEntries(SECC.map(x => [x[0], x[2]])), LBL = Object.fromEntries(SECC.map(x => [x[0], x[1]]));
+  const opOk = id => id && S.operaciones.some(o => o.id === id) ? id : '_';
   const g = {}, tot = { n: 0, c: {}, hh: 0 };
-  ts.forEach(t => { if (!t || !V.D[t.id] || t.tercerizada || t.parte || (V.D[t.id].parent && !t.partes)) return;
-    let k, hh;
-    if (t.partes) { const ps = (V.kids[t.id] || []).filter(x => !x.tercerizada), ab_ = ps.filter(x => x.estado !== 'terminada');
-      k = ab_.length ? ab_.map(claseT).sort((a, b) => ORD[a] - ORD[b])[0] : 'terminada'; hh = ab_.reduce((a, x) => a + (Number(x.hh) || 0), 0); }
-    else { k = claseT(t); hh = k === 'terminada' ? 0 : Number(t.hh) || 0; }
-    const u = 1, op = t.operacionId && S.operaciones.some(o => o.id === t.operacionId) ? t.operacionId : '_';
-    const x = g[op] = g[op] || { n: 0, c: {}, hh: 0 }; [x, tot].forEach(y => { y.n += u; y.c[k] = (y.c[k] || 0) + u; y.hh += hh; }); });
+  ts.forEach(t => { const h = ppHoja(V, t); if (!h) return;
+    const x = g[opOk(t.operacionId)] = g[opOk(t.operacionId)] || { n: 0, c: {}, hh: 0 }; [x, tot].forEach(y => { y.n += 1; y.c[h.k] = (y.c[h.k] || 0) + 1; y.hh += h.hh; }); });
   const cols = [...S.operaciones.map(o => [o.id, o.nombre]), ['_', 'Sin operación']].filter(([k]) => g[k]);
-  if (!cols.length) return null;
+  if (!cols.length && !ordenes) return null;
   const pend = y => K.reduce((a, k) => a + (y.c[k] || 0), 0);
   const fila = (nom, y, total) => { const p = pend(y), pc = !y.n ? 0 : p === y.n ? 100 : !p ? 0 : Math.min(99, Math.max(1, Math.round(p / y.n * 100)));   // 99,9 % no se muestra como 100 %
     return <div key={nom} className={'pproc-f' + (total ? ' tot' : '') + (p ? '' : ' listo')}>
       <div className="pproc-l"><span>{nom}</span><span className="mut"><b>{fN(p)}</b> de {fN(y.n)} {y.n === 1 ? 'pieza' : 'piezas'} · {pc}%{p ? ` · ${fH(y.hh)} plan` : ' · todo finalizado'}</span></div>
       <div className="pproc-b" role="img" aria-label={`${nom}: ${fN(p)} de ${fN(y.n)} piezas sin finalizar`}>{K.map(k => y.c[k] ? <i key={k} style={{ width: y.c[k] / y.n * 100 + '%', background: COL[k] }} title={`${LBL[k]}: ${fN(y.c[k])} ${y.c[k] === 1 ? 'pieza' : 'piezas'}`} /> : null)}</div>
     </div>; };
+
+  /* OV/OC: cada orden abierta va al proceso en el que está ahora: el de una pieza en proceso; si no, en pausa; si no, próxima a realizar;
+     si no, el primer proceso que tiene pendiente (orden de Configuración → Operaciones). */
+  const opIx = id => { const i = S.operaciones.findIndex(o => o.id === id); return i < 0 ? 999 : i; };
+  const colOp = id => id === '_' ? 'var(--mut)' : PP_PAL[opIx(id) % PP_PAL.length];
+  const nomOp = id => id === '_' ? 'Sin operación' : (S.operaciones.find(o => o.id === id) || {}).nombre || 'Sin operación';
+  const anillos = () => {
+    const tipos = { OV: {}, OC: {}, otra: {} }, n = { OV: 0, OC: 0, otra: 0 }, lista = { OV: {}, OC: {}, otra: {} };
+    ordenes.forEach(o => { const hs = o.ts.map(t => ({ t, h: ppHoja(V, t) })).filter(x => x.h && x.h.k !== 'terminada');
+      if (!hs.length) return;
+      hs.sort((a, b) => PP_ORD[a.h.k] - PP_ORD[b.h.k] || opIx(opOk(a.t.operacionId)) - opIx(opOk(b.t.operacionId)));
+      const op = opOk(hs[0].t.operacionId), tp = ppTipoOrd(o.orden);
+      n[tp]++; tipos[tp][op] = (tipos[tp][op] || 0) + 1; (lista[tp][op] = lista[tp][op] || []).push(o.orden || '(sin número)'); });
+    const anillo = tp => { const N = n[tp]; if (!N) return null;
+      const segs = Object.keys(tipos[tp]).sort((a, b) => opIx(a) - opIx(b)), R = 46, L = 2 * Math.PI * R; let acc = 0;
+      const nombre = tp === 'otra' ? 'Otras órdenes' : tp;
+      return <div key={tp} className="pproc-a">
+        <div className="pproc-at"><b>{nombre} abiertas</b><span className="mut">{fN(N)} {N === 1 ? 'orden' : 'órdenes'} con piezas sin finalizar</span></div>
+        <div className="pproc-ac">
+          <svg viewBox="0 0 120 120" width="132" height="132" role="img" aria-label={`${nombre}: ${segs.map(k => `${nomOp(k)} ${tipos[tp][k]}`).join(', ')}`}>
+            <circle cx="60" cy="60" r={R} fill="none" stroke="var(--line)" strokeWidth="16" />
+            {segs.map(k => { const f = tipos[tp][k] / N * L, el = <circle key={k} cx="60" cy="60" r={R} fill="none" stroke={colOp(k)} strokeWidth="16" strokeDasharray={`${Math.max(0, f - (segs.length > 1 ? 1.5 : 0))} ${L}`} strokeDashoffset={-acc} transform="rotate(-90 60 60)"><title>{`${nomOp(k)}: ${tipos[tp][k]} — ${lista[tp][k].join(', ')}`}</title></circle>; acc += f; return el; })}
+            <text x="60" y="58" textAnchor="middle" className="pproc-an">{fN(N)}</text><text x="60" y="75" textAnchor="middle" className="pproc-as">{tp === 'otra' ? 'abiertas' : tp + ' abiertas'}</text>
+          </svg>
+          <ul className="pproc-al">{segs.map(k => <li key={k} title={lista[tp][k].join(', ')}><i style={{ background: colOp(k) }} /><span>{nomOp(k)}</span><b>{fN(tipos[tp][k])}</b><span className="mut">{Math.round(tipos[tp][k] / N * 100)}%</span></li>)}</ul>
+        </div>
+      </div>; };
+    const hay = ['OV', 'OC', 'otra'].filter(tp => n[tp]);
+    return hay.length ? <><div className="pproc-ag">{hay.map(anillo)}</div>
+      <p className="legend">Cada orden cuenta una vez, en el proceso en el que está ahora: el de una pieza en proceso; si no hay, en pausa; si no, próxima a realizar; si no, el primer proceso que tiene pendiente (orden de Configuración → Operaciones). Al pasar el mouse se ven los números de orden.{n.otra ? ' "Otras órdenes" son las que no empiezan con OV ni OC.' : ''}</p></>
+      : <p className="mut">No hay órdenes abiertas.</p>;
+  };
+  const totOrd = ordenes ? ordenes.filter(o => o.ts.some(t => { const h = ppHoja(V, t); return h && h.k !== 'terminada'; })).length : 0;
   return <section className="pproc">
-    <div className="sec-h"><button className="dgrp-t" onClick={tog} aria-expanded={ab}><span className="car">{ab ? '▾' : '▸'}</span><b>Pendientes por proceso</b></button><span className="mut">{fN(pend(tot))} de {fN(tot.n)} piezas sin finalizar {donde}</span></div>
-    {ab && <><div className="pproc-g">{cols.map(([k, nom]) => fila(nom, g[k]))}{cols.length > 1 && fila('Total', tot, true)}</div>
-      <p className="legend pproc-ley">{K.map(k => <span key={k}><i style={{ background: COL[k] }} />{LBL[k]}</span>)}<span><i className="fin" />Finalizadas</span> · la barra completa es el total de piezas de cada proceso (cada pieza cuenta una vez, sin importar la cantidad)</p></>}
+    <div className="sec-h"><button className="dgrp-t" onClick={tog} aria-expanded={ab}><span className="car">{ab ? '▾' : '▸'}</span><b>Pendientes por proceso</b></button>
+      {ordenes && <div className="vsel" role="group" aria-label="Qué contar"><button className={'btn sm' + (!ovoc ? ' on' : '')} aria-pressed={!ovoc} onClick={() => setModo('piezas')}>Piezas</button><button className={'btn sm' + (ovoc ? ' on' : '')} aria-pressed={ovoc} onClick={() => setModo('ovoc')}>OV/OC</button></div>}
+      <span className="mut">{ovoc ? `${fN(totOrd)} ${totOrd === 1 ? 'orden abierta' : 'órdenes abiertas'}${donde.replace(/^en las órdenes abiertas/, '')}` : `${fN(pend(tot))} de ${fN(tot.n)} piezas sin finalizar ${donde}`}</span></div>
+    {ab && (ovoc ? anillos() : <><div className="pproc-g">{cols.map(([k, nom]) => fila(nom, g[k]))}{cols.length > 1 && fila('Total', tot, true)}</div>
+      <p className="legend pproc-ley">{K.map(k => <span key={k}><i style={{ background: COL[k] }} />{LBL[k]}</span>)}<span><i className="fin" />Finalizadas</span> · la barra completa es el total de piezas de cada proceso (cada pieza cuenta una vez, sin importar la cantidad)</p></>)}
   </section>;
 }
 
