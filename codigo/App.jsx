@@ -2208,7 +2208,7 @@ function Config() {
         <span className="mut tops-l">{ops.length ? ops.map(o => o.nombre).join(', ') : 'ninguna operación'}</span></>; }} />
     <ListEdit title="Materiales" items={S.materiales || []} addLabel="+ Material" onAdd={() => up(s => ({ ...s, materiales: [...(s.materiales || []), { id: E.uid(), nombre: 'Material nuevo', precio: null, fecha: E.today() }] }))}
       onDel={m => up(s => ({ ...s, materiales: s.materiales.filter(x => x.id !== m.id) }))}
-      extra={<span className="mut">Precio por kg en USD. Se usa en los costos de la pestaña Tiempos.</span>}
+      extra={<span className="mut">Precio por kg en USD. Se usa en los costos de la pestaña Tiempos y Costos.</span>}
       render={m => <><input aria-label="Nombre" value={m.nombre} onChange={e => setL('materiales', m.id, { nombre: e.target.value })} />
         <label className="inl">USD/kg<input aria-label="Precio por kg" className="vh" type="number" min="0" step="0.01" value={m.precio ?? ''} placeholder="0" onChange={e => setL('materiales', m.id, { precio: e.target.value === '' ? null : Number(e.target.value), fecha: E.today() })} /></label>
         <span className="mut fch">{m.precio > 0 ? 'al ' + fFecha(m.fecha) : ''}</span></>} />
@@ -2240,7 +2240,7 @@ function Config() {
       <div className="blanco">{conf ? <><b>Se borran todas las tareas, proyectos, operarios, ausencias y horas extra.</b><span className="mut">Quedan las operaciones, los horarios, los feriados y los usuarios.</span>
         <div className="row"><button className="btn danger" onClick={() => { up(s => ({ ...s, ejemplo: false, tareas: [], proyectos: [], operarios: [], ausencias: [], extras: {}, extraModo: {} })); setConf(false); ui.toast('Lista para cargar tus datos. Si fue un error, tocá Deshacer.'); }}>Sí, empezar en blanco</button><button className="btn" onClick={() => setConf(false)}>Cancelar</button></div></>
         : <><button className="btn pri-b" onClick={() => setConf(true)}>Empezar en blanco con mis datos</button><span className="mut">Saca los datos de ejemplo para que cargues los tuyos.</span></>}</div>
-      {(S.historico || []).length > 0 && <p className="mut">Historial importado: {S.historico.length} fabricaciones. Se ven en la pestaña Tiempos con origen "planilla".</p>}
+      {(S.historico || []).length > 0 && <p className="mut">Historial importado: {S.historico.length} fabricaciones. Se ven en la pestaña Tiempos y Costos con origen "planilla".</p>}
       {imp && <ImportHist d={imp} onClose={() => setImp(null)} />}
       <p className="mut">{ses ? 'Los datos se guardan en la nube y se comparten con todos los usuarios. Bajá una copia de seguridad cada tanto.' : 'En esta vista previa los cambios se guardan solo en este navegador.'}</p></section>
     <section className={'card full' + PL.c('Registro de cambios')}><div className="sec-h"><h2>{PL.h('Registro de cambios')}</h2>
@@ -2372,7 +2372,7 @@ function aplicarHist(s, d) {
 }
 function ImportHist({ d, onClose }) {
   const { S, up, ui } = useApp(); const { info } = useMemo(() => aplicarHist(S, d), [S, d]);
-  const ok = () => { up(s => aplicarHist(s, d).S); ui.toast(`Historial importado: ${info.n} fabricaciones. Lo ves en la pestaña Tiempos.`); onClose(); };
+  const ok = () => { up(s => aplicarHist(s, d).S); ui.toast(`Historial importado: ${info.n} fabricaciones. Lo ves en la pestaña Tiempos y Costos.`); onClose(); };
   const L = (t, l) => l.length > 0 && <p><b>{t}:</b> {l.join(', ')}</p>;
   return <Modal title="Importar historial de tiempos" onClose={onClose} foot={<><span className="mut">{d.archivo}</span><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!info.n} onClick={ok}>Importar</button></>}>
     <div className="imph">
@@ -2424,17 +2424,17 @@ function Tiempos() {
   return <div className="view tiempos">
     <div className="ptabs tchips" role="tablist">{series.map(([k, l]) => <button key={k || 'sin'} role="tab" aria-selected={serie === k} className={'ptab' + (serie === k ? ' on' : '')} onClick={() => { setSerie(k); setFop(''); }}><b>{l}</b><small className="mut">{G.filter(g => g.serie === k).length}</small></button>)}</div>
     <section>
-      <div className="sec-h"><h2>Tiempos</h2><div className="row">
+      <div className="sec-h"><h2>Tiempos y Costos</h2><div className="row">
         <input id="ti-q" type="search" placeholder="Buscar código o pieza" value={q} onChange={e => setQ(e.target.value)} />
         <button className="btn sm" onClick={() => setAb(ab.length ? [] : vis.map(g => g.k))}>{ab.length ? 'Cerrar todas' : 'Abrir todas'}</button>
-        <select id="ti-ord" aria-label="Ordenar" value={orden} onChange={e => setOrden(e.target.value)}><option value="num">Orden: número de pieza</option><option value="costo-d">Orden: mayor costo</option><option value="costo-a">Orden: menor costo</option><option value="falta">Orden: costo incompleto primero</option></select>
+        <select id="ti-ord" aria-label="Ordenar" value={orden} onChange={e => setOrden(e.target.value)}><option value="num">Orden: número correlativo</option><option value="costo-d">Orden: mayor costo</option><option value="costo-a">Orden: menor costo</option><option value="falta">Orden: costo incompleto primero</option></select>
         {pm.admin && <button className="btn" onClick={() => setFfich(true)} title="Toma material y peso por unidad de las fabricaciones ya cargadas (historial del Costeador y tareas de la app)">Completar fichas desde el historial</button>}
         {pm.admin && <button className="btn pri-b" onClick={() => setCot({})}>+ Cotizar</button>}
       </div></div>
       {nInc > 0 && <div className="togs tops" aria-label="Filtrar por costo"><button className={'togb' + (soloInc ? ' on' : '')} onClick={() => setSoloInc(v => !v)}>Costo incompleto <small>{nInc}</small></button></div>}
       {opsSerie.length > 1 && <div className="togs tops" aria-label="Filtrar por operación"><button className={'togb' + (!fop ? ' on' : '')} onClick={() => setFop('')}>Todas <small>{enSerie.length}</small></button>
         {opsSerie.map(([o, n]) => <button key={o.id} className={'togb' + (fop === o.id ? ' on' : '')} onClick={() => setFop(fop === o.id ? '' : o.id)}>{o.nombre} <small>{n}</small></button>)}</div>}
-      <p className="mut">{serie || 'Sin código'}: ordenadas por número de pieza. {conDatos} {conDatos === 1 ? 'pieza' : 'piezas'} con historial · {nFab} {nFab === 1 ? 'vez fabricada' : 'veces fabricadas'}. El promedio por unidad es el que se sugiere al cargar la pieza de nuevo. Los costos se calculan con los precios de materiales y las tarifas vigentes de Configuración: al cambiarlos, se actualizan solos. Material y peso por unidad se cargan una vez en la ficha de cada pieza (abrila con ▸); el peso total de cada pedido sale solo (peso por unidad × cantidad). En las piezas con hijas (por ejemplo soldadas) el costo suma el trabajo propio más el de todas sus hijas, con el desglose.</p>
+      <p className="mut">{serie || 'Sin código'}: ordenadas por el número correlativo (la última parte del código, por ejemplo 0001, 0002, 0003…). {conDatos} {conDatos === 1 ? 'pieza' : 'piezas'} con historial · {nFab} {nFab === 1 ? 'vez fabricada' : 'veces fabricadas'}. El promedio por unidad es el que se sugiere al cargar la pieza de nuevo. Los costos se calculan con los precios de materiales y las tarifas vigentes de Configuración: al cambiarlos, se actualizan solos. Material y peso por unidad se cargan una vez en la ficha de cada pieza (abrila con ▸); el peso total de cada pedido sale solo (peso por unidad × cantidad). En las piezas con hijas (por ejemplo soldadas) el costo suma el trabajo propio más el de todas sus hijas, con el desglose.</p>
       {faltan.length > 0 && <p className="note">Para ver costos falta cargar en Configuración: {faltan.join(' y ')}.</p>}
       {vis.length === 0 ? <Vacio ic={qq ? 'buscar' : 'reloj'} t={qq || fop ? 'Ninguna pieza coincide con el filtro' : `Todavía no hay tiempos ${serie === 'Otros' ? 'de otros códigos' : serie ? 'de piezas ' + serie : 'de piezas sin código'}`}>{qq || fop ? 'Probá con otra búsqueda u otra operación.' : 'Aparecen solos cuando se finaliza una tarea con horas reales cargadas.'}</Vacio>
         : <div className="tgrupos">{vis.map(g => { const on = ab.includes(g.k) || (!!qq && vis.length <= 3);
@@ -2518,7 +2518,7 @@ function CotEditor({ r, onClose }) {
   const guardar = () => { if (!c.nombre.trim()) { ui.toast('Cargá el ítem (código y descripción)'); return; }
     const d = { nombre: c.nombre.trim(), cant: Number(c.cant) || 1, operacionId: op, material: c.material, peso: c.peso === '' ? null : Number(c.peso), hh: Number(c.hh) || 0 };
     up(s => ({ ...s, cotizaciones: nueva ? [...(s.cotizaciones || []), { id: E.uid(), fecha: E.today(), ...d }] : (s.cotizaciones || []).map(x => x.id === r.id ? { ...x, ...d } : x) }));
-    ui.toast(nueva ? 'Cotización guardada en Tiempos' : 'Cotización actualizada'); onClose(); };
+    ui.toast(nueva ? 'Cotización guardada en Tiempos y Costos' : 'Cotización actualizada'); onClose(); };
   return <Modal title={nueva ? 'Cotizar' : 'Editar cotización'} onClose={onClose} foot={<><span className="mut">No entra en el promedio de tiempos.</span><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" onClick={guardar}>Guardar</button></>}>
     <div className="form">
       <label className="g2">Ítem (código - descripción)<input id="co-nom" autoFocus value={c.nombre} placeholder="TPFR-200-040 Buje de bronce Ø40" onChange={e => set('nombre', e.target.value)} />
@@ -2540,7 +2540,7 @@ function CotEditor({ r, onClose }) {
 }
 
 /* ================= APP ================= */
-const TABS = [['resumen', 'Producción', 'M4 5h16v15H4zM4 10h16M9 5v15M15 5v15'], ['repuestos', 'Repuestos', 'M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9zM12 9a3 3 0 100 6 3 3 0 000-6z'], ['proyectos', 'Proyectos', 'M4 6h9M8 12h11M5 18h8'], ['postventa', 'Post Venta', 'M3 7l9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10'], ['internos', 'Taller', 'M14.5 5.5a4 4 0 00-5.2 5.2L4 16l4 4 5.3-5.3a4 4 0 005.2-5.2l-2.7 2.7-2.3-.7-.7-2.3z'], ['operarios', 'Operarios', 'M9 11a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 4.5a3.5 3.5 0 010 6.5M18 14c1.8.8 3 2.6 3 4.7', 'Operar.'], ['tiempos', 'Tiempos', 'M12 7v5l3 2M12 3a9 9 0 100 18 9 9 0 000-18z'], ['estadisticas', 'Estadísticas', 'M4 20V10M10 20V4M16 20v-8M22 20H2', 'Estad.'], ['config', 'Configuración', 'M4 7h10M18 7h2M4 17h2M10 17h10M16 5v4M8 15v4', 'Config.']];
+const TABS = [['resumen', 'Producción', 'M4 5h16v15H4zM4 10h16M9 5v15M15 5v15'], ['repuestos', 'Repuestos', 'M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9zM12 9a3 3 0 100 6 3 3 0 000-6z'], ['proyectos', 'Proyectos', 'M4 6h9M8 12h11M5 18h8'], ['postventa', 'Post Venta', 'M3 7l9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10'], ['internos', 'Taller', 'M14.5 5.5a4 4 0 00-5.2 5.2L4 16l4 4 5.3-5.3a4 4 0 005.2-5.2l-2.7 2.7-2.3-.7-.7-2.3z'], ['operarios', 'Operarios', 'M9 11a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 4.5a3.5 3.5 0 010 6.5M18 14c1.8.8 3 2.6 3 4.7', 'Operar.'], ['tiempos', 'Tiempos y Costos', 'M12 7v5l3 2M12 3a9 9 0 100 18 9 9 0 000-18z', 'Tiempos'], ['estadisticas', 'Estadísticas', 'M4 20V10M10 20V4M16 20v-8M22 20H2', 'Estad.'], ['config', 'Configuración', 'M4 7h10M18 7h2M4 17h2M10 17h10M16 5v4M8 15v4', 'Config.']];
 // Teléfono: 4 pestañas fijas (las primeras de esta lista que el usuario puede ver) y el resto en "Más"
 const TABS_TEL = ['resumen', 'repuestos', 'proyectos', 'estadisticas', 'operarios'];
 const TAB_DESC = { postventa: 'Casos y envíos', internos: 'Trabajos propios', operarios: 'Trabajo del día', tiempos: 'Historial y costos', estadisticas: 'Uso de las horas', config: 'Datos, operarios y usuarios', resumen: 'Semana, carga y alertas', repuestos: 'Órdenes OV y OC', proyectos: 'Equipos y Gantt' };

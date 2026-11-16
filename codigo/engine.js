@@ -678,7 +678,8 @@ export function codOp(S, nombre) {
 export const claveCod = nombre => { const m = /TPF(?:[RD]|-[A-Z]{2,})[\w\-./]*/i.exec(nombre || ''); return m ? m[0].toUpperCase().replace(/\.SLDPRT$/, '').replace(/[-./]+$/, '') : (nombre || '').replace(/\s*\(parte \d+\)\s*$/i, '').trim().toLowerCase(); };
 // serie del código (TPFR, TPFD u Otros) y número único de pieza: los últimos dígitos de TPFR-111-222-333-4444
 export const serieCod = k => { const m = /^TPF([RD])/i.exec(k || ''); return m ? 'TPF' + m[1].toUpperCase() : /^TPF-/i.test(k || '') ? 'Otros' : ''; };
-export const numPieza = k => { if (!serieCod(k)) return null; const m = /(\d+)\D*$/.exec(k); return m ? Number(m[1]) : null; };
+// número correlativo único: el último grupo de números pegado al TPFR / TPFD (TPFR-111-222-3333 → 3333); lo que venga después (-B2, rev 3…) no cuenta
+export const numPieza = k => { const se = serieCod(k); if (!se) return null; const m = se === 'Otros' ? /(\d+)\D*$/.exec(k) : /^TPF[RD]((?:[-./ ]*\d+)+)/i.exec(k); if (!m) return null; const g = m[1].match(/\d+/g); return Number(g[g.length - 1]); };
 // tiempo estándar de una pieza: promedio de horas reales por unidad de las veces que se fabricó (sin las descartadas)
 export function historial(S, nombre) {
   const k = claveCod(nombre); if (!k) return null;
