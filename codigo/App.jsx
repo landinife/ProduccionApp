@@ -201,7 +201,7 @@ function cerrarTarea(up, ui, id, hh, vivo, msg) { let r = null;
   const a = avisoCadena(r); if (a || msg) ui.toast(a || msg); }
 // ---- Frenar y retomar (trabajos que se paran por días) ----
 const diasFrenada = t => Math.max(0, E.diffDays((t.frenada.desde || '').slice(0, 10), E.today()));
-const txtFreno = t => { const f = t.frenada, d = diasFrenada(t); return `${f.motivo}${f.hasta ? ` · hasta el ${fD(f.hasta)}` : ' · sin fecha'} · ${d === 0 ? 'desde hoy' : `hace ${d} ${d === 1 ? 'día' : 'días'}`}`; };
+const txtFreno = t => { const f = t.frenada, d = diasFrenada(t); return `${f.motivo}${f.hasta ? ` · hasta el ${fD(f.hasta)}${f.hastaHora ? ' ' + f.hastaHora : ''}` : ' · sin fecha'} · ${d === 0 ? 'desde hoy' : `hace ${d} ${d === 1 ? 'día' : 'días'}`}`; };
 function FrenoTag({ t }) { if (!E.estaFrenada(t)) return null;
   return <><span className="tag fren">⏸ Frenada · {txtFreno(t)}</span>{t.frenada.nota && <span className="fren-nota">{t.frenada.nota}</span>}</>; }
 // Pausar o frenar: "sigue en la cola" es la pausa de siempre; frenar deja lo que falta afuera del calendario (o desde una fecha)
@@ -223,33 +223,51 @@ function TercerizarDlg({ id, ids, onClose }) {
     <p className="mut">{multi ? 'Las piezas quedan' : 'La pieza queda'} como finalizada{multi ? 's' : ''} y tercerizada{multi ? 's' : ''}: no ocupan operarios ni horas de planta. Si cargás la fecha de regreso, las tareas que dependen de {multi ? 'ellas' : 'ella'} (Predecesoras) esperan hasta ese día. Después podés usar "Volver a planta" en cada una.</p>
   </Modal>, document.body);
 }
+// Si algún operario de la tarea ya tiene otra en curso, avisa antes de pausarla (la pausa deja lo hecho registrado y lo que falta sigue en la cola)
+function avisarOcupado(S, ui, otras, ops, nombre, onSi) {
+  const quien = [...new Set(otras.flatMap(x => x.ops.filter(o => ops.includes(o))))].map(o => opName(S, o)).join(' y ');
+  const cuales = otras.map(x => `"${x.nombre}"`).join(' y ');
+  ui.confirmar({ titulo: '¿Pausar la tarea en curso?', texto: `${quien} ya está con ${cuales} en curso. Si seguís, ${otras.length === 1 ? 'esa tarea se pausa' : 'esas tareas se pausan'} (lo hecho queda registrado y lo que falta sigue en la cola) y arranca "${nombre}".`, si: 'Sí, pausar y arrancar', onSi });
+}
+const iniciarConAviso = (S, up, ui, id) => { const t = S.tareas.find(x => x.id === id); if (!t) return;
+  const otras = E.enCurso(S, t.ops, id), go = () => up(s => E.iniciar(s, id));
+  if (otras.length) avisarOcupado(S, ui, otras, t.ops, t.nombre, go); else go(); };
 function FrenarDlg({ id, pausa, onClose }) {
   const { S, up, ui } = useApp(); const t = S.tareas.find(x => x.id === id);
   const [modo, setModo] = useState(pausa ? '' : 'sin'); const [motivo, setMotivo] = useState(''); const [nota, setNota] = useState(''); const [hasta, setHasta] = useState(() => { let d = E.addDays(E.today(), 1), g = 0; while (!E.isWork(S, d) && g++ < 14) d = E.addDays(d, 1); return d; });
-  const [ultDia, setUltDia] = useState(() => E.today());   // último día trabajado: hoy = se frena ahora; antes = al terminar la jornada de ese día
+  const [horaH, setHoraH] = useState('');   // hora desde la que se retoma (vacía = al empezar la jornada)
+  const [ultDia, setUltDia] = useState(() => E.today());   // último día trabajado: hoy = se frena ahora; antes = a la hora elegida de ese día
+  const [hora, setHora] = useState(() => E.nowDT().slice(11, 16));   // hora en que se cierra lo hecho
   if (!t) return null;
   const ahoraDT = E.nowDT(), hoyD = E.today(), ini0 = (t.crono && t.crono.desde) || t.inicio || '';   // inicio registrado en la app (la app lo puede haber movido: no limita la fecha)
-  const cuando = !ultDia || ultDia >= hoyD ? ahoraDT : E.finJornada(S, t, ultDia);   // fecha y hora en que se cierra lo hecho
+  const finJ = ultDia < hoyD ? E.finJornada(S, t, ultDia) : null;   // fin de la jornada de ese día (null si no se trabaja)
+  const cuando = ultDia && hora ? ultDia + 'T' + hora : null;   // fecha y hora en que se cierra lo hecho
+  const elegirDia = d => { setUltDia(d); setHora(d >= hoyD ? E.nowDT().slice(11, 16) : (E.finJornada(S, t, d) || '').slice(11, 16)); };   // por defecto: ahora, o el cierre de la jornada de ese día
   const diaAnt = () => { let d = E.addDays(hoyD, -1), g = 0; while (!E.isWork(S, d) && g++ < 14) d = E.addDays(d, -1); return d; };
-  const cola = () => { up(s => E.pausar(s, id)); ui.toast('En pausa: lo que falta sigue en la cola'); onClose(); };
-  const ok = () => { if (!motivo) { ui.toast('Elegí el motivo'); return; } const h = modo === 'fecha' ? hasta : null; let n = 0;
-    if (ultDia > hoyD) { ui.toast('El último día trabajado no puede ser posterior a hoy'); return; }
-    if (!cuando) { ui.toast(`El ${fDia(ultDia)} no es día de trabajo: elegí el último día que se trabajó`); return; }
-    up(s => { const r = E.frenar(s, id, { motivo, nota, hasta: h, desde: cuando }); n = r.n; return r.S; });
-    ui.toast((h ? `Frenada hasta el ${fD(h)}` : 'Frenada sin fecha: no ocupa el calendario') + (n ? `. ${n === 1 ? 'La tarea que venía detrás se adelantó' : n + ' tareas que venían detrás se adelantaron'}.` : '.')); onClose(); };
+  const valida = () => {
+    if (ultDia > hoyD) { ui.toast('El último día trabajado no puede ser posterior a hoy'); return false; }
+    if (ultDia < hoyD && !finJ) { ui.toast(`El ${fDia(ultDia)} no es día de trabajo: elegí el último día que se trabajó`); return false; }
+    if (!cuando) { ui.toast('Elegí la hora'); return false; }
+    if (cuando > ahoraDT) { ui.toast('La hora no puede ser posterior a ahora'); return false; }
+    return true; };
+  const cola = () => { if (!valida()) return; up(s => E.partir(s, id, { corte: cuando })); ui.toast(`En pausa desde ${fDT(cuando)}: lo que falta sigue en la cola`); onClose(); };
+  const ok = () => { if (!motivo) { ui.toast('Elegí el motivo'); return; } if (!valida()) return; const h = modo === 'fecha' ? hasta : null; let n = 0;
+    up(s => { const r = E.frenar(s, id, { motivo, nota, hasta: h, desde: cuando, horaHasta: h ? horaH : '' }); n = r.n; return r.S; });
+    ui.toast((h ? `Frenada hasta el ${fD(h)}${horaH ? ' ' + horaH : ''}` : 'Frenada sin fecha: no ocupa el calendario') + (n ? `. ${n === 1 ? 'La tarea que venía detrás se adelantó' : n + ' tareas que venían detrás se adelantaron'}.` : '.')); onClose(); };
   return createPortal(<Modal title={(pausa ? 'Pausar · ' : 'Frenar · ') + t.nombre} onClose={onClose} foot={modo ? <><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn warn-b" onClick={ok}>Frenar</button></> : null}>
+    <div className="fld"><span>Último día y hora trabajados</span><div className="row">
+      <input type="date" value={ultDia} max={hoyD} onChange={e => elegirDia(e.target.value)} />
+      <input type="time" value={hora} max={ultDia === hoyD ? ahoraDT.slice(11, 16) : undefined} aria-label="Hora" onChange={e => setHora(e.target.value)} />
+      <button type="button" className={'btn sm' + (ultDia === hoyD && hora === ahoraDT.slice(11, 16) ? ' pri-b' : '')} onClick={() => elegirDia(hoyD)}>Hoy (ahora)</button>
+      <button type="button" className={'btn sm' + (ultDia === diaAnt() ? ' pri-b' : '')} onClick={() => elegirDia(diaAnt())}>{fDia(diaAnt())}</button></div>
+      {cuando && <small className={'hint' + (ultDia < hoyD && !finJ ? ' bad' : '')}>{ultDia < hoyD && !finJ ? 'Ese día no se trabaja: elegí otro.' : `Lo hecho se cierra el ${fDT(cuando)}.${ultDia < hoyD ? ' Los días siguientes no cuentan como trabajados.' : ''}`}</small>}
+      {cuando && ini0 && ini0 > cuando && <small className="hint">En la app esta tarea figura desde el {fDT(ini0)}: lo trabajado antes no quedó registrado acá, y lo registrado desde esa fecha no se cuenta. Si una parte anterior ya cerró incluyendo el día de la ausencia, corregí sus horas reales en el editor de esa parte.</small>}</div>
     <div className="fld"><span>¿Cómo sigue?</span><div className="frmodos">
       {pausa && <button type="button" className="frmodo" onClick={cola}><b>Sigue en la cola</b><small>Pausa corta: lo que falta queda a continuación, como siempre</small></button>}
       <button type="button" className={'frmodo' + (modo === 'fecha' ? ' on' : '')} onClick={() => setModo('fecha')}><b>Frenada hasta una fecha</b><small>Lo que falta se programa desde ese día</small></button>
       <button type="button" className={'frmodo' + (modo === 'sin' ? ' on' : '')} onClick={() => setModo('sin')}><b>Frenada sin fecha</b><small>No ocupa el calendario hasta que la retomes</small></button></div></div>
     {modo && <>
-      <div className="fld"><span>Último día trabajado</span><div className="row">
-        <input type="date" value={ultDia} max={hoyD} onChange={e => setUltDia(e.target.value)} />
-        <button type="button" className={'btn sm' + (ultDia === hoyD ? ' pri-b' : '')} onClick={() => setUltDia(hoyD)}>Hoy (frenar ahora)</button>
-        {<button type="button" className={'btn sm' + (ultDia === diaAnt() ? ' pri-b' : '')} onClick={() => setUltDia(diaAnt())}>{fDia(diaAnt())}</button>}</div>
-        {ultDia < hoyD && <small className={'hint' + (cuando ? '' : ' bad')}>{cuando ? `Lo hecho se cierra al terminar la jornada del ${fDT(cuando)}. Los días siguientes no cuentan como trabajados.` : 'Ese día no se trabaja: elegí otro.'}</small>}
-        {ultDia < hoyD && cuando && ini0 && ini0 > cuando && <small className="hint">En la app esta tarea figura desde el {fDT(ini0)}: lo trabajado antes no quedó registrado acá, y lo registrado desde esa fecha no se cuenta. Si una parte anterior ya cerró incluyendo el día de la ausencia, corregí sus horas reales en el editor de esa parte.</small>}</div>
-      {modo === 'fecha' && <label className="fld">Se retoma desde<input type="date" value={hasta} min={E.today()} onChange={e => setHasta(e.target.value)} /></label>}
+      {modo === 'fecha' && <label className="fld">Se retoma desde<span className="row"><input type="date" value={hasta} min={E.today()} onChange={e => setHasta(e.target.value)} /><input type="time" value={horaH} aria-label="Hora desde la que se retoma" onChange={e => setHoraH(e.target.value)} /></span><small className="hint">La hora es opcional: sin hora, se programa desde que empieza la jornada de ese día.</small></label>}
       <div className="fld"><span>Motivo</span><div className="togs">{E.MOTIVOS_FRENO.map(m => <button key={m} type="button" className={'togb' + (motivo === m ? ' on' : '')} onClick={() => setMotivo(m)}>{m}</button>)}</div></div>
       <label className="fld">Notas<textarea rows="2" value={nota} placeholder="Ej.: falta chapa inox 3 mm, llega el jueves" onChange={e => setNota(e.target.value)} /></label>
       <p className="mut">Lo hecho hasta ahora queda cerrado con su tiempo. Lo que falta queda como una parte nueva de la misma pieza: la pieza suma las horas de todas sus partes para el promedio y el costo.</p></>}
@@ -258,16 +276,39 @@ function FrenarDlg({ id, pausa, onClose }) {
 function RetomarDlg({ id, onClose }) {
   const { S, up, ui } = useApp(); const t = S.tareas.find(x => x.id === id);
   const [ops, setOps] = useState(t ? t.ops : []); const [desde, setDesde] = useState(() => t && t.frenada && t.frenada.hasta > E.today() ? t.frenada.hasta : E.today()); const [ya, setYa] = useState(false);
+  const [hora, setHora] = useState(() => t && t.frenada && (t.frenada.hasta > E.today() || (t.frenada.hasta === E.today() && (t.frenada.hastaHora || '') > E.nowDT().slice(11, 16))) ? (t.frenada.hastaHora || '') : '');   // vacía = desde que empieza la jornada
+  const [pisar, setPisar] = useState(false);   // pausar la tarea que el operario tiene en curso y arrancar esta ahora
+  const [programar, setProgramar] = useState(false);   // con hora pasada: programarla en la cola en vez de contarla como ya retomada
   if (!t) return null;
   const tog = o => setOps(p => p.includes(o) ? p.filter(x => x !== o) : [...p, o]);
-  const ok = () => { let ini = null; up(s => { const s2 = E.retomar(s, id, { ops, desde, ya }); ini = (s2.tareas.find(x => x.id === id) || {}).inicio; return s2; });
+  const ahoraDT = E.nowDT(), hoyD = E.today(), minD = t.frenada && t.frenada.desde ? t.frenada.desde.slice(0, 10) : hoyD;
+  const cuandoDT = desde && hora ? desde + 'T' + hora : null;   // fecha y hora elegidas
+  const retro = !!cuandoDT && cuandoDT < ahoraDT, yaRetomo = retro && !programar;   // hora pasada: ya estaba trabajando desde ahí
+  const otras = ops.length ? E.enCurso(S, ops, id) : [], pisa = pisar && !yaRetomo && otras.length > 0;
+  const quien = [...new Set(otras.flatMap(x => x.ops.filter(o => ops.includes(o))))].map(o => opName(S, o)).join(' y '), cuales = otras.map(x => `"${x.nombre}"`).join(' y ');
+  const ok = () => {
+    if (yaRetomo) {
+      if (!ops.length) { ui.toast('Elegí quiénes la retoman'); return; }
+      if (t.frenada && t.frenada.desde && cuandoDT < t.frenada.desde) { ui.toast(`No puede ser antes de que se frenó (${fDT(t.frenada.desde)})`); return; }
+      if (E.workBetween(S, cuandoDT, ahoraDT, t.turno, ops) <= 0) { ui.toast('Entre esa hora y ahora no hay horas de trabajo (jornada, ausencia o feriado): elegí otra'); return; }
+      up(s => E.iniciar(E.retomar(s, id, { ops, retomada: cuandoDT }), id, { desde: cuandoDT }));
+      ui.toast(`Retomada desde ${fDT(cuandoDT)}: lleva ${fHM(E.workBetween(S, cuandoDT, ahoraDT, t.turno, ops) * Math.max(1, ops.length))} trabajadas${otras.length ? `. ${otras.length === 1 ? 'Se pausó' : 'Se pausaron'} ${cuales} a esa hora` : ''}`); onClose(); return; }
+    if (pisa) { up(s => E.iniciar(E.retomar(s, id, { ops }), id)); ui.toast(`Retomada y en curso. ${otras.length === 1 ? 'Se pausó' : 'Se pausaron'} ${cuales}: lo que falta sigue en la cola`); onClose(); return; }
+    let ini = null; up(s => { const s2 = E.retomar(s, id, { ops, desde, ya, hora }); ini = (s2.tareas.find(x => x.id === id) || {}).inicio; return s2; });
     ui.toast(ini ? `Retomada: empieza ${fDT(ini)}` : 'Retomada sin operario: queda en "Tareas para darle"'); onClose(); };
-  return createPortal(<Modal title={'Retomar · ' + t.nombre} onClose={onClose} foot={<><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" onClick={ok}>Retomar</button></>}>
+  return createPortal(<Modal title={'Retomar · ' + t.nombre} onClose={onClose} foot={<><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" onClick={ok}>{yaRetomo ? 'Retomar desde esa hora' : pisa ? 'Pausar y retomar ahora' : 'Retomar'}</button></>}>
     {t.frenada && <p className="note">⏸ {txtFreno(t)}{t.frenada.nota ? ` · ${t.frenada.nota}` : ''}</p>}
     <p className="mut">Faltan {fHM(t.hh)} (horas-hombre).</p>
     <div className="fld"><span>¿Quiénes la retoman?</span><div className="togs">{S.operarios.filter(o => o.activo || ops.includes(o.id)).map(o => <button key={o.id} type="button" className={'togb' + (ops.includes(o.id) ? ' on' : '')} onClick={() => tog(o.id)}>{o.nombre}</button>)}</div></div>
-    <label className="fld">Desde<input type="date" value={desde} min={E.today()} onChange={e => setDesde(e.target.value)} /></label>
-    <div className="seg"><button type="button" className={!ya ? 'on' : ''} onClick={() => setYa(false)}>En el primer hueco libre</button><button type="button" className={ya ? 'on' : ''} onClick={() => setYa(true)}>Arranca ese día (corre lo que tengan)</button></div>
+    {otras.length > 0 && !yaRetomo && <div className="fld"><p className="note">⚠ {quien} ya está con {cuales} en curso.</p>
+      <div className="seg"><button type="button" className={!pisar ? 'on' : ''} onClick={() => setPisar(false)}>Que siga con esa (esta va a la cola)</button><button type="button" className={pisar ? 'on' : ''} onClick={() => { setPisar(true); setDesde(hoyD); setHora(''); }}>Pausar esa y arrancar esta ahora</button></div>
+      {pisa && <small className="hint">{otras.length === 1 ? 'La que está en curso se pausa' : 'Las que están en curso se pausan'}: lo hecho queda registrado y lo que falta sigue en la cola.</small>}</div>}
+    {!pisa && <>
+      <label className="fld">Desde<span className="row"><input type="date" value={desde} min={minD} onChange={e => setDesde(e.target.value)} /><input type="time" value={hora} aria-label="Hora desde la que se retoma" onChange={e => setHora(e.target.value)} /></span><small className="hint">La hora es opcional: sin hora, empieza al comenzar la jornada (o ahora, si es hoy). Si es una hora que ya pasó, podés contarla como ya retomada.</small></label>
+      {retro && <div className="fld"><div className="seg"><button type="button" className={yaRetomo ? 'on' : ''} onClick={() => setProgramar(false)}>Ya retomó a esa hora</button><button type="button" className={!yaRetomo ? 'on' : ''} onClick={() => setProgramar(true)}>Solo programarla (desde ahora)</button></div>
+        {yaRetomo ? <small className="hint">Queda en proceso con el cronómetro corriendo desde el {fDT(cuandoDT)}: las horas hasta ahora cuentan como trabajadas (según la jornada){otras.length ? `, y se ${otras.length === 1 ? 'pausa' : 'pausan'} ${cuales} a esa hora (${quien})` : ''}.</small>
+          : <small className="hint">No se cuentan horas trabajadas: se programa desde ahora en la cola.</small>}</div>}
+      {!yaRetomo && <div className="seg"><button type="button" className={!ya ? 'on' : ''} onClick={() => setYa(false)}>En el primer hueco libre</button><button type="button" className={ya ? 'on' : ''} onClick={() => setYa(true)}>Arranca ese día (corre lo que tengan)</button></div>}</>}
   </Modal>, document.body);
 }
 function Kpi({ l, v, s, tone, onClick, on }) { const c = 'kpi' + (tone ? ' ' + tone : '') + (onClick ? ' click' : '') + (on ? ' on' : ''); const inner = <><span>{l}{onClick && <i className="kar">{on ? '▴' : '▾'}</i>}</span><b>{v}</b>{s && <em>{s}</em>}</>;
@@ -740,7 +781,7 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden, universo }) {
   const mover = (t, dir) => { const sib = orden(S.tareas.filter(x => x.parentId === t.parentId && x.tipo === t.tipo && x.proyId === t.proyId)); const i = sib.findIndex(x => x.id === t.id), j = i + dir;
     if (j < 0 || j >= sib.length) return; const l = sib.slice(); [l[i], l[j]] = [l[j], l[i]]; const pos = {}; l.forEach((x, k) => { pos[x.id] = (k + 1) * 10; });
     up(s => ({ ...s, tareas: s.tareas.map(x => pos[x.id] !== undefined && x.pos !== pos[x.id] ? { ...x, pos: pos[x.id] } : x) })); };
-  const setEstado = (t, e) => e === 'terminada' && (t.estado !== 'terminada' || t.sinFecha) ? cerrarTarea(up, ui, t.id) : up(s => E.setEstado(s, t.id, e));
+  const setEstado = (t, e) => e === 'terminada' && (t.estado !== 'terminada' || t.sinFecha) ? cerrarTarea(up, ui, t.id) : e === 'en proceso' && t.estado !== 'en proceso' ? iniciarConAviso(S, up, ui, t.id) : up(s => E.setEstado(s, t.id, e));
   const setFin = (t, v) => { if (!t.inicio || !v) return; const h = E.workBetween(S, t.inicio, v, t.turno, t.ops) * Math.max(1, t.ops.length); if (h > 0) set(t, { hh: Math.round(h * 100) / 100 }, true); else ui.toast('El fin tiene que caer en horario de trabajo, después del inicio'); };
   const num = v => Math.max(0, Number(String(v).replace(',', '.')) || 0);
   const nav = e => { const k = e.key, el = e.target, td = el.closest('td'); if (!td || e.altKey || e.ctrlKey || e.metaKey) return;
@@ -1430,8 +1471,10 @@ function TaskEditor({ id, draft, onClose }) {
   const scope = S.tareas.filter(x => x.id !== t.id && !V.D[x.id].parent && x.id !== t.parentId && (t.tipo === 'proy' ? x.proyId === t.proyId : x.tipo === 'rep' && V.rootOf(x).orden === V.rootOf(t).orden));
   const cod = E.codOp(S, t.nombre), hist = !parent ? E.historial(S, t.nombre) : null, recs = !parent ? E.recomendar(S, { ...t, hh }) : [];
   const alSalirNombre = () => { if (parent) return; const a = E.autoCompletar(S, t, !hhTocado); if (Object.keys(a).length) setT(p => ({ ...p, ...a })); };
-  const save = () => {
+  const save = conf => {
     if (!t.nombre.trim()) { ui.toast('Poné el nombre de la pieza'); return; }
+    const pisa = t.estado === 'en proceso' && (isNew || orig.estado !== 'en proceso') && !t.frenada && t.ops.length ? E.enCurso(S, t.ops, t.id) : [];   // arranca ahora: avisa si el operario ya tiene otra en curso
+    if (pisa.length && conf !== true) { avisarOcupado(S, ui, pisa, t.ops, t.nombre.trim(), () => save(true)); return; }
     const x = { ...t, hh, cant: Number(t.cant) || 0, avance: Math.min(100, Math.max(0, Number(t.avance) || 0)), hhReal: Number(t.hhReal) || 0 };
     if (x.estado !== 'terminada') { x.tercerizada = false; x.sinFecha = false; }   // si deja de estar finalizada, deja de ser tercerizada
     if (!E.esPend(x)) x.proximo = null; else if (x.estado === 'proximo') x.proximo = x.proximo || E.nowDT(); else x.proximo = null;   // al iniciarla o finalizarla deja de estar en Próximo a realizar
@@ -1444,7 +1487,7 @@ function TaskEditor({ id, draft, onClose }) {
     if (cierra && !x.realFin && finPlan && x.finReal < finPlan && x.inicio < x.finReal) x.realFin = true;
     const mover = !parent && (isNew || ['inicio', 'hh', 'turno'].some(k => x[k] !== orig[k]) || !!x.realFin !== !!orig.realFin || (x.realFin && x.finReal !== orig.finReal) || x.ops.join() !== orig.ops.join() || (x.preds || []).join() !== (orig.preds || []).join());
     let r = null;
-    up(s => { const s2 = E.patchTask(isNew ? { ...s, tareas: [...s.tareas, x] } : s, x.id, x, mover); if (!cierra) return s2; r = E.trasCerrar(s2, s, x.id, finPlan); return r.S; });
+    up(s => { const s0 = pisa.length ? E.pausarEnCurso(s, x.ops, x.id) : s; const s2 = E.patchTask(isNew ? { ...s0, tareas: [...s0.tareas, x] } : s0, x.id, x, mover); if (!cierra) return s2; r = E.trasCerrar(s2, s, x.id, finPlan); return r.S; });
     const a = avisoCadena(r); if (a) ui.toast(a); onClose();
   };
   const foot = <>
@@ -1453,7 +1496,7 @@ function TaskEditor({ id, draft, onClose }) {
     {!isNew && !parent && orig.estado !== 'terminada' && (orig.frenada ? <button className="btn pri-b" onClick={() => ui.modal({ k: 'retomar', id })}>Retomar</button> : <button className="btn warn-b" title="Para el trabajo por días: lo hecho queda cerrado y lo que falta queda frenado" onClick={() => ui.modal({ k: 'frenar', id })}>Frenar</button>)}
     {!isNew && !parent && orig.estado !== 'terminada' && <button className="btn terc-b" title="La pieza la hace un proveedor: queda finalizada y tercerizada, sin ocupar planta" onClick={() => ui.modal({ k: 'tercerizar', id })}>↗ Tercerizar</button>}
     {!isNew && !parent && orig.tercerizada && <button className="btn" title="Deshace la tercerización: la pieza vuelve a pendiente y se reprograma en planta" onClick={() => { up(s => E.volverAPlanta(s, id)); ui.toast('Volvió a planta: quedó pendiente y reprogramada'); onClose(); }}>↩ Volver a planta</button>}
-    <span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" onClick={save}>Guardar</button></>;
+    <span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" onClick={() => save()}>Guardar</button></>;
   return <Modal title={isNew ? (t.parentId ? 'Nueva tarea hija' : t.tipo === 'rep' ? 'Nuevo repuesto' : 'Nueva pieza') : 'Editar tarea'} onClose={onClose} foot={foot}>
     {orig.tercerizada && <p className="note terc">{tercTxt(orig)}{orig.tercNota ? ` · ${orig.tercNota}` : ''}. Cuenta como finalizada; no ocupa operarios ni horas de planta.</p>}
     {E.estaFrenada(orig) && <p className="note fren">⏸ Frenada · {txtFreno(orig)}{orig.frenada.nota ? ` · ${orig.frenada.nota}` : ''}. {orig.inicio ? `Programada para ${fDT(orig.inicio)}.` : 'No ocupa el calendario hasta que la retomes.'}</p>}
@@ -1541,7 +1584,7 @@ function OpTask({ t, op }) {
     {(() => { const esp = espera(S, V, t); return esp && <span className="tag">⧖ Espera a {esp.nombre}{esp.fin ? ` (termina ${fDT(esp.fin)})` : ''}</span>; })()}
     <FrenoTag t={t} />
     {dlg === 'frenar' && <FrenarDlg id={t.id} pausa={run} onClose={() => setDlg(null)} />}{dlg === 'retomar' && <RetomarDlg id={t.id} onClose={() => setDlg(null)} />}
-    {fre ? <div className="row"><button className="btn pri-b" onClick={() => setDlg('retomar')}>Retomar</button><button className="btn" title="Arranca ahora con los mismos operarios" onClick={() => up(s => E.iniciar(s, t.id))}>Retomar ya</button><button className="btn" onClick={() => up(s => E.unassign(s, t.id, op))}>Quitar</button></div> : <>
+    {fre ? <div className="row"><button className="btn pri-b" onClick={() => setDlg('retomar')}>Retomar</button><button className="btn" title="Arranca ahora con los mismos operarios" onClick={() => iniciarConAviso(S, up, ui, t.id)}>Retomar ya</button><button className="btn" onClick={() => up(s => E.unassign(s, t.id, op))}>Quitar</button></div> : <>
     {t.estado === 'en proceso' && <div className="row crono"><Bar v={t.hh ? llev / t.hh * 100 : 0} color={llev > t.hh + 0.01 ? 'var(--bad)' : undefined} /><span>Llevado <b>{fHM(llev)}</b> de {fHM(t.hh)} proyectadas{t.ops.length > 1 ? ' (suma de los operarios)' : ''}</span></div>}
     {fin ? <div className="finbox">
       <div className="row"><span className="mut">Tiempo real (horas-hombre)</span><HM value={real} onChange={setReal} cant={Number(t.cant) || 0} titulo={t.nombre} /></div>
@@ -1550,7 +1593,7 @@ function OpTask({ t, op }) {
       : <div className="row">
         <input className="rng" type="range" min="0" max="100" step="5" value={av} aria-label="Avance" onChange={e => setAv(e.target.value)} onPointerUp={commit} onKeyUp={commit} onBlur={commit} /><span className="pct">{Math.round(av)}%</span>
         {run && t.ops.length > 1 && <button className="btn" title="La tarea se parte: lo hecho queda cerrado y el resto sigue con los demás" onClick={() => up(s => E.salir(s, t.id, op))}>{opName(S, op)} sale</button>}
-        {run ? <button className="btn" title="Parte la tarea: cierra lo hecho hasta ahora. Elegís si lo que falta sigue en la cola o queda frenado" onClick={() => setDlg('frenar')}>Pausar</button> : <><button className="btn" onClick={() => up(s => E.iniciar(s, t.id))}>{pausa ? 'Reanudar' : 'Iniciar'}</button><button className="btn" title="Para el trabajo por días: lo que falta queda frenado" onClick={() => setDlg('frenar')}>Frenar</button></>}
+        {run ? <button className="btn" title="Parte la tarea: cierra lo hecho hasta ahora. Elegís si lo que falta sigue en la cola o queda frenado" onClick={() => setDlg('frenar')}>Pausar</button> : <><button className="btn" onClick={() => iniciarConAviso(S, up, ui, t.id)}>{pausa ? 'Reanudar' : 'Iniciar'}</button><button className="btn" title="Para el trabajo por días: lo que falta queda frenado" onClick={() => setDlg('frenar')}>Frenar</button></>}
         <button className="btn pri-b" onClick={() => { setReal(llev > 0 ? llev : t.hh); setFin(true); }}>Finalizar</button>
         {run && t.turno !== 'ambos' && (() => { const ta = E.turnoAhora(S, t.ops); return ta && ta !== t.turno; })() && <button className="btn warn-b" title="La tarea sigue corriendo: lo hecho queda en su turno y desde ahora cuenta en el otro" onClick={() => up(s => E.pasarTurno(s, t.id, t.turno === 'extra' ? 'normal' : 'extra'))}>Ahora es turno {t.turno === 'extra' ? 'normal' : 'extra'}: seguir ahí</button>}
         {(llev > 0 || t.avance > 0 || t.pausada || t.parte) && !run && t.turno !== 'ambos' && <button className="btn" title={t.turno === 'extra' ? 'Lo hecho queda en horas extra; lo que falta pasa al turno normal' : 'Lo hecho queda en el turno normal; lo que falta pasa a horas extra'} onClick={() => up(s => E.pasarTurno(s, t.id, t.turno === 'extra' ? 'normal' : 'extra'))}>{t.turno === 'extra' ? 'Seguir en turno normal' : 'Seguir en horas extra'}</button>}
@@ -1807,14 +1850,14 @@ function TallerTask({ t }) {
     <span className="mut">{fDT(t.inicio)} → {fDT(r.fin)}</span>
     {esp && <span className="tag">⧖ Espera a {esp.nombre}{esp.fin ? ` (termina ${fDT(esp.fin)})` : ''}</span>}
     <FrenoTag t={t} />
-    {fre ? <div className="tbtns"><button className="btn big t-ini" title="Arranca ahora con los mismos operarios" onClick={() => up(s => E.iniciar(s, t.id))}><svg className="bi" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>Retomar ya</button><button className="btn big" onClick={() => setDlg('retomar')}>Retomar con cambios</button></div> : <>
+    {fre ? <div className="tbtns"><button className="btn big t-ini" title="Arranca ahora con los mismos operarios" onClick={() => iniciarConAviso(S, up, ui, t.id)}><svg className="bi" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>Retomar ya</button><button className="btn big" onClick={() => setDlg('retomar')}>Retomar con cambios</button></div> : <>
     {(run || llev > 0) && <div className="tcrono"><b>{fHM(llev)}</b><span className="mut">de {fHM(t.hh)}</span><Bar v={t.hh ? llev / t.hh * 100 : 0} color={llev > t.hh + 0.01 ? 'var(--bad)' : undefined} /></div>}
     {fin ? <div className="finbox">
       <div className="row"><span className="mut">Tiempo real</span><HM value={real} onChange={setReal} cant={Number(t.cant) || 0} titulo={t.nombre} /></div>
       <div className="row"><span className="mut">Proyectado {fHM(t.hh)} ·</span><Desvio real={real} plan={t.hh} /></div>
       <div className="tbtns"><button className="btn big t-fin" onClick={() => cerrarTarea(up, ui, t.id, real, true)}>Confirmar</button><button className="btn big" onClick={() => setFin(false)}>Cancelar</button></div></div>
       : <div className="tbtns">
-        {run ? <button className="btn big t-pausa" onClick={() => setDlg('frenar')}><svg className="bi" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z" /></svg>Pausar</button> : <button className="btn big t-ini" onClick={() => up(s => E.iniciar(s, t.id))}><svg className="bi" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>{pausa ? 'Reanudar' : 'Iniciar'}</button>}
+        {run ? <button className="btn big t-pausa" onClick={() => setDlg('frenar')}><svg className="bi" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z" /></svg>Pausar</button> : <button className="btn big t-ini" onClick={() => iniciarConAviso(S, up, ui, t.id)}><svg className="bi" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>{pausa ? 'Reanudar' : 'Iniciar'}</button>}
         <button className="btn big t-fin" onClick={() => { setReal(llev > 0 ? llev : t.hh); setFin(true); }}>Finalizar</button>
         {run && t.turno !== 'ambos' && (() => { const ta = E.turnoAhora(S, t.ops); return ta && ta !== t.turno; })() && <button className="btn big warn-b" onClick={() => up(s => E.pasarTurno(s, t.id, t.turno === 'extra' ? 'normal' : 'extra'))}>Ahora es turno {t.turno === 'extra' ? 'normal' : 'extra'}: seguir ahí</button>}
         {(llev > 0 || t.avance > 0 || t.pausada || t.parte) && !run && t.turno !== 'ambos' && <button className="btn" onClick={() => up(s => E.pasarTurno(s, t.id, t.turno === 'extra' ? 'normal' : 'extra'))}>{t.turno === 'extra' ? 'Seguir en turno normal' : 'Seguir en horas extra'}</button>}
