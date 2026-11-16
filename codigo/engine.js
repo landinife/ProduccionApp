@@ -43,13 +43,25 @@ export const noDispDe = (S, op, d) => {
   if (o.ocasional && isWork(S, d) && !(o.dias || []).includes(d)) return 'No viene';
   return null;
 };
-export const ausenciaReal = (S, op, d) => (S.ausencias || []).find(a => a.opId === op && a.desde <= d && d <= a.hasta);
-// Para todo el motor, "no está" = ausencia cargada o no disponible (aún no ingresó / ocasional que no viene ese día)
-export const ausenciaDe = (S, op, d) => ausenciaReal(S, op, d) || (m => m ? { id: '_nd', opId: op, desde: d, hasta: d, motivo: m, auto: true } : null)(noDispDe(S, op, d));
+export const ausenciaReal = (S, op, d) => (S.ausencias || []).find(a => a.opId === op && a.desde <= d && d <= a.hasta);   // cualquiera que toque ese día (aunque sea medio día)
+// Una ausencia puede tener hora de salida (desdeHora, el primer día) y de regreso (hastaHora, el último día); sin hora, son días enteros.
+// Si tiene "destino" ('pv' o 'p:<id del caso>') es una salida a Post Venta: el tiempo fuera cuenta como horas del operario cargadas a ese destino.
+export const tramoAus = (a, d) => [d === a.desde && a.desdeHora ? hm(a.desdeHora) : 0, d === a.hasta && a.hastaHora ? hm(a.hastaHora) : 1440];   // minutos del día d en que está fuera
+const cubreJornada = (S, a, d) => { const [i, f] = tramoAus(a, d), s = schedAt(S, d); return i <= s.in && f >= s.out; };
+// Para todo el motor, "no está" = ausencia que deja fuera toda la jornada de ese día, o no disponible (aún no ingresó / ocasional que no viene ese día).
+// Una salida a mitad de jornada no entra acá: recorta los tramos trabajables del día (dayIv, capN, dispDia).
+export const ausenciaDe = (S, op, d) => (S.ausencias || []).find(a => a.opId === op && a.desde <= d && d <= a.hasta && cubreJornada(S, a, d)) || (m => m ? { id: '_nd', opId: op, desde: d, hasta: d, motivo: m, auto: true } : null)(noDispDe(S, op, d));
+// Tramos del día en que el operario está fuera por una ausencia que no cubre toda la jornada
+export const tramosAus = (S, op, d) => (S.ausencias || []).filter(a => a.opId === op && a.desde <= d && d <= a.hasta && !cubreJornada(S, a, d)).map(a => tramoAus(a, d));
+const jornadaIv = (S, d) => { const s = schedAt(S, d); return !isWork(S, d) ? [] : s.bm > 0 && s.bi > s.in && s.bi + s.bm < s.out ? [[s.in, s.bi], [s.bi + s.bm, s.out]] : [[s.in, s.out - s.bm]]; };
+const solape = (iv, c) => iv.reduce((t, [a, b]) => t + Math.max(0, Math.min(b, c[1]) - Math.max(a, c[0])), 0);
+// minutos de la jornada normal (sin el almuerzo) en que el operario está fuera; conSalidas = suma también las salidas a Post Venta
+const minFuera = (S, op, d, conSalidas) => { const jv = jornadaIv(S, d); return (S.ausencias || []).filter(a => a.opId === op && a.desde <= d && d <= a.hasta && (conSalidas || !a.destino)).reduce((t, a) => t + solape(jv, tramoAus(a, d)), 0); };
+const restar = (iv, cortes) => cortes.reduce((acc, [c0, c1]) => acc.flatMap(([a, b, x]) => { if (c1 <= a || c0 >= b) return [x ? [a, b, x] : [a, b]]; const r = []; if (c0 > a) r.push(x ? [a, c0, x] : [a, c0]); if (c1 < b) r.push(x ? [c1, b, x] : [c1, b]); return r; }), iv);
 export const extraDe = (S, op, d) => Number(S.extras[op + '|' + d]) || 0;
 export function capN(S, op, d) {
   if (!isWork(S, d) || ausenciaDe(S, op, d)) return 0;
-  const s = schedAt(S, d); return (s.out - s.in - s.bm) / 60;
+  const s = schedAt(S, d); return Math.max(0, (s.out - s.in - s.bm - minFuera(S, op, d, true)) / 60);   // sin las horas que está fuera (ausencia o salida a Post Venta)
 }
 
 // Tramos trabajables de un día para un turno y un grupo de operarios
@@ -58,6 +70,10 @@ export const sigueDe = (S, op, d) => modoExtra(S, op, d) === 'sigue' ? extraDe(S
 // horas equivalentes de calendario que suma la extra "sigue" a una tarea de turno normal ese día
 export const eqSigue = (S, d, ops) => ops.length ? ops.reduce((a, o) => a + sigueDe(S, o, d), 0) / ops.length : 0;
 export function dayIv(S, d, turno, ops) {
+  const iv = dayIv0(S, d, turno, ops), cortes = (ops || []).flatMap(o => tramosAus(S, o, d));   // si sale a mitad de jornada alguno de sus operarios, la tarea no avanza en ese tramo
+  return cortes.length ? restar(iv, cortes) : iv;
+}
+function dayIv0(S, d, turno, ops) {
   if (ops && ops.length && ops.some(o => ausenciaDe(S, o, d))) return [];   // si falta alguno de sus operarios, ese día la tarea no avanza
   const s = schedAt(S, d), wd = isWork(S, d);
   if (turno === 'ambos') {   // normal + extra: el turno normal y después todas las horas extra de ese día
@@ -1042,13 +1058,28 @@ export function sample() {
 
 // ---- Horas disponibles y horas cargadas por operario y por día ----
 // Disponible = jornada normal + horas extra habilitadas (0 si falta, es feriado, aún no ingresó o no viene ese día)
-export const dispDia = (S, op, d) => ausenciaDe(S, op, d) ? 0 : capN(S, op, d) + extraDe(S, op, d);
+// Las salidas a Post Venta no restan: esas horas cuentan como disponibles del operario y se cargan a Post Venta (ver salidasComoCargas)
+export const dispDia = (S, op, d) => {
+  const f = ausenciaDe(S, op, d); if (f && !f.destino) return 0;
+  const s = schedAt(S, d), base = isWork(S, d) ? Math.max(0, (s.out - s.in - s.bm - minFuera(S, op, d, false)) / 60) : 0;
+  return base + (f ? 0 : extraDe(S, op, d));
+};
+// Cada salida a Post Venta suma, día por día, las horas de jornada que el operario estuvo fuera (sin seguimiento fino de horas)
+export function salidasComoCargas(S) {
+  const out = [];
+  (S.ausencias || []).forEach(a => { if (!a.destino || !a.opId || !a.desde) return;
+    for (let d = a.desde, i = 0; d <= a.hasta && i < 400; d = addDays(d, 1), i++) { if (noDispDe(S, a.opId, d)) continue;
+      const h = solape(jornadaIv(S, d), tramoAus(a, d)) / 60; if (h > 0.001) out.push({ id: 'sal:' + a.id + ':' + d, opId: a.opId, desde: d, hasta: d, destino: a.destino, horas: h, nota: 'Salida a Post Venta', salida: a.id }); } });
+  return out;
+}
+export const cargasTodas = S => (S.asignaciones || []).concat(salidasComoCargas(S));
 export const mesSig = k => { let [y, m] = k.split('-').map(Number); m++; if (m > 12) { m = 1; y++; } return `${y}-${pad(m)}`; };
 // Días en que se reparten las HH reales de una pieza: días hábiles entre su inicio y su fin (real o planificado); si no hay ninguno, el de inicio
 export function diasPieza(S, t, r) {
   const ini = t.inicio && t.inicio.slice(0, 10); if (!ini) return [];
   const fin = (t.finReal || (r && r.fin) || t.inicio || '').slice(0, 10);
-  const out = []; let d = ini; for (let i = 0; i < 400 && d <= (fin >= ini ? fin : ini); i++, d = addDays(d, 1)) if (isWork(S, d)) out.push(d);
+  const fuera = d => (t.ops || []).some(o => { const a = ausenciaDe(S, o, d); return a && a.destino; });   // día entero en Post Venta: sus horas ya están cargadas ahí
+  const out = []; let d = ini; for (let i = 0; i < 400 && d <= (fin >= ini ? fin : ini); i++, d = addDays(d, 1)) if (isWork(S, d) && !fuera(d)) out.push(d);
   return out.length ? out : [ini];
 }
 // ---- Carga global: horas que se asignan a mano a un operario en un rango de fechas (viajes, vacaciones, datos sin cargar) ----
@@ -1072,9 +1103,9 @@ export function cargaDiaria(S, V) {
     const ds_ = diasPieza(S, t, r); if (!ds_.length) return;
     const tipo = t.tipo === 'proy' ? claseP(prs.get(t.proyId)) : 'rep', h = real / ds_.length / os.length;
     os.forEach(o => ds_.forEach(d => { const c = C(o, d); c[tipo] += h; c.total += h; c.items.push({ t: t.id, tipo, h, dias: ds_.length, real }); })); });
-  (S.asignaciones || []).forEach(a => { const h0 = Math.max(0, Number(a.horas) || 0); if (!(h0 > 0) || !a.opId || !a.desde) return;
+  cargasTodas(S).forEach(a => { const h0 = Math.max(0, Number(a.horas) || 0); if (!(h0 > 0) || !a.opId || !a.desde) return;
     const ds_ = diasAsig(S, a), tipo = destinoTipo(S, a.destino), h = h0 / ds_.length;
-    ds_.forEach(d => { const c = C(a.opId, d); c[tipo] += h; c.total += h; c.glob += h; c.items.push({ a: a.id, tipo, h }); }); });
+    ds_.forEach(d => { const c = C(a.opId, d); c[tipo] += h; c.total += h; c.glob += h; c.items.push({ a: a.id, tipo, h, ...(a.salida ? { sal: a.salida } : {}) }); }); });
   return R;
 }
 
@@ -1112,8 +1143,8 @@ export function estadisticas(S, V, hoy = today()) {
     const ds_ = diasPieza(S, t, r);
     ds_.forEach(x => { const h = real / ds_.length; g.dias[x] = (g.dias[x] || 0) + h; });
   });
-  // cargas globales
-  (S.asignaciones || []).forEach(a => {
+  // cargas globales (y salidas a Post Venta)
+  cargasTodas(S).forEach(a => {
     const h = Math.max(0, Number(a.horas) || 0); if (!(h > 0) || !a.opId || !a.desde) return;
     const pr = destinoProy(S, a.destino), tipo = destinoTipo(S, a.destino);
     const k = String(a.destino).startsWith('p:') ? a.destino.slice(2) : a.destino === 'rep' ? 'rep' : a.destino + '-gral';
@@ -1132,7 +1163,7 @@ export function estadisticas(S, V, hoy = today()) {
     const vhMed = g.hh - g.sinTarifa > 0 ? g.costo / (g.hh - g.sinTarifa) : 0;   // costo medio por HH de este grupo, para repartir por mes
     Object.entries(g.dias).forEach(([d, h]) => { const m = M(d.slice(0, 7)); m[g.tipo] += h; m.total += h; m.costo += h * vhMed; dia[d] = (dia[d] || 0) + h; });
   });
-  (S.asignaciones || []).forEach(a => { const h = Math.max(0, Number(a.horas) || 0); if (!(h > 0) || !a.opId || !a.desde) return; const ds_ = diasAsig(S, a); ds_.forEach(d => { M(d.slice(0, 7)).glob += h / ds_.length; }); });
+  cargasTodas(S).forEach(a => { const h = Math.max(0, Number(a.horas) || 0); if (!(h > 0) || !a.opId || !a.desde) return; const ds_ = diasAsig(S, a); ds_.forEach(d => { M(d.slice(0, 7)).glob += h / ds_.length; }); });
   // horas disponibles, sin cargar y cargadas de más (operarios activos, día por día, solo hasta hoy). Se cuentan también los meses sin horas cargadas.
   const ult = hoy.slice(0, 7), m0 = Object.keys(mes).sort()[0];
   if (m0) for (let k = m0, i = 0; k <= ult && i < 240; k = mesSig(k), i++) M(k);

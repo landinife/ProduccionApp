@@ -1335,7 +1335,7 @@ function SeccEstado({ roots, vis, tabla }) {
 }
 
 function Proyectos({ pv = false, tl = false }) {
-  const { S, V, up, ui } = useApp(); const clase = pv ? 'pv' : tl ? 'tl' : 'proy', caso = pv || tl; const lista = S.proyectos.filter(x => E.claseP(x) === clase), activos = lista.filter(x => !x.terminado), terminados = lista.filter(x => x.terminado), LK = 'produccionapp-' + clase + '-actual'; const movil = useMovil(); const [vistaM, setVistaM] = useState(() => prefG('movil-vista', 'lista')); const [masM, setMasM] = useState(false); const [pid, setPid0] = useState(() => { try { return localStorage.getItem(LK) || null; } catch (e) { return null; } });
+  const { S, V, up, ui, pm } = useApp(); const clase = pv ? 'pv' : tl ? 'tl' : 'proy', caso = pv || tl; const lista = S.proyectos.filter(x => E.claseP(x) === clase), activos = lista.filter(x => !x.terminado), terminados = lista.filter(x => x.terminado), LK = 'produccionapp-' + clase + '-actual'; const movil = useMovil(); const [vistaM, setVistaM] = useState(() => prefG('movil-vista', 'lista')); const [masM, setMasM] = useState(false); const [pid, setPid0] = useState(() => { try { return localStorage.getItem(LK) || null; } catch (e) { return null; } });
   const setPid = id => { setPid0(id); try { id ? localStorage.setItem(LK, id) : localStorage.removeItem(LK); } catch (e) { } if (typeof window.scrollTo === 'function') window.scrollTo({ top: 0 }); };
   useEffect(() => { const k = e => { if (!e.altKey || e.ctrlKey || e.metaKey) return; const n = Number(e.key); if (n >= 1 && n <= 9 && activos[n - 1]) { e.preventDefault(); setPid(activos[n - 1].id); } else if (e.key === '0') { e.preventDefault(); setPid(null); } }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [S.proyectos, pv, tl]); const [vp, setVp] = useVistaProc(); const [col, tog, setCol] = useSet(); const [det, setDet] = useState(null); const [hhv, setHhv] = useState('padre'); const [altoG, setAltoG] = useState('completo'); const [q, setQ] = useState(''); const [verFin, setVerFin] = useState(() => prefG('verfin', false)); const [verTerm, setVerTerm] = useState(() => prefG('verterm' + (caso ? '-' + clase : ''), false));
   useEffect(() => { if (pid) setAltoG(prefG('alto-' + pid, 'completo')); }, [pid]);
@@ -1422,19 +1422,19 @@ function Proyectos({ pv = false, tl = false }) {
         <span className={'presum-n' + (nFren ? ' warn' : '')}><b>⏸ {nFren}</b><small>{nFren === 1 ? 'frenada' : 'frenadas'}</small></span>
         <i className="kar">{masM ? '▴' : '▾'}</i>
       </button>
-      {masM && <div className="presum-mas">{kpis}<h3>Datos del proyecto</h3>{datosForm}<div className="row"><button className="btn" onClick={() => ui.modal({ k: 'imp', mode: 'proy', proyId: p.id })}>Importar árbol .xlsx</button><button className="btn pri-b" onClick={() => ui.modal({ k: 'plan', proyId: p.id })}>Planificar proyecto</button></div></div>}
+      {masM && <div className="presum-mas">{kpis}<h3>Datos del proyecto</h3>{datosForm}<div className="row"><button className="btn" onClick={() => ui.modal({ k: 'imp', mode: 'proy', proyId: p.id })}>Importar árbol .xlsx</button><button className="btn pri-b" onClick={() => ui.modal({ k: 'plan', proyId: p.id })}>Planificar proyecto</button>{pv && pm.admin && <button className="btn" onClick={() => ui.modal({ k: 'salida', proyId: p.id })}>+ Salida de operario</button>}</div></div>}
     </section>
     {det && <Desglose roots={roots} ts={i.ts} vista={det} hhv={hhv} setHhv={setHhv} color={p.color} prev={i.prev} cerrar={() => setDet(null)} />}
     {buscador}
     <PendProc donde={(caso ? 'en este caso' : 'en este proyecto') + (qn ? ' · con la búsqueda' : '')} ts={visQ ? i.ts.filter(visQ) : i.ts} />
     <div className="seg vistam">{[['lista', 'Lista', 'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01'], ['gantt', 'Gantt', 'M4 6h9M8 12h10M6 18h7'], ['tabla', 'Tabla', 'M4 4h16v16H4zM4 10h16M10 4v16']].map(([k, l, d]) => <button key={k} className={vistaM === k ? 'on' : ''} onClick={() => vistaMov(k)}><svg viewBox="0 0 24 24"><path d={d} /></svg>{l}</button>)}</div>
-    {pv && <RegistroPV ts={i.ts} />}
+    {pv && <SalidasPV p={p} />}{pv && <RegistroPV ts={i.ts} />}
         {vistaM === 'lista' ? <ProyLista roots={roots} ts={i.ts} p={p} rango={rango} visQ={visQ} q={qn} /> : vistaM === 'gantt' ? ganttSec : tablasMovil}
   </div>;
   return <div className="view">{tabs}
     <section>
       <div className="sec-h"><div className="row"><span className="chip" style={{ '--c': p.color }}>{p.ini}</span><h2>{p.nombre}</h2>{p.terminado && <span className="tag ok">✓ Terminado{p.terminadoEl ? ` el ${fD(p.terminadoEl)}` : ''}</span>}</div>
-        <div className="row"><button className="btn" onClick={() => ui.modal({ k: 'imp', mode: 'proy', proyId: p.id })}>Importar árbol .xlsx</button><button className="btn" onClick={() => ui.modal({ k: 'plan', proyId: p.id })}>Planificar proyecto</button><button className="btn pri-b" onClick={() => ui.modal({ k: 'task', draft: E.blankTask('proy', p.id, pv) })}>+ Pieza</button></div></div>
+        <div className="row"><button className="btn" onClick={() => ui.modal({ k: 'imp', mode: 'proy', proyId: p.id })}>Importar árbol .xlsx</button><button className="btn" onClick={() => ui.modal({ k: 'plan', proyId: p.id })}>Planificar proyecto</button>{pv && pm.admin && <button className="btn" onClick={() => ui.modal({ k: 'salida', proyId: p.id })}>+ Salida de operario</button>}<button className="btn pri-b" onClick={() => ui.modal({ k: 'task', draft: E.blankTask('proy', p.id, pv) })}>+ Pieza</button></div></div>
       {datosForm}
       {kpis}
     </section>
@@ -1445,7 +1445,7 @@ function Proyectos({ pv = false, tl = false }) {
         {altoG !== 'oculto' && <span className="mut legend"><i className="lg t" />hoy <i className="lg d" />entrega</span>}</div>
       {altoG === 'oculto' ? <p className="mut">Oculto ({rows.length} {rows.length === 1 ? 'fila' : 'filas'}). Elegí Compacto o Completo para verlo.</p>
         : <Gantt rows={rows} ts={i.ts} entrega={p.entrega} color={p.color} collapsed={colV} toggle={tog} alto={altoG} todo={c => setCol(c ? new Set(i.ts.filter(t => (V.kids[t.id] || []).length).map(t => t.id)) : new Set())} />}</section>
-    {pv && <RegistroPV ts={i.ts} />}
+    {pv && <SalidasPV p={p} />}{pv && <RegistroPV ts={i.ts} />}
         <PendProc donde={(caso ? 'en este caso' : 'en este proyecto') + (qn ? ' · con la búsqueda' : '')} ts={visQ ? i.ts.filter(visQ) : i.ts} />
         <section><div className="sec-h"><h2>Pendientes y en proceso <span className="cnt">{nAct}</span></h2><VistaSel v={vp} set={setVp} /><span className="mut">{vp === 'proceso' ? 'Tocá una pieza para abrirla' : 'Mayús + Espacio (Shift + Space) marca la fila · en la casilla alcanza con Espacio'}</span></div>{vp === 'proceso' ? <TableroProc roots={roots} vis={visAct} /> : <SeccEstado roots={roots} vis={visAct} tabla={v => <TaskTable roots={roots} tipo="proy" vis={v} collapsed={colV} toggle={tog} orden={ord} />} />}</section>
     <section className="finsec"><div className="sec-h"><button className="dgrp-t fin-t" onClick={() => { setVerFin(!verFin); guardaG('verfin', !verFin); }}><span className="car">{verFin ? '▾' : '▸'}</span><h2>Finalizadas <span className="cnt ok">{nFin}</span></h2></button></div>
@@ -1980,10 +1980,10 @@ function DiaOpDet({ x, o, cerrar }) {
     <p className="mut">{x.aus ? `Ausente: ${x.aus.motivo}. ` : x.fer ? `Feriado: ${x.fer.nombre}. ` : x.finde && !ext ? 'Fin de semana. ' : ''}Disponible {fN(x.dp)} h{x.dp > 0 ? ` (jornada ${fN(jor)} h${ext ? ` + ${fN(ext)} h extra` : ''})` : ''} · cargadas {fN(x.c.total)} h{x.fut ? '' : ` · sin asignar ${fN(x.sin)} h`}{x.exc > 0.05 ? ` · ${fN(x.exc)} h de más` : ''}</p>
     {x.alerta === 'over' && <p className="note bad">Se cargaron más horas de las que tenía disponibles. Revisá las horas reales de las piezas de abajo, si las extras están habilitadas ese día, o si una pieza quedó con un inicio o un fin equivocado (sus horas se reparten entre todos los días que duró).</p>}
     {x.alerta === 'falta' && <p className="note">Quedaron {fN(x.sin)} h sin asignar. Puede faltar cargar una tarea o sus horas reales, o una ausencia.</p>}
-    {x.c.items.length === 0 ? <p className="mut">No hay horas cargadas este día.</p> : <div className="al-l">{x.c.items.map((it, i) => { const t = it.t && V.byId[it.t], a = it.a && (S.asignaciones || []).find(z => z.id === it.a);
+    {x.c.items.length === 0 ? <p className="mut">No hay horas cargadas este día.</p> : <div className="al-l">{x.c.items.map((it, i) => { const t = it.t && V.byId[it.t], a = it.a && !it.sal && (S.asignaciones || []).find(z => z.id === it.a), sa = it.sal && (S.ausencias || []).find(z => z.id === it.sal);
       return <div key={i} className="al-r"><div className="al-b">{t ? <><span className="row"><Chip t={t} small /><b>{etiqueta(V, t)}</b></span><span className="mut"><i className="est-dot" style={{ background: COL_EST[it.tipo] }} />{NOM_EST[it.tipo]} · {fN(it.h)} h este día · la pieza tiene {fN(it.real)} h reales{it.dias > 1 ? ` repartidas en ${it.dias} días` : ''}{t.ops.length > 1 ? ` entre ${t.ops.length} operarios` : ''} · {fDT(t.inicio)} → {fDT(t.finReal || V.D[t.id].fin)}</span></>
-        : a ? <><b><i className="est-dot" style={{ background: COL_EST[it.tipo] }} />Carga global: {E.destinoNom(S, a.destino)}</b><span className="mut">{fN(it.h)} h este día · {fN(Number(a.horas) || 0)} h del {fD(a.desde)} al {fD(a.hasta || a.desde)}{a.nota ? ' · ' + a.nota : ''}</span></> : null}</div>
-        <div className="al-a">{t && <button className="btn sm" onClick={() => ui.modal({ k: 'task', id: t.id })}>Abrir</button>}{a && pm.admin && <button className="btn sm" onClick={() => ui.modal({ k: 'asig', id: a.id })}>Editar</button>}</div></div>; })}</div>}
+        : a ? <><b><i className="est-dot" style={{ background: COL_EST[it.tipo] }} />Carga global: {E.destinoNom(S, a.destino)}</b><span className="mut">{fN(it.h)} h este día · {fN(Number(a.horas) || 0)} h del {fD(a.desde)} al {fD(a.hasta || a.desde)}{a.nota ? ' · ' + a.nota : ''}</span></> : sa ? <><b><i className="est-dot" style={{ background: COL_EST[it.tipo] }} />Salida a Post Venta: {E.destinoNom(S, sa.destino)}</b><span className="mut">{fN(it.h)} h este día · sale {fD(sa.desde)}{sa.desdeHora ? ' ' + sa.desdeHora : ''} → vuelve {fD(sa.hasta)}{sa.hastaHora ? ' ' + sa.hastaHora : ''}{sa.nota ? ' · ' + sa.nota : ''}</span></> : null}</div>
+        <div className="al-a">{t && <button className="btn sm" onClick={() => ui.modal({ k: 'task', id: t.id })}>Abrir</button>}{sa && pm.admin && <button className="btn sm" onClick={() => ui.modal({ k: 'salida', id: sa.id })}>Editar</button>}{a && pm.admin && <button className="btn sm" onClick={() => ui.modal({ k: 'asig', id: a.id })}>Editar</button>}</div></div>; })}</div>}
   </div>;
 }
 // Ventana para cargar horas a mano (carga global)
@@ -2021,6 +2021,59 @@ function AsigDlg({ id, opId, desde, hasta, onClose }) {
       <span className="hint">Las horas se reparten en partes iguales entre los días con horas disponibles del rango.</span></div>}
     {ay && h > 0 && h > ay.libre + 0.05 && <p className="note bad">Supera las horas libres de esas fechas en {fN(h - ay.libre)} h. Se puede guardar igual, pero esos días van a quedar marcados en rojo en el calendario.</p>}
   </Modal>;
+}
+
+// Salida de un operario a Post Venta: desde qué día y hora hasta qué día y hora (la hora es opcional: sin hora, días enteros).
+// Mientras está afuera sus tareas no avanzan y se corren; el tiempo fuera cuenta como horas suyas cargadas a Post Venta, sin seguimiento fino.
+function SalidaDlg({ id, proyId, opId, onClose }) {
+  const { S, up, ui } = useApp(); const prev = id ? (S.ausencias || []).find(a => a.id === id) : null; const hoy = E.today();
+  const [f, setF] = useState(() => prev ? { ...prev, desdeHora: prev.desdeHora || '', hastaHora: prev.hastaHora || '', nota: prev.nota || '' } : { id: E.uid(), opId: opId || '', destino: proyId ? 'p:' + proyId : 'pv', desde: hoy, desdeHora: '', hasta: hoy, hastaHora: '', nota: '' });
+  const [pausa, setPausa] = useState(true);
+  const set = (k, v) => setF(x => ({ ...x, [k]: v }));
+  const horasOk = !(f.desde === f.hasta && f.desdeHora && f.hastaHora && f.hastaHora <= f.desdeHora);
+  const rangoOk = !!(f.desde && f.hasta && f.hasta >= f.desde && E.diffDays(f.desde, f.hasta) <= 120 && horasOk);
+  const ok = !!(f.opId && f.destino && rangoOk);
+  const a = { id: f.id, opId: f.opId, desde: f.desde, hasta: f.hasta, motivo: 'Post Venta', destino: f.destino, ...(f.desdeHora ? { desdeHora: f.desdeHora } : {}), ...(f.hastaHora ? { hastaHora: f.hastaHora } : {}), ...((f.nota || '').trim() ? { nota: f.nota.trim() } : {}) };
+  const horas = ok ? E.salidasComoCargas({ ...S, ausencias: [a] }).reduce((t, x) => t + x.horas, 0) : 0;
+  const choca = !!(f.opId && rangoOk && (S.ausencias || []).some(x => x.id !== f.id && x.opId === f.opId && x.desde <= f.hasta && f.desde <= x.hasta));
+  // lo que el operario tenía corriendo a la hora de salir: se puede pausar ahí (lo hecho queda registrado y lo que falta sigue en la cola)
+  const corte = ok ? E.join(f.desde, f.desdeHora ? E.hm(f.desdeHora) : E.schedAt(S, f.desde).in) : '';
+  const enc = ok ? E.enCurso(S, [f.opId]) : [], yaSalio = enc.length > 0 && corte <= E.nowDT();
+  const guardar = () => { if (!ok) return;
+    up(s => { const s1 = yaSalio && pausa ? E.pausarEnCurso(s, [a.opId], null, corte) : s; return E.setAusencias(s1, prev ? s1.ausencias.map(x => x.id === a.id ? a : x) : [...s1.ausencias, a]); });
+    ui.toast(`${opName(S, a.opId)}: ${fN(horas)} h a ${E.destinoNom(S, a.destino)}${yaSalio && pausa ? ' · pausó lo que tenía en curso' : ''}`); onClose(); };
+  const borrar = () => ui.confirmar({ titulo: '¿Borrar la salida?', texto: `${opName(S, prev.opId)} deja de figurar en Post Venta del ${fD(prev.desde)} al ${fD(prev.hasta)}. Sus tareas vuelven a avanzar esos días. Podés deshacerlo arriba.`, si: 'Sí, borrar', peligro: true, onSi: () => { up(s => E.setAusencias(s, s.ausencias.filter(x => x.id !== prev.id))); ui.toast('Salida borrada'); onClose(); } });
+  const casos = S.proyectos.filter(p => E.claseP(p) === 'pv').sort((x, y) => (!!x.terminado - !!y.terminado) || x.nombre.localeCompare(y.nombre, 'es'));
+  return <Modal title={prev ? 'Editar salida a Post Venta' : 'Salida de operario a Post Venta'} onClose={onClose} foot={<>{prev && <button className="btn danger" onClick={borrar}>Borrar</button>}<span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!ok} onClick={guardar}>Guardar</button></>}>
+    <p className="mut">Mientras el operario está afuera sus tareas no avanzan (se corren) y el tiempo fuera cuenta como horas suyas en Post Venta, sin seguimiento fino. Si no ponés hora, se toman días enteros. Al volver, retomá su tarea con Retomar y la hora de regreso.</p>
+    <div className="form">
+      <label>Operario<select value={f.opId} onChange={e => set('opId', e.target.value)}><option value="">Elegí…</option>{S.operarios.filter(o => o.activo !== false || o.id === f.opId).slice().sort(porApellido).map(x => <option key={x.id} value={x.id}>{nomApe(x)}</option>)}</select></label>
+      <label>Caso de Post Venta<select value={f.destino} onChange={e => set('destino', e.target.value)}><option value="pv">Post Venta (en general)</option>{casos.length > 0 && <optgroup label="Casos">{casos.map(c => <option key={c.id} value={'p:' + c.id}>{c.nombre}{c.terminado ? ' (terminado)' : ''}</option>)}</optgroup>}</select></label>
+      <label>Sale el<input type="date" value={f.desde} onChange={e => setF(x => ({ ...x, desde: e.target.value, hasta: e.target.value > x.hasta ? e.target.value : x.hasta }))} /></label>
+      <label>Hora de salida (opcional)<input type="time" value={f.desdeHora} onChange={e => set('desdeHora', e.target.value)} /></label>
+      <label>Vuelve el<input type="date" value={f.hasta} min={f.desde} onChange={e => set('hasta', e.target.value)} /></label>
+      <label>Hora de regreso (opcional)<input type="time" value={f.hastaHora} onChange={e => set('hastaHora', e.target.value)} /></label>
+      <label className="g2">Nota (opcional)<input value={f.nota || ''} onChange={e => set('nota', e.target.value)} placeholder="por ejemplo: instalación en la planta del cliente" /></label>
+    </div>
+    {!rangoOk && f.desde && f.hasta && <p className="note bad">{horasOk ? 'La fecha «Vuelve el» tiene que ser igual o posterior a «Sale el» (y la salida, de 120 días como máximo).' : 'La hora de regreso tiene que ser posterior a la de salida.'}</p>}
+    {choca && <p className="note bad">Este operario ya tiene otra ausencia en esas fechas: se pisan. Revisá Configuración → Ausencias.</p>}
+    {ok && <div className="note">{opName(S, f.opId)} cuenta <b>{fN(horas)} h</b> en {E.destinoNom(S, f.destino)} (la jornada que está afuera, sin el almuerzo). Esas horas figuran como disponibles y cargadas, así que no aparecen como «sin asignar».</div>}
+    {yaSalio && <label className="chk"><input type="checkbox" checked={pausa} onChange={e => setPausa(e.target.checked)} /> Pausar a las {corte.slice(11)} lo que tenía en curso: {enc.map(t => t.nombre).join(', ')}</label>}
+    {ok && enc.length > 0 && !yaSalio && <p className="note">Tiene en curso: {enc.map(t => t.nombre).join(', ')}. El cronómetro no cuenta las horas que está afuera; si no vuelve a esa tarea, pausala a mano.</p>}
+  </Modal>;
+}
+// Salidas de operarios de un caso de Post Venta (ausencias con destino a ese caso)
+function SalidasPV({ p }) {
+  const { S, ui, pm } = useApp();
+  const l = (S.ausencias || []).filter(a => a.destino === 'p:' + p.id).slice().sort((x, y) => x.desde < y.desde ? 1 : -1);
+  if (!l.length && !pm.admin) return null;
+  const fh = (d, h) => fD(d) + (h ? ' ' + h : '');
+  return <section className="pvreg"><div className="sec-h"><h2>Salidas de operarios <span className="cnt">{l.length}</span></h2>{pm.admin && <button className="btn sm" onClick={() => ui.modal({ k: 'salida', proyId: p.id })}>+ Salida de operario</button>}</div>
+    {l.length === 0 ? <p className="mut">Cuando un operario sale a este caso, cargá la salida: sus tareas esperan y el tiempo fuera cuenta como horas en este caso.</p>
+      : <div className="al-l">{l.map(a => { const h = E.salidasComoCargas({ ...S, ausencias: [a] }).reduce((t, x) => t + x.horas, 0);
+        return <div key={a.id} className="al-r"><div className="al-b"><b>{opName(S, a.opId)} · {fN(h)} h</b><span className="mut">Sale {fh(a.desde, a.desdeHora)} → vuelve {fh(a.hasta, a.hastaHora)}{a.nota ? ' · ' + a.nota : ''}</span></div>
+          {pm.admin && <div className="al-a"><button className="btn sm" onClick={() => ui.modal({ k: 'salida', id: a.id })}>Editar</button></div>}</div>; })}</div>}
+  </section>;
 }
 
 /* ================= IMPORTADOR ================= */
@@ -2855,6 +2908,7 @@ export function App({ db, ses, S0 }) {
       {modal && modal.k === 'lote' && <LoteEditor ids={modal.ids} titulo={modal.titulo} onClose={close} />}
       {modal && modal.k === 'imp' && <Importer mode={modal.mode} proyId={modal.proyId} onClose={close} />}
       {modal && modal.k === 'asig' && <AsigDlg {...modal} onClose={close} />}
+      {modal && modal.k === 'salida' && <SalidaDlg key={modal.id || 'nueva'} {...modal} onClose={close} />}
       {modal && modal.k === 'plan' && <PlanificarDlg proyId={modal.proyId} alcance={modal.alcance} onClose={close} />}
       {conf && <ConfirmarDlg {...conf} onClose={() => setConf(null)} />}
       {toast && <div className="toast" role="status">{toast}</div>}
