@@ -1689,7 +1689,11 @@ function LoteEditor({ ids, titulo, onClose }) {
   const nuevoHH = t => f.hh !== '' ? n2(Number(f.hh) * peso(t)) : Number(t.hh) || 0;
   const nuevoReal = t => f.real !== '' ? n2(Number(f.real) * peso(t)) : Number(t.hhReal) || 0;
   const cambia = f.operacionId || f.prioridad || f.turno || f.ops || f.inicio || f.hh !== '' || f.real !== '' || f.estado;
-  const aplicar = () => {
+  const aplicar = () => {   // pasar piezas a "En proceso": avisa si sus operarios ya tienen otras tareas en curso (se pausan)
+    const otras = f.estado === 'en proceso' ? [...new Map(ts.filter(t => t.estado !== 'en proceso').flatMap(t => E.enCurso(S, f.ops || t.ops, t.id)).filter(x => !ids.includes(x.id)).map(x => [x.id, x])).values()] : [];
+    if (otras.length) { ui.confirmar({ titulo: '¿Pausar lo que está en curso?', texto: `Los operarios de estas piezas ya tienen en curso: ${otras.map(x => `"${x.nombre}"`).join(', ')}. Si seguís, ${otras.length === 1 ? 'esa tarea se pausa' : 'esas tareas se pausan'} (lo hecho queda registrado y lo que falta sigue en la cola) y arrancan las piezas elegidas.`, si: 'Sí, pausar y arrancar', onSi: hacer }); return; }
+    hacer(); };
+  const hacer = () => {
     const orden = ts.slice().sort((a, b) => (a.inicio || '9') < (b.inicio || '9') ? -1 : 1).map(t => t.id);
     up(s0 => { let s = s0; let cursor = f.inicio || null;
       orden.forEach(id => { const t = s.tareas.find(x => x.id === id); if (!t) return; const p = {};
