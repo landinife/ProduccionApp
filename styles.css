@@ -1480,3 +1480,7 @@ select.ci.est.e-proximo { background: transparent; }
 .top .matb.bad { background: var(--bad) !important; color: #fff !important; border-color: var(--bad) !important; }
 .top .matb.warn { background: var(--warn) !important; color: #1a1400 !important; border-color: var(--warn) !important; }
 .top .matb.ok { color: var(--ok) !important; border-color: color-mix(in srgb, var(--ok) 45%, var(--line)) !important; }
+.ovl.ovl-arriba { z-index: 70; }
+.tefi { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px dashed var(--line); border-radius: 10px; }
+.tefi .fstk { flex-basis: auto; font-size: 14px; }
+.fstk .btn { align-self: center; }

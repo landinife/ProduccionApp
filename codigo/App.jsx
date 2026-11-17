@@ -79,9 +79,10 @@ export function Cargando({ txt = 'Cargando datos…' }) {
       <p className="mut esq-txt">{txt}</p></div></main></div>;
 }
 function etiqueta(V, t) { const p = t.parentId && V.byId[t.parentId]; return p && !p.partes ? `${t.nombre} · ${p.nombre}` : t.nombre; }
-function Modal({ title, onClose, children, wide, foot }) {
-  useEffect(() => { const k = e => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [onClose]);
-  return <div className="ovl" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+function Modal({ title, onClose, children, wide, foot, arriba }) {
+  // arriba: ventana que se abre encima de otra (por ejemplo la ficha sobre el editor); Esc cierra solo esta
+  useEffect(() => { const k = e => { if (e.key === 'Escape') { if (arriba) e.stopImmediatePropagation(); onClose(); } }; window.addEventListener('keydown', k, !!arriba); return () => window.removeEventListener('keydown', k, !!arriba); }, [onClose]);
+  return <div className={'ovl' + (arriba ? ' ovl-arriba' : '')} onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
     <div className={'modal' + (wide ? ' wide' : '')} role="dialog" aria-label={title}>
       <header><h2>{title}</h2><button className="btn ghost" onClick={onClose} aria-label="Cerrar">Cerrar</button></header>
       <div className="modal-b">{children}</div>
@@ -817,6 +818,7 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden, universo }) {
       ...(!r.parent && E.esPend(t) ? [{ ic: '⏭', txt: prox ? 'Quitar de Próximo a realizar' : 'Marcar como Próximo a realizar', on: prox, fn: () => { up(s => E.setProximo(s, t.id, !prox)); ui.toast(!prox ? 'Marcada como Próximo a realizar' : 'Quitada de Próximo a realizar'); } }] : []),
       { ic: '＋', txt: 'Agregar hijo', fn: () => ui.modal({ k: 'task', draft: { ...E.blankTask(t.tipo, t.proyId), parentId: t.id, prioridad: t.prioridad } }) },
       { ic: '⧉', txt: 'Duplicar', fn: () => { up(s => E.dupTask(s, t.id)); ui.toast('Duplicada'); } },
+      ...(t.nombre && !E.esGrupo(S, t) ? [{ ic: '▦', txt: 'Ficha de material', fn: () => ui.ficha({ key: E.claveCod(t.nombre.replace(/\s*\(parte \d+\)\s*$/i, '')), nombre: t.nombre }) }] : []),
       ...(orden && !so ? ['-', { ic: '▲', txt: 'Subir (orden manual)', queda: true, fn: () => mover(t, -1) }, { ic: '▼', txt: 'Bajar (orden manual)', queda: true, fn: () => mover(t, 1) }] : []),
       '-',
       { ic: '✕', txt: 'Borrar', peligro: true, fn: () => ui.confirmar({ titulo: '¿Borrar esta tarea?', texto: `Se borra "${t.nombre || '(sin nombre)'}"${(V.kids[t.id] || []).length ? ' con todo lo que tiene adentro' : ''}. Podés deshacerlo arriba.`, si: 'Sí, borrar', peligro: true, onSi: () => { up(s => E.delTask(s, t.id)); ui.toast('Borrada. Podés deshacerlo arriba.'); } }) }]; };
@@ -1551,6 +1553,7 @@ function TaskEditor({ id, draft, onClose }) {
         <label>Material<select id="te-mat" value={t.material || ''} onChange={e => set('material', e.target.value)}><option value="">—</option>{(S.materiales || []).map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}</select>
           {!(S.materiales || []).length && <small className="hint">Los materiales se cargan en Configuración → Materiales.</small>}</label>
         <label>Peso total (kg)<input id="te-peso" type="number" min="0" step="0.1" value={t.peso ?? ''} placeholder="de toda la cantidad" onChange={e => set('peso', e.target.value === '' ? null : Number(e.target.value))} /></label>
+        {t.nombre && t.nombre.trim() && <div className="g2 tefi"><div><b>Ficha de la pieza</b> <small className="mut">· vale para todas las veces que se fabrica (ítem de StockApp, largo y material para el costo)</small></div><FichaStockLinea k={E.claveCod(t.nombre.replace(/\s*\(parte \d+\)\s*$/i, ''))} nombre={t.nombre} /></div>}
         {pvT && <><div className="g2 fld"><b>Post venta</b><small className="mut">Dejá acá el registro de lo que se hizo y se envió: sirve para cruzarlo con los remitos de depósito.</small></div>
           <label>Origen<select id="te-ori" value={t.origen || 'fabricada'} onChange={e => set('origen', e.target.value)}><option value="fabricada">Fabricada por nosotros</option><option value="reventa">Reventa (pasa mano)</option></select></label>
           <label>Motivo<select id="te-mot" value={t.motivo || ''} onChange={e => set('motivo', e.target.value)}><option value="">—</option>{MOTIVOS_PV.map(m => <option key={m}>{m}</option>)}</select></label>
@@ -2584,7 +2587,7 @@ function MaterialVista({ corta }) {
   const L = NE.L.filter(r => fil === 'todo' || (fil === 'prob' ? r.est !== 'ok' : r.est === fil));
   const agrupa = l => { const m = new Map(); l.forEach(p => { let x = m.get(p.k); if (!x) { x = { k: p.k, nombre: p.nombre, cant: 0, donde: new Set(), it: p.it }; m.set(p.k, x); } x.cant += p.cant; x.donde.add(dondeMat(S, V, p)); }); return [...m.values()].sort((a, b) => a.k.localeCompare(b.k)); };
   const SF = agrupa(NE.sinFicha), SC = agrupa(NE.sinConsumo), NI = agrupa(NE.noIt);
-  const cargar = x => ui.modal({ k: 'ficha', key: x.k, nombre: x.nombre, volver: !corta });   // desde la ventana de material, al cerrar la ficha se vuelve a ella
+  const cargar = x => ui.ficha({ key: x.k, nombre: x.nombre });   // se abre encima: al cerrarla sigue la ventana de material
   const lista = (tit, l, txt) => l.length > 0 && <div className="matsf"><b>{tit} <small className="mut">{l.length}</small></b><span className="mut">{txt}</span>
     <div className="matsf-l">{(verSF || corta ? l.slice(0, corta ? 6 : 999) : l.slice(0, 12)).map(x => <div key={x.k} className="matsf-f"><span><b>{x.nombre}</b><small className="mut"> · {fN(x.cant)} u. · {[...x.donde].join(', ')}</small></span>{pm.admin && <button className="btn sm" onClick={() => cargar(x)}>Cargar ficha</button>}</div>)}</div>
     {!corta && !verSF && l.length > 12 && <button className="lnk" onClick={() => setVerSF(true)}>Ver las {l.length}</button>}{corta && l.length > 6 && <span className="mut">y {l.length - 6} más (Ver todo)</span>}</div>;
@@ -2654,7 +2657,7 @@ function ImportFichas({ d, onClose }) {
 function FichaStockLinea({ k, nombre }) {
   const { S, ui, pm, stock } = useApp(); const f = E.fichaDe(S, k) || {}; const it = stock && stock.items ? stock.items.find(i => i.id === f.stockId) : null, c = E.consumoU(S, f, it);
   return <span className="mut fstk">{f.chapa ? 'Material: sale de chapa (nesting).' : f.noMat ? 'No consume material de stock.' : f.stockId ? <>StockApp: <b>{it ? nomIt(it) : stock && stock.items ? 'ítem borrado en StockApp' : 'ítem vinculado'}</b>{c ? ` · consume ${fQ(c.q)} ${uIt(it)} por unidad (${consTxt(c)})` : f.largoU ? ` · largo ${fN(f.largoU)} mm` : ' · falta el largo'}</> : 'Sin ítem de StockApp (no entra al aviso de material).'}
-    {pm.admin && <button className="lnk sm" onClick={() => ui.modal({ k: 'ficha', key: k, nombre })}>Editar</button>}</span>;
+    <button type="button" className="btn sm" onClick={() => ui.ficha({ key: k, nombre })}>{pm.admin ? '✎ Editar ficha' : 'Ver ficha'}</button></span>;
 }
 // Ficha de la pieza completa: ítem de StockApp, largo del plano, corte, chapa, y material y peso para el costo
 function FichaDlg({ k, nombre, onClose }) {
@@ -2667,7 +2670,7 @@ function FichaDlg({ k, nombre, onClose }) {
   const ff = { ...f, largoU: num(f.largoU), corteU: f.corteU === '' ? null : Number(f.corteU), consumoU: num(f.consumoU), pesoU: num(f.pesoU) };
   const c = !f.chapa && !f.noMat && it ? E.consumoU(S, ff, it) : null, u = uIt(it);
   const guardar = () => { up(s => conFicha(s, k, { ...ff, stockId: f.chapa || f.noMat ? '' : f.stockId, ...(f.chapa || f.noMat ? { largoU: null, corteU: null, consumoU: null } : {}) })); ui.toast('Ficha guardada'); onClose(); };
-  return <Modal title={'Ficha de ' + nombre} onClose={onClose} foot={<><span className="mut">Vale para todas las veces que se fabrica.</span><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!pm.admin} onClick={guardar}>Guardar</button></>}>
+  return <Modal arriba title={'Ficha de ' + nombre} onClose={onClose} foot={<><span className="mut">Vale para todas las veces que se fabrica.</span><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!pm.admin} onClick={guardar}>Guardar</button></>}>
     <div className="fichad">
       <div className="fichad-tipo" role="radiogroup" aria-label="Material de la pieza">{[['stock', 'Barra o material de StockApp'], ['chapa', 'Sale de chapa (nesting)'], ['no', 'No consume material de stock']].map(([v, l]) => { const on = v === 'chapa' ? f.chapa : v === 'no' ? f.noMat : !f.chapa && !f.noMat;
         return <label key={v} className={'togb' + (on ? ' on' : '')}><input type="radio" name="tipomat" checked={on} onChange={() => set({ chapa: v === 'chapa', noMat: v === 'no' })} hidden />{l}</label>; })}</div>
@@ -3083,7 +3086,8 @@ export function App({ db, ses, S0 }) {
   useEffect(() => { document.documentElement.style.setProperty('--accent', S.cfg.accent); }, [S.cfg.accent]);
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3200); return () => clearTimeout(t); }, [toast]);
   const [conf, setConf] = useState(null);
-  const ui = useMemo(() => ({ modal: setModal, toast: setToast, confirmar: setConf, tab: k => { setTab(k); try { history.replaceState(null, '', '#' + k); } catch (e) { } } }), []);
+  const [fichaAb, setFichaAb] = useState(null);   // ficha de material abierta encima de cualquier ventana
+  const ui = useMemo(() => ({ modal: setModal, toast: setToast, confirmar: setConf, ficha: setFichaAb, tab: k => { setTab(k); try { history.replaceState(null, '', '#' + k); } catch (e) { } } }), []);
   const close = useCallback(() => setModal(null), []);
   const [tema, setTema] = useState(leerTema); useEffect(() => { ponerTema(tema); }, [tema]);
   const cambiarTema = useCallback(n => { setTema(n); try { localStorage.setItem(TEMA_K, n); } catch (e) { } }, []); const [mas, setMas] = useState(false);
@@ -3123,9 +3127,9 @@ export function App({ db, ses, S0 }) {
       {modal && modal.k === 'asig' && <AsigDlg {...modal} onClose={close} />}
       {modal && modal.k === 'salida' && <SalidaDlg key={modal.id || 'nueva'} {...modal} onClose={close} />}
       {modal && modal.k === 'material' && <MaterialDlg onClose={close} />}
-      {modal && modal.k === 'ficha' && <FichaDlg k={modal.key} nombre={modal.nombre} onClose={modal.volver ? () => setModal({ k: 'material' }) : close} />}
       {modal && modal.k === 'plan' && <PlanificarDlg proyId={modal.proyId} alcance={modal.alcance} onClose={close} />}
-      {verT && !modal && <MatAlerta />}
+      {fichaAb && <FichaDlg k={fichaAb.key} nombre={fichaAb.nombre} onClose={() => setFichaAb(null)} />}
+      {verT && !modal && !fichaAb && <MatAlerta />}
       {conf && <ConfirmarDlg {...conf} onClose={() => setConf(null)} />}
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
