@@ -844,6 +844,63 @@ export function fichasDesdeHist(S) {
     return { k: g.k, nombre: g.nombre, n: g.n, material: mats[0] || '', pesoU: pu, min: g.pus.length ? Math.min(...g.pus) : null, max: g.pus.length ? Math.max(...g.pus) : null, varia, actual };
   }).filter(x => x.material || x.pesoU > 0).sort((a, b) => a.k.localeCompare(b.k));
 }
+// ===== Material para lo planificado (cruce con StockApp) =====
+// La ficha de la pieza (S.fichas[código]) suma: stockId (ítem de StockApp), largoU (largo del plano, mm), corteU (corte propio, mm; vacío = el de Configuración),
+// chapa (sale de chapa: se controla con el nesting y no entra al aviso), noMat (no consume material de stock: plegado, pulido, armado…) y consumoU (consumo por unidad escrito a mano, en la unidad del ítem).
+// Lo que se lleva el serrucho: S.cfg.corte = { def: mm, rangos: [{ hasta: medida mm, mm }] } según el diámetro (o el ancho o espesor) del ítem.
+export const medidaIt = it => { const m = (it && it.medidas) || {}; return Number(m.diametro) || Number(m.ancho) || Number(m.espesor) || 0; };
+export function corteDe(S, it) {
+  const c = (S.cfg || {}).corte || {}, d = medidaIt(it);
+  const r = d > 0 && (c.rangos || []).filter(x => Number(x.hasta) > 0).sort((a, b) => a.hasta - b.hasta).find(x => d <= Number(x.hasta));
+  return r ? Number(r.mm) || 0 : Number(c.def) || 0;
+}
+export const esChapaIt = it => /chapa/i.test((it && it.formato) || '');
+// consumo de una unidad de la pieza, en la unidad del ítem: m (largo + corte), kg (peso por unidad), un (barras enteras: fracción de barra; si no, piezas por unidad)
+export function consumoU(S, f, it) {
+  if (!f || !it) return null;
+  if (Number(f.consumoU) > 0) return { q: Number(f.consumoU), modo: 'man' };
+  const u = (it.unidad || '').toLowerCase(), L = Number(f.largoU) || 0, c = f.corteU != null && f.corteU !== '' ? Number(f.corteU) || 0 : corteDe(S, it);
+  if (u === 'm') return L > 0 ? { q: (L + c) / 1000, modo: 'm', L, c } : null;
+  if (u === 'kg') return Number(f.pesoU) > 0 ? { q: Number(f.pesoU), modo: 'kg' } : null;
+  const lb = Number((it.medidas || {}).largo) || 0;
+  if (L > 0 && lb > 0) return { q: (L + c) / lb, modo: 'barra', L, c, lb };
+  return { q: 1, modo: 'un' };
+}
+// Necesidades de material de lo que falta fabricar contra el stock de StockApp (solo lectura).
+// Cuenta las piezas pendientes y próximas a realizar (cantidad × consumo por unidad). Cuando una pieza pasa a En proceso, se toma que su
+// material ya salió del depósito (el egreso se carga a mano en StockApp) y deja de sumar. No entran tercerizadas ni proyectos terminados.
+// Semáforo: ok = alcanza con lo libre (stock − reservado); res = alcanza solo usando material reservado; falta = no alcanza.
+export function necesidades(S, items) {
+  const IT = new Map((items || []).map(i => [i.id, i]));
+  const hijos = {}; S.tareas.forEach(t => { if (t.parentId) (hijos[t.parentId] = hijos[t.parentId] || []).push(t); });
+  const term = new Set((S.proyectos || []).filter(p => p.terminado).map(p => p.id));
+  const R = new Map(), sinFicha = [], sinConsumo = [], chapa = [], noIt = []; let enCurso = 0, noMat = 0;
+  S.tareas.forEach(t => {
+    if (t.parte || t.tercerizada || (t.tipo !== 'rep' && term.has(t.proyId))) return;
+    const hs = hijos[t.id] || [], ps = t.partes ? hs.filter(x => x.parte) : [];
+    let pend;
+    if (ps.length) pend = ps.every(esPend);   // pieza hecha en partes: el material se retira una vez
+    else { if ((t.agrupa || !t.parentId) && hs.length) return; pend = esPend(t); }   // grupo: solo resume a sus hijos
+    if (!pend) { if (t.estado !== 'terminada') enCurso++; return; }
+    const k = claveCod(t.nombre), f = fichaDe(S, k), cant = Math.max(1, Number(t.cant) || 1), hoja = !hs.some(x => !x.parte);
+    const p = { id: t.id, k, nombre: t.nombre.replace(/\s*\(parte \d+\)\s*$/i, ''), cant, tipo: t.tipo, proyId: t.proyId, estado: t.estado };
+    if (f && f.chapa) { chapa.push(p); return; }
+    if (f && f.noMat) { noMat++; return; }   // no consume material de stock (plegado, pulido, armado, un servicio…)
+    if (!f || !f.stockId) { if (hoja) sinFicha.push(p); return; }   // un ensamblaje sin ítem no avisa: su material está en las hijas
+    const it = IT.get(f.stockId); if (!it) { noIt.push(p); return; }
+    const c = consumoU(S, f, it); if (!c) { sinConsumo.push({ ...p, it }); return; }
+    let r = R.get(it.id); if (!r) { r = { it, nec: 0, piezas: [] }; R.set(it.id, r); }
+    r.nec += c.q * cant; r.piezas.push({ ...p, c, tot: c.q * cant });
+  });
+  const r3 = x => Math.round(x * 1000) / 1000, ORD = { falta: 0, res: 1, ok: 2 };
+  const L = [...R.values()].map(r => {
+    const stock = Number(r.it.stock) || 0, res = (r.it.reservas || []).reduce((a, x) => a + (Number(x.cantidad) || 0), 0), libre = stock - res, nec = r3(r.nec);
+    const est = nec <= libre + 1e-9 ? 'ok' : nec <= stock + 1e-9 ? 'res' : 'falta';
+    return { ...r, nec, stock, res, libre: r3(libre), dif: r3(libre - nec), est, ped: !!r.it.pedidoCurso };
+  }).sort((a, b) => ORD[a.est] - ORD[b.est] || (a.it.codigo || '').localeCompare(b.it.codigo || ''));
+  const n = { falta: L.filter(x => x.est === 'falta').length, res: L.filter(x => x.est === 'res').length, ok: L.filter(x => x.est === 'ok').length };
+  return { L, n, sinFicha, sinConsumo, chapa, noIt, enCurso, noMat };
+}
 // a qué tarifa corresponde una operación por su nombre (para vincular solas las operaciones al importar)
 export function tarifaSugerida(S, nombreOp) {
   const n = (nombreOp || '').toLowerCase(), T = S.tarifas || [], f = re => T.find(t => re.test(t.nombre.toLowerCase()));

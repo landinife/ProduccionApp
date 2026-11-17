@@ -18,7 +18,7 @@ function Gate() {
   if (st.fase === 'error') return <Pantalla><p>No se pudieron cargar los datos.</p><p className="mut">{st.error}</p><button className="btn big" onClick={() => location.reload()}>Reintentar</button><button className="btn big" onClick={FB.salir}>Cerrar sesión</button></Pantalla>;
   if (st.fase === 'sinconfig') return <Inicio dueno={dueno} elegir={S => FB.inicializar(S, yo)} />;
   const ses = { email, dueno, nombre: yo.nombre, salir: FB.salir, crearCuenta: FB.crearCuenta, reset: FB.reset };
-  return <App S0={st.S} db={{ escribir: FB.escribir, escuchar: FB.escuchar }} ses={ses} />;
+  return <App S0={st.S} db={{ escribir: FB.escribir, escuchar: FB.escuchar, stock: FB.escucharStock }} ses={ses} />;
 }
 createRoot(document.getElementById('root')).render(<Gate />);
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => { }));

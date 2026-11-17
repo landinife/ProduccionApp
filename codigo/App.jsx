@@ -583,6 +583,7 @@ function Resumen() {
       <p className="legend"><i className="lg g" />con lugar <i className="lg y" />completo <i className="lg r" />sobrecargado · N turno normal · E horas extra (sigue: continúa lo del turno normal ese día; aparte: otro trabajo) · arrastrá una tarea para moverla de día o de operario · si la pasás de extra a normal (o al revés) en el mismo operario, lo anterior queda y sigue desde ese día; también con el + de la celda</p>
       </> : vista === 'cap' ? <Capacidad w0={w0} irA={d => { setW0(d); setVista('sem'); }} /> : <CalGeneral />}
     </section>
+    <MaterialCard />
     {(() => { const repA = new Set(S.tareas.filter(t => t.tipo === 'rep' && !t.parentId && V.D[t.id].estado !== 'terminada').map(t => t.id)), proyA = new Set(S.proyectos.filter(x => !x.terminado).map(x => x.id));
       return <PendProc donde={'en lo abierto (repuestos, proyectos, post venta y taller)' + (fp || fo ? ' · con los filtros de abajo' : '')} ts={S.tareas.filter(t => (t.tipo === 'rep' ? repA.has(V.rootOf(t).id) : proyA.has(t.proyId)) && (!fp || t.prioridad === fp) && (!fo || (fo === '_' ? !t.ops.length : t.ops.includes(fo))))} />; })()}
     <section>
@@ -2231,6 +2232,20 @@ function AusResumen({ S }) {
     <p className="mut">Cada letra es la inicial del motivo. Pasá el cursor sobre un casillero para ver el detalle. Si un día aparece un número mayor a 1 en rojo, faltan varios operarios ese día.</p>
   </div>;
 }
+// Configuración → Corte de serrucho: lo que se lleva el corte, sumado al largo del plano de cada pieza (por defecto y por rangos de medida)
+function CorteCfg() {
+  const { S, up } = useApp(); const PL = useContext(PlCtx); const c = S.cfg.corte || {}, R = c.rangos || [], T = 'Corte de serrucho';
+  const setC = p => up(s => ({ ...s, cfg: { ...s.cfg, corte: { ...(s.cfg.corte || {}), ...p } } }));
+  const setR = (i, p) => setC({ rangos: R.map((x, j) => j === i ? { ...x, ...p } : x) });
+  const nv = v => v === '' ? null : Number(v);
+  return <section className={'card' + PL.c(T)}><div className="sec-h"><h2>{PL.h(T)}</h2><div className="row"><button className="btn" onClick={() => setC({ rangos: [...R, { hasta: null, mm: null }] })}>+ Rango</button></div></div>
+    <p className="mut">Lo que se lleva el serrucho en cada corte. Se suma al largo del plano de cada pieza para saber cuánto material consume (aviso de material con StockApp). La medida es el diámetro del ítem de StockApp (o el ancho o espesor si no tiene diámetro). En la ficha de una pieza se puede poner otro valor.</p>
+    <div className="lrow"><label className="inl">Corte por defecto (mm)<input className="vh" type="number" min="0" step="0.5" value={c.def ?? ''} placeholder="0" onChange={e => setC({ def: nv(e.target.value) })} /></label><span className="mut">para las medidas que no entran en ningún rango</span></div>
+    {R.map((x, i) => <div key={i} className="lrow"><label className="inl">Hasta Ø (mm)<input className="vh" type="number" min="0" value={x.hasta ?? ''} onChange={e => setR(i, { hasta: nv(e.target.value) })} /></label>
+      <label className="inl">Corte (mm)<input className="vh" type="number" min="0" step="0.5" value={x.mm ?? ''} onChange={e => setR(i, { mm: nv(e.target.value) })} /></label>
+      <button className="btn sm danger" onClick={() => setC({ rangos: R.filter((_, j) => j !== i) })}>Borrar</button></div>)}
+  </section>;
+}
 function ListEdit({ title, items, onAdd, onDel, render, addLabel, extra, nota, rowClass }) {
   const PL = useContext(PlCtx); const { ui } = useApp();
   return <section className={'card' + PL.c(title)}><div className="sec-h"><h2>{PL.h(title)}</h2><div className="row">{extra}<button className="btn" onClick={onAdd}>{addLabel || '+ Agregar'}</button></div></div>
@@ -2239,7 +2254,7 @@ function ListEdit({ title, items, onAdd, onDel, render, addLabel, extra, nota, r
     {items.map((it, i) => <div key={it.id || i} className={'lrow' + (rowClass ? rowClass(it) : '')}>{render(it, i)}<button className="btn sm danger" onClick={() => { const nom = typeof it === 'string' ? it : (it.nombre || it.email || ''); ui.confirmar({ titulo: '¿Borrar' + (nom ? ` “${nom}”` : ' este elemento') + '?', texto: 'Se borra de la lista. Podés deshacerlo arriba.', si: 'Sí, borrar', peligro: true, onSi: () => onDel(it, i) }); }}>Borrar</button></div>)}</section>;
 }
 const PlCtx = createContext({ c: () => '', h: t => t });
-const CFG_SECS = ['Atajos de teclado', 'Operarios', 'Días que viene (ocasionales)', 'Cargar ausencias (calendario)', 'Calendario de ausencias', 'Motivos de ausencia', 'Ausencias', 'Operaciones', 'Códigos de operación', 'Tarifas de mano de obra', 'Materiales', 'Horarios laborales', 'Feriados', 'Usuarios y permisos', 'Color de énfasis', 'Datos', 'Registro de cambios', 'Sesión'];
+const CFG_SECS = ['Atajos de teclado', 'Operarios', 'Días que viene (ocasionales)', 'Cargar ausencias (calendario)', 'Calendario de ausencias', 'Motivos de ausencia', 'Ausencias', 'Operaciones', 'Códigos de operación', 'Tarifas de mano de obra', 'Materiales', 'Corte de serrucho', 'Horarios laborales', 'Feriados', 'Usuarios y permisos', 'Color de énfasis', 'Datos', 'Registro de cambios', 'Sesión'];
 function Atajos() {
   const PL = useContext(PlCtx);
   const G = [['En todas las pantallas', [['Esc', 'Cierra la ventana abierta (editar tarea, operario, parte del día…)'], ['Ctrl + Z', 'Deshace el último cambio (si estás escribiendo en una celda, deshace lo escrito)'], ['Ctrl + Y  /  Ctrl + Mayús + Z', 'Rehace lo que deshiciste']]],
@@ -2335,6 +2350,7 @@ function Config() {
       render={m => <><input aria-label="Nombre" value={m.nombre} onChange={e => setL('materiales', m.id, { nombre: e.target.value })} />
         <label className="inl">USD/kg<input aria-label="Precio por kg" className="vh" type="number" min="0" step="0.01" value={m.precio ?? ''} placeholder="0" onChange={e => setL('materiales', m.id, { precio: e.target.value === '' ? null : Number(e.target.value), fecha: E.today() })} /></label>
         <span className="mut fch">{m.precio > 0 ? 'al ' + fFecha(m.fecha) : ''}</span></>} />
+    <CorteCfg />
     <section className={'card' + PL.c('Horarios laborales')}><div className="sec-h"><h2>{PL.h('Horarios laborales')}</h2><button className="btn pri-b" onClick={cambiar}>Pasar a horario de {otra}</button></div>
       <p className="mut">Activo: <b className="acc">{act}</b> desde el {fD(S.cfg.temporadas[S.cfg.temporadas.length - 1].desde)}. Queda así hasta que lo cambies.</p>
       <div className="hor">{['invierno', 'verano'].map(t => { const h = S.cfg.horarios[t], net = E.netOf(h); return <div key={t} className={'horc' + (t === act ? ' on' : '')}><b>{t}</b>
@@ -2511,6 +2527,175 @@ function ImportHist({ d, onClose }) {
   </Modal>;
 }
 
+/* ================= MATERIAL (cruce con StockApp, solo lectura) ================= */
+// Ficha de la pieza: se conserva mientras tenga algún dato (material y peso para el costo; ítem, largo o chapa para el aviso de material)
+const conFicha = (s, k, patch) => { const f = { ...((s.fichas || {})[k] || {}), ...patch }, fs = { ...(s.fichas || {}) };
+  Object.keys(f).forEach(x => { if (f[x] === '' || f[x] === null || f[x] === undefined || f[x] === false) delete f[x]; });
+  if (!Object.keys(f).length) delete fs[k]; else fs[k] = f; return { ...s, fichas: fs }; };
+const fQ = q => (Math.round((Number(q) || 0) * 1000) / 1000).toLocaleString('es-AR');
+const uIt = it => (it && it.unidad) || 'un';
+const nomIt = it => it ? `${it.codigo ? it.codigo + ' · ' : ''}${it.descripcion || 'Ítem sin nombre'}` : '';
+const EST_MAT = { falta: ['No alcanza', 'var(--bad)'], res: ['Usa material reservado', 'var(--warn)'], ok: ['Alcanza', 'var(--ok)'] };
+const consTxt = c => !c ? '' : c.modo === 'm' ? `${fN(c.L)} mm + ${fN(c.c)} mm de corte` : c.modo === 'barra' ? `${fN(c.L)} + ${fN(c.c)} mm de una barra de ${fN(c.lb)} mm` : c.modo === 'kg' ? 'peso por unidad de la ficha' : c.modo === 'man' ? 'escrito a mano' : '1 por pieza';
+function dondeMat(S, V, p) { const t = V.byId[p.id]; if (!t) return '—'; if (p.tipo === 'rep') { const r = V.rootOf(t); return `${r.orden || 'S/N'} · ${r.cliente || ''}`; } const pr = S.proyectos.find(x => x.id === p.proyId); return pr ? pr.nombre : 'Proyecto'; }
+
+// botón del encabezado: cantidad de ítems que no alcanzan (rojo) o que usan material reservado (ámbar)
+function MatBtn() {
+  const { stock, NE, ui } = useApp(); if (!stock) return null;
+  const f = NE ? NE.n.falta : 0, r = NE ? NE.n.res : 0, sf = NE ? new Set(NE.sinFicha.map(p => p.k)).size : 0;
+  const cls = stock.error ? 'gris' : f ? 'bad' : r ? 'warn' : 'ok';
+  const tit = stock.error ? 'Material: no se puede leer el stock de StockApp con este usuario' : `Material para lo que falta fabricar: ${f} ${f === 1 ? 'ítem no alcanza' : 'ítems no alcanzan'}, ${r} ${r === 1 ? 'usa' : 'usan'} material reservado${sf ? `, ${sf} ${sf === 1 ? 'pieza' : 'piezas'} sin ficha` : ''}`;
+  return <button className={'btn matb ' + cls} onClick={() => ui.modal({ k: 'material' })} title={tit} aria-label={tit}>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h18M3 12h18M3 17h18M6 5v4M10 10v4M15 15v4" /></svg><b>{stock.error ? '—' : f || r || '✓'}</b></button>;
+}
+// Alerta flotante cuando algún ítem no alcanza: aparece sobre la app hasta que la veas o la pospongas.
+// "Ahora no" la oculta hasta mañana o hasta que se sume otro ítem que no alcanza.
+const MAT_AL_K = 'produccionapp-mat-alerta';
+function MatAlerta() {
+  const { NE, ui } = useApp(); const [, rep] = useState(0);
+  if (!NE || !NE.n.falta) return null;
+  const fl = NE.L.filter(r => r.est === 'falta'), sig = fl.map(r => r.it.id).sort().join('|'), hoy = E.today();
+  let g = {}; try { g = JSON.parse(localStorage.getItem(MAT_AL_K) || '{}'); } catch (e) { }
+  const vistos = new Set((g.sig || '').split('|'));
+  if (g.dia === hoy && fl.every(r => vistos.has(r.it.id))) return null;
+  const posponer = () => { try { localStorage.setItem(MAT_AL_K, JSON.stringify({ sig, dia: hoy })); } catch (e) { } rep(x => x + 1); };
+  return <div className="matal" role="alert">
+    <div className="matal-h"><span className="matal-ic" aria-hidden="true">!</span><b>Falta material</b><button className="btn ghost sm" onClick={posponer} aria-label="Cerrar la alerta">✕</button></div>
+    <p>{fl.length === 1 ? 'Un ítem no alcanza' : `${fl.length} ítems no alcanzan`} para lo que está cargado para fabricar, aunque se use lo reservado:</p>
+    <ul>{fl.slice(0, 4).map(r => <li key={r.it.id}><b>{nomIt(r.it)}</b> · faltan {fQ(r.nec - r.stock)} {uIt(r.it)}{r.ped ? ' · pedido en curso' : ''}</li>)}{fl.length > 4 && <li className="mut">y {fl.length - 4} más</li>}</ul>
+    <div className="matal-b"><button className="btn" onClick={posponer}>Ahora no</button><button className="btn danger-b" onClick={() => { posponer(); ui.modal({ k: 'material' }); }}>Ver detalle</button></div>
+  </div>;
+}
+function MaterialDlg({ onClose }) { return <Modal title="Material para lo que falta fabricar" wide onClose={onClose}><MaterialVista /></Modal>; }
+// tarjeta plegable de Producción: solo los ítems con problemas y lo que falta cargar
+function MaterialCard() {
+  const { stock, NE, ui, pm } = useApp(); const [ab, setAb] = useState(() => prefG('mat-card', true)); const tog = () => { setAb(!ab); guardaG('mat-card', !ab); };
+  if (!stock || !(pm.admin || pm.rep || pm.proy)) return null;
+  return <section className="card matc"><div className="sec-h"><button className="dgrp-t" aria-expanded={ab} onClick={tog}><span className="car">{ab ? '▾' : '▸'}</span><h2>Material</h2></button>
+    <div className="row"><button className="btn sm" onClick={() => ui.modal({ k: 'material' })}>Ver todo</button></div></div>
+    {ab && <MaterialVista corta />}</section>;
+}
+function MaterialVista({ corta }) {
+  const { S, V, ui, pm, stock, NE } = useApp(); const [fil, setFil] = useState('prob'); const [ab, setAb] = useState([]); const [imp, setImp] = useState(null); const [verSF, setVerSF] = useState(false);
+  if (!stock) return null;
+  if (stock.error) return <p className="note">{stock.error === 'sinacceso' ? 'Con este usuario no se puede leer el stock de StockApp. Para ver el aviso de material, pedí que te agreguen como usuario en StockApp (alcanza con un usuario de consulta).' : 'No se pudo leer el stock de StockApp: ' + (stock.msg || 'error de conexión')}</p>;
+  if (!NE) return <p className="mut">Leyendo el stock de StockApp…</p>;
+  const tog = id => setAb(a => a.includes(id) ? a.filter(x => x !== id) : [...a, id]);
+  const L = NE.L.filter(r => fil === 'todo' || (fil === 'prob' ? r.est !== 'ok' : r.est === fil));
+  const agrupa = l => { const m = new Map(); l.forEach(p => { let x = m.get(p.k); if (!x) { x = { k: p.k, nombre: p.nombre, cant: 0, donde: new Set(), it: p.it }; m.set(p.k, x); } x.cant += p.cant; x.donde.add(dondeMat(S, V, p)); }); return [...m.values()].sort((a, b) => a.k.localeCompare(b.k)); };
+  const SF = agrupa(NE.sinFicha), SC = agrupa(NE.sinConsumo), NI = agrupa(NE.noIt);
+  const cargar = x => ui.modal({ k: 'ficha', key: x.k, nombre: x.nombre, volver: !corta });   // desde la ventana de material, al cerrar la ficha se vuelve a ella
+  const lista = (tit, l, txt) => l.length > 0 && <div className="matsf"><b>{tit} <small className="mut">{l.length}</small></b><span className="mut">{txt}</span>
+    <div className="matsf-l">{(verSF || corta ? l.slice(0, corta ? 6 : 999) : l.slice(0, 12)).map(x => <div key={x.k} className="matsf-f"><span><b>{x.nombre}</b><small className="mut"> · {fN(x.cant)} u. · {[...x.donde].join(', ')}</small></span>{pm.admin && <button className="btn sm" onClick={() => cargar(x)}>Cargar ficha</button>}</div>)}</div>
+    {!corta && !verSF && l.length > 12 && <button className="lnk" onClick={() => setVerSF(true)}>Ver las {l.length}</button>}{corta && l.length > 6 && <span className="mut">y {l.length - 6} más (Ver todo)</span>}</div>;
+  // planilla para completar: todas las piezas pendientes (una fila por código) con lo que ya tienen cargado, más la lista de ítems de StockApp
+  const planilla = () => { if (!window.XLSX) { ui.toast('No se pudo cargar el generador de Excel'); return; } const X = window.XLSX, wb = X.utils.book_new(), IT = new Map(stock.items.map(i => [i.id, i]));
+    const todas = agrupa([...NE.sinFicha, ...NE.sinConsumo, ...NE.noIt, ...NE.chapa, ...NE.L.flatMap(r => r.piezas)]);
+    const filas = todas.map(x => { const f = E.fichaDe(S, x.k) || {}, it = IT.get(f.stockId); return { 'Código': x.k.toUpperCase(), 'Descripción': x.nombre.replace(/^TPF[\w\-./]*\s*/i, ''), 'Ítem StockApp': it ? it.codigo || '' : '', 'Largo plano (mm)': f.largoU ?? '', 'Corte (mm)': f.corteU ?? '', 'Chapa (nesting)': f.chapa ? 'Sí' : '', 'Sin material': f.noMat ? 'Sí' : '', 'Cant. pendiente': x.cant }; });
+    X.utils.book_append_sheet(wb, X.utils.json_to_sheet(filas), 'Fichas');
+    X.utils.book_append_sheet(wb, X.utils.json_to_sheet([...stock.items].sort((a, b) => (a.codigo || '').localeCompare(b.codigo || '')).map(i => ({ 'Código': i.codigo || '', 'Descripción': i.descripcion || '', Formato: i.formato || '', Unidad: i.unidad || '', Stock: i.stock }))), 'Ítems StockApp');
+    saveFile(`fichas-material-${E.today()}.xlsx`, X.write(wb, { type: 'array', bookType: 'xlsx' }), ui.toast); };
+  const leer = e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; if (!window.XLSX) { ui.toast('No se pudo cargar el lector de Excel'); return; }
+    const fr = new FileReader(); fr.onload = () => { try { const wb = window.XLSX.read(fr.result, { type: 'array' }); const h = wb.Sheets[wb.SheetNames.find(n => n.trim().toLowerCase() === 'fichas') || wb.SheetNames[0]];
+      setImp({ archivo: f.name, rows: window.XLSX.utils.sheet_to_json(h, { defval: '' }) }); } catch (err) { ui.toast('No se pudo leer el archivo. Tiene que ser .xlsx'); } }; fr.readAsArrayBuffer(f); };
+  const n = NE.n;
+  return <div className="matv">
+    <div className="matk">
+      <button className={'matk-i bad' + (fil === 'falta' ? ' on' : '')} onClick={() => setFil(fil === 'falta' ? 'prob' : 'falta')}><b>{n.falta}</b><span>No alcanza</span></button>
+      <button className={'matk-i warn' + (fil === 'res' ? ' on' : '')} onClick={() => setFil(fil === 'res' ? 'prob' : 'res')}><b>{n.res}</b><span>Usa material reservado</span></button>
+      <button className={'matk-i ok' + (fil === 'ok' ? ' on' : '')} onClick={() => setFil(fil === 'ok' ? 'prob' : 'ok')}><b>{n.ok}</b><span>Alcanza</span></button>
+      <div className="matk-i gris"><b>{SF.length + SC.length + NI.length}</b><span>{SF.length + SC.length + NI.length === 1 ? 'Pieza sin verificar' : 'Piezas sin verificar'}</span></div>
+    </div>
+    {!corta && <p className="mut">Cuenta las piezas pendientes y próximas a realizar: cantidad × consumo por unidad (largo del plano + corte de serrucho). Las que ya están En proceso no suman: se toma que su material ya salió del depósito{NE.enCurso ? ` (hoy son ${NE.enCurso}; si alguna no tiene el egreso cargado en StockApp, el stock real es menor)` : ''}. No entran las piezas de chapa ({new Set(NE.chapa.map(p => p.k)).size}), que se controlan con el nesting, las marcadas "no consume material" ({NE.noMat}) ni las tercerizadas. Libre = stock − reservado en StockApp.</p>}
+    {!corta && <div className="togs tops"><button className={'togb' + (fil === 'prob' ? ' on' : '')} onClick={() => setFil('prob')}>Con problemas <small>{n.falta + n.res}</small></button><button className={'togb' + (fil === 'todo' ? ' on' : '')} onClick={() => setFil('todo')}>Todos <small>{NE.L.length}</small></button></div>}
+    {L.length === 0 ? <Vacio chico ic="ok" t={NE.L.length ? (fil === 'prob' ? 'Alcanza el material para todo lo cargado' : 'Ningún ítem en este grupo') : 'Todavía no hay piezas con ficha de material'}>{NE.L.length ? 'Según el stock actual de StockApp y las fichas cargadas.' : 'Cargá en cada pieza el ítem de StockApp y el largo del plano.'}</Vacio>
+      : <div className="scroll"><table className="tt tmat"><thead><tr><th>Estado</th><th>Ítem de StockApp</th><th className="num">Necesita</th><th className="num">Stock</th><th className="num">Reservado</th><th className="num">Libre</th><th className="num">Diferencia</th></tr></thead>
+        <tbody>{L.map(r => { const u = uIt(r.it), on = ab.includes(r.it.id); return <React.Fragment key={r.it.id}>
+          <tr className={'matr ' + r.est} onClick={() => tog(r.it.id)}><td><span className="matdot" style={{ background: EST_MAT[r.est][1] }} />{EST_MAT[r.est][0]}</td>
+            <td><span className="car">{on ? '▾' : '▸'}</span> <b>{nomIt(r.it)}</b>{r.ped && <span className="tag">pedido en curso</span>}<small className="mut"> · {r.piezas.length} {r.piezas.length === 1 ? 'pieza' : 'piezas'}</small></td>
+            <td className="num" data-l="Necesita"><b>{fQ(r.nec)}</b> {u}</td><td className="num" data-l="Stock">{fQ(r.stock)}</td><td className="num" data-l="Reservado">{r.res ? fQ(r.res) : '—'}</td><td className="num" data-l="Libre">{fQ(r.libre)}</td>
+            <td className={'num ' + (r.dif < 0 ? 'c-bad' : 'c-ok')} data-l="Diferencia"><b>{r.dif > 0 ? '+' : ''}{fQ(r.dif)}</b> {u}</td></tr>
+          {on && <tr className="matdet"><td colSpan={7}>
+            {r.est === 'res' && <p className="note">Alcanza solo usando material reservado en StockApp: {(r.it.reservas || []).map(x => `${fQ(x.cantidad)} ${u} para ${x.destino}`).join(' · ')}. Faltan {fQ(r.nec - r.libre)} {u} de material libre: si lo usás, hay que reponerlo.</p>}
+            {r.est === 'falta' && <p className="note bad">Faltan {fQ(r.nec - r.stock)} {u} aunque se use todo lo reservado.{r.ped ? ' Hay un pedido en curso en StockApp.' : ''}</p>}
+            <table className="tt tdg"><thead><tr><th>Pieza</th><th>Dónde</th><th>Estado</th><th className="num">Cant.</th><th>Consumo por unidad</th><th className="num">Total</th>{pm.admin && <th></th>}</tr></thead>
+              <tbody>{r.piezas.map(p => <tr key={p.id}><td>{p.nombre}</td><td>{dondeMat(S, V, p)}</td><td className="mut">{p.estado === 'proximo' ? 'próximo a realizar' : 'pendiente'}</td><td className="num">{fN(p.cant)}</td><td>{fQ(p.c.q)} {u} <small className="mut">({consTxt(p.c)})</small></td><td className="num"><b>{fQ(p.tot)}</b> {u}</td>
+                {pm.admin && <td><button className="btn sm" onClick={() => cargar(p)}>Ficha</button></td>}</tr>)}</tbody></table></td></tr>}
+        </React.Fragment>; })}</tbody></table></div>}
+    {lista('Piezas sin ficha de material', SF, 'Pendientes sin ítem de StockApp: no se puede saber si alcanza el material. Si una pieza no consume material de stock (plegado, pulido, armado…), marcalo en su ficha y deja de aparecer acá.')}
+    {lista('Falta el largo', SC, 'Tienen el ítem pero no el largo del plano (o el peso, si el ítem va en kg).')}
+    {lista('El ítem ya no existe en StockApp', NI, 'Se borró en StockApp: elegí otro en la ficha.')}
+    {!corta && pm.admin && <div className="row matimp"><button className="btn" onClick={planilla} title="Planilla con todas las piezas pendientes para completar ítem y largo en Excel">Descargar planilla para completar (.xlsx)</button>
+      <label className="btn">Importar fichas (.xlsx)<input type="file" accept=".xlsx,.xls" hidden onChange={leer} /></label></div>}
+    {imp && <ImportFichas d={imp} onClose={() => setImp(null)} />}
+  </div>;
+}
+// Importar fichas: columnas Código, Ítem StockApp (código de StockApp), Largo plano (mm), Corte (mm), Chapa (nesting) y Sin material. Solo cambia esos datos de la ficha.
+function ImportFichas({ d, onClose }) {
+  const { S, up, ui, stock } = useApp();
+  const R = useMemo(() => { const IT = new Map((stock.items || []).map(i => [(i.codigo || '').trim().toUpperCase(), i])), col = (r, ...ns) => { const k = Object.keys(r).find(x => ns.some(n => x.trim().toLowerCase().startsWith(n))); return k ? r[k] : ''; };
+    const ok = [], err = [];
+    d.rows.forEach((r, i) => { const cod = String(col(r, 'código', 'codigo')).trim(); if (!cod) return; const k = E.claveCod(cod), ic = String(col(r, 'ítem', 'item')).trim().toUpperCase();
+      const si = v => /^(s[ií]|x|1|true)$/i.test(String(v).trim()), largo = xNum(col(r, 'largo')), corte = xNum(col(r, 'corte')), chapa = si(col(r, 'chapa')), noMat = si(col(r, 'sin material', 'no consume'));
+      if (!ic && largo == null && !chapa && !noMat) return;
+      const it = ic ? IT.get(ic) : null; if (ic && !it) { err.push(`Fila ${i + 2}: ${cod} → el ítem ${ic} no existe en StockApp`); return; }
+      const ant = E.fichaDe(S, k) || {};
+      ok.push({ k, cod, patch: { ...(it ? { stockId: it.id } : {}), ...(largo != null ? { largoU: largo } : {}), corteU: corte, chapa, noMat }, it, ya: !!(ant.stockId || ant.largoU || ant.chapa || ant.noMat) }); });
+    return { ok, err }; }, [d, stock, S.fichas]);
+  const aplicar = () => { up(s => R.ok.reduce((a, x) => conFicha(a, x.k, x.patch), s)); ui.toast(`Fichas actualizadas: ${R.ok.length} ${R.ok.length === 1 ? 'pieza' : 'piezas'}`); onClose(); };
+  return <Modal title="Importar fichas de material" onClose={onClose} foot={<><span className="mut">{d.archivo}</span><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!R.ok.length} onClick={aplicar}>Aplicar a {R.ok.length} {R.ok.length === 1 ? 'pieza' : 'piezas'}</button></>}>
+    <p><b>{R.ok.length}</b> {R.ok.length === 1 ? 'pieza' : 'piezas'} con datos{R.ok.filter(x => x.ya).length ? ` (${R.ok.filter(x => x.ya).length} ya tenían ítem o largo: se reemplazan)` : ''}. Solo se cambian ítem, largo, corte, chapa y sin material; el material y el peso para el costo quedan como estaban. Se deshace con Ctrl+Z.</p>
+    {R.err.length > 0 && <div className="note bad">{R.err.slice(0, 15).map(e => <div key={e}>{e}</div>)}{R.err.length > 15 && <div>y {R.err.length - 15} más</div>}</div>}
+    <div className="scroll"><table className="tt"><thead><tr><th>Código</th><th>Ítem</th><th className="num">Largo mm</th><th className="num">Corte mm</th><th>Chapa</th><th>Sin material</th></tr></thead>
+      <tbody>{R.ok.slice(0, 200).map(x => <tr key={x.k}><td>{x.cod}{x.ya && <small className="mut"> · reemplaza</small>}</td><td>{x.it ? nomIt(x.it) : <span className="mut">—</span>}</td><td className="num">{x.patch.largoU ?? '—'}</td><td className="num">{x.patch.corteU ?? <span className="mut">auto</span>}</td><td>{x.patch.chapa ? 'Sí' : ''}</td><td>{x.patch.noMat ? 'Sí' : ''}</td></tr>)}</tbody></table></div>
+  </Modal>;
+}
+// línea de la ficha de Tiempos y Costos: a qué ítem de StockApp va y cuánto consume
+function FichaStockLinea({ k, nombre }) {
+  const { S, ui, pm, stock } = useApp(); const f = E.fichaDe(S, k) || {}; const it = stock && stock.items ? stock.items.find(i => i.id === f.stockId) : null, c = E.consumoU(S, f, it);
+  return <span className="mut fstk">{f.chapa ? 'Material: sale de chapa (nesting).' : f.noMat ? 'No consume material de stock.' : f.stockId ? <>StockApp: <b>{it ? nomIt(it) : stock && stock.items ? 'ítem borrado en StockApp' : 'ítem vinculado'}</b>{c ? ` · consume ${fQ(c.q)} ${uIt(it)} por unidad (${consTxt(c)})` : f.largoU ? ` · largo ${fN(f.largoU)} mm` : ' · falta el largo'}</> : 'Sin ítem de StockApp (no entra al aviso de material).'}
+    {pm.admin && <button className="lnk sm" onClick={() => ui.modal({ k: 'ficha', key: k, nombre })}>Editar</button>}</span>;
+}
+// Ficha de la pieza completa: ítem de StockApp, largo del plano, corte, chapa, y material y peso para el costo
+function FichaDlg({ k, nombre, onClose }) {
+  const { S, up, ui, pm, stock } = useApp(); const f0 = E.fichaDe(S, k) || {};
+  const [f, setF] = useState({ stockId: f0.stockId || '', largoU: f0.largoU ?? '', corteU: f0.corteU ?? '', chapa: !!f0.chapa, noMat: !!f0.noMat, consumoU: f0.consumoU ?? '', material: f0.material || '', pesoU: f0.pesoU ?? '' });
+  const [q, setQ] = useState(''); const set = p => setF(x => ({ ...x, ...p }));
+  const items = stock && stock.items ? stock.items : [], it = items.find(i => i.id === f.stockId);
+  const qq = q.trim().toLowerCase(), lst = items.filter(i => !qq || `${i.codigo} ${i.descripcion} ${i.formato || ''}`.toLowerCase().includes(qq)).sort((a, b) => (a.codigo || '').localeCompare(b.codigo || '')).slice(0, 80);
+  const num = v => v === '' || v == null ? null : Number(v);
+  const ff = { ...f, largoU: num(f.largoU), corteU: f.corteU === '' ? null : Number(f.corteU), consumoU: num(f.consumoU), pesoU: num(f.pesoU) };
+  const c = !f.chapa && !f.noMat && it ? E.consumoU(S, ff, it) : null, u = uIt(it);
+  const guardar = () => { up(s => conFicha(s, k, { ...ff, stockId: f.chapa || f.noMat ? '' : f.stockId, ...(f.chapa || f.noMat ? { largoU: null, corteU: null, consumoU: null } : {}) })); ui.toast('Ficha guardada'); onClose(); };
+  return <Modal title={'Ficha de ' + nombre} onClose={onClose} foot={<><span className="mut">Vale para todas las veces que se fabrica.</span><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!pm.admin} onClick={guardar}>Guardar</button></>}>
+    <div className="fichad">
+      <div className="fichad-tipo" role="radiogroup" aria-label="Material de la pieza">{[['stock', 'Barra o material de StockApp'], ['chapa', 'Sale de chapa (nesting)'], ['no', 'No consume material de stock']].map(([v, l]) => { const on = v === 'chapa' ? f.chapa : v === 'no' ? f.noMat : !f.chapa && !f.noMat;
+        return <label key={v} className={'togb' + (on ? ' on' : '')}><input type="radio" name="tipomat" checked={on} onChange={() => set({ chapa: v === 'chapa', noMat: v === 'no' })} hidden />{l}</label>; })}</div>
+      {f.chapa && <p className="mut">Se controla con el programa de nesting: no entra al aviso de material.</p>}
+      {f.noMat && <p className="mut">Por ejemplo un plegado, pulido o armado sobre una pieza que ya salió de stock, o un servicio: no entra al aviso ni a "sin verificar".</p>}
+      {!f.chapa && !f.noMat && <>
+        <h3>Material de StockApp</h3>
+        {!items.length ? <p className="note">{stock && stock.error ? 'No se puede leer StockApp con este usuario.' : 'No hay ítems en StockApp.'}</p> : <>
+          <input type="search" placeholder="Buscar en StockApp: código, descripción o diámetro (por ejemplo Ø20 304)" value={q} onChange={e => setQ(e.target.value)} />
+          <select size={7} className="fichad-it" value={f.stockId} onChange={e => set({ stockId: e.target.value })} aria-label="Ítem de StockApp">{it && !lst.includes(it) && <option value={it.id}>{nomIt(it)} · {it.unidad}</option>}{lst.map(i => <option key={i.id} value={i.id}>{nomIt(i)} · {i.unidad}{E.esChapaIt(i) ? ' (chapa)' : ''}</option>)}</select>
+          {it && <p className="mut">Elegido: <b>{nomIt(it)}</b> · se cuenta en <b>{u}</b> · stock {fQ(it.stock)} {u}{E.medidaIt(it) ? ` · medida ${fN(E.medidaIt(it))} mm` : ''}{E.esChapaIt(it) ? ' · es una chapa: ¿no conviene tildar "Sale de chapa"?' : ''}</p>}</>}
+        <div className="dos">
+          <label>Largo del plano (mm)<input type="number" min="0" step="1" value={f.largoU} onChange={e => set({ largoU: e.target.value })} placeholder="pieza terminada" /></label>
+          <label>Corte de serrucho (mm)<input type="number" min="0" step="0.5" value={f.corteU} onChange={e => set({ corteU: e.target.value })} placeholder={it ? `${fN(E.corteDe(S, it))} (de Configuración)` : 'de Configuración'} /></label>
+        </div>
+        {it && u.toLowerCase() !== 'm' && <label>Consumo por unidad a mano ({u}) <small className="mut">opcional: manda sobre el largo</small><input type="number" min="0" step="0.001" value={f.consumoU} onChange={e => set({ consumoU: e.target.value })} /></label>}
+        {it && <p className={c ? 'mut' : 'note'}>{c ? <>Consume <b>{fQ(c.q)} {u}</b> por unidad ({consTxt(c)}).</> : u.toLowerCase() === 'kg' ? 'Este ítem va en kg: cargá el peso por unidad abajo.' : 'Falta el largo del plano.'}</p>}
+      </>}
+      <h3>Para el costo</h3>
+      <div className="dos">
+        <label>Material (USD/kg)<select value={f.material} onChange={e => set({ material: e.target.value })}><option value="">—</option>{(S.materiales || []).map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}</select></label>
+        <label>Peso por unidad (kg)<input type="number" min="0" step="0.01" value={f.pesoU} onChange={e => set({ pesoU: e.target.value })} /></label>
+      </div>
+      {!pm.admin && <p className="note">Solo un administrador edita las fichas.</p>}
+    </div>
+  </Modal>;
+}
+
 /* ================= TIEMPOS ================= */
 // Historial de tiempos y costos por pieza: el padre es el código (con el promedio por unidad para planificar),
 // los hijos son cada vez que se fabricó. Las cotizaciones manuales se ven junto a su pieza pero no entran en el promedio.
@@ -2527,7 +2712,7 @@ function Tiempos() {
   useEffect(() => { guardaG('tiempos-orden', orden); }, [orden]);
   // costo por unidad de cada pieza: se recalcula solo al cambiar precios de materiales, tarifas o fichas
   const CG = useMemo(() => { const m = {}; G.forEach(g => { m[g.k] = E.costoGrupo(S, g); }); return m; }, [G, S.materiales, S.tarifas, S.operaciones, S.codigos, S.fichas]);
-  const setFicha = (k, patch) => up(s => { const f = { ...((s.fichas || {})[k] || {}), ...patch }, fs = { ...(s.fichas || {}) }; if (!f.material && !(Number(f.pesoU) > 0)) delete fs[k]; else fs[k] = f; return { ...s, fichas: fs }; });
+  const setFicha = (k, patch) => up(s => conFicha(s, k, patch));
   const series = [['TPFR', 'TPFR'], ['TPFD', 'TPFD'], ...(G.some(g => g.serie === 'Otros') ? [['Otros', 'Otros']] : []), ...(G.some(g => !g.serie) ? [['', 'Sin código']] : [])];
   const enSerie = G.filter(g => g.serie === serie);
   const opsSerie = S.operaciones.map(o => [o, enSerie.filter(g => g.operacionId === o.id).length]).filter(([, n]) => n > 0);
@@ -2577,6 +2762,7 @@ function Tiempos() {
               <label>Material<select className="ci" aria-label="Material de la pieza" value={fi.material || ''} disabled={!pm.admin} onChange={e => setFicha(g.k, { material: e.target.value })}><option value="">—</option>{(S.materiales || []).map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}</select></label>
               <label>Peso por unidad (kg)<EdIn className="num" type="number" min="0" step="0.01" value={fi.pesoU ?? ''} disabled={!pm.admin} onCommit={v => setFicha(g.k, { pesoU: v === '' ? null : Number(v) })} /></label>
               {(() => { const m = E.materialDe(S, fi.material), pu = Number(fi.pesoU) || 0; return m && pu > 0 ? <span className="mut">Material por unidad: <b>{fPlata(pu * (Number(m.precio) || 0))}</b> ({fN(pu)} kg × {fPlata(m.precio)}/kg · al {fFecha(m.fecha)})</span> : <span className="mut">Se aplica a todas las fabricaciones de esta pieza. {pm.admin ? 'Si una salió distinta, cargale su propio material o peso en la tabla.' : 'Solo un administrador la edita.'}</span>; })()}
+              <FichaStockLinea k={g.k} nombre={g.nombre} />
             </div>}
             {on && <div className="scroll"><table className="tt ttiem"><thead><tr><th>Fecha</th><th>Origen</th><th className="num">Cant.</th><th>Operarios</th><th className="num">HH</th><th className="num">Por unidad</th><th>Material</th><th className="num">Peso total kg</th><th className="num">Costo total</th><th className="num">Costo unit.</th><th></th></tr></thead>
               <tbody>{g.regs.map(r => { const c = E.costo(S, r), d = !r.cot && r.plan > 0 ? (r.hh - r.plan) / r.plan * 100 : null, abre = dab.includes(r.id);
@@ -2904,8 +3090,12 @@ export function App({ db, ses, S0 }) {
   const act = E.seasonNow(S), h = S.cfg.horarios[act];
   const verT = pm.admin || pm.rep || pm.proy;   // Tiempos: solo quienes planifican (no los de solo consulta)
   const soloT = k => k === 'tiempos' || k === 'estadisticas'; const tabs = TABS.filter(t => !soloT(t[0]) || verT); const tabV = soloT(tab) && !verT ? 'resumen' : tab;
+  // stock de StockApp (solo lectura) para el aviso de material: solo para quienes planifican
+  const [stock, setStock] = useState(null);
+  useEffect(() => { if (!db.stock || !verT) { setStock(null); return; } return db.stock(setStock); }, [verT]);
+  const NE = useMemo(() => stock && stock.items ? E.necesidades(S, stock.items) : null, [S.tareas, S.fichas, S.proyectos, S.cfg, stock]);
   const fijas = TABS_TEL.filter(k => tabs.some(t => t[0] === k)).slice(0, 4); const irA = k => { setMas(false); setTab(k); try { history.replaceState(null, '', '#' + k); } catch (e) { } };
-  return <Ctx.Provider value={{ S, V, up, ui, ses, pm, tema, cambiarTema }}>
+  return <Ctx.Provider value={{ S, V, up, ui, ses, pm, tema, cambiarTema, stock, NE }}>
     <div className="app" style={{ '--accent': S.cfg.accent }}>
       <header className="top">
         <h1><Logo />Producción<span>App</span></h1>
@@ -2914,7 +3104,7 @@ export function App({ db, ses, S0 }) {
         <div className="top-r">{S.ejemplo !== false && <span className="tag ej">Datos de ejemplo</span>}
           {ses ? <span className="tag yo" title={yo.email}>{yo.nombre}</span> : <label className="inl vercomo" title="En esta vista previa elegís el usuario a mano para probar los permisos. En la etapa 2 lo decide el mail con el que cada uno inicia sesión.">Ver como<select id="ver-como" value={yo.id} onChange={e => { setUid(e.target.value); try { localStorage.setItem(KEY + '-uid', e.target.value); } catch (err) { } }}>{S.usuarios.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}</select></label>}
           {!pm.admin && <span className="tag warn">{pm.rep && pm.proy ? 'Edita todo, sin configuración' : pm.rep ? 'Edita Repuestos y Producción' : pm.proy ? 'Edita Proyectos' : 'Solo consulta'}</span>}
-          <span className="undo"><button className="btn" onClick={undo} disabled={!nh} title={nh ? 'Deshacer (Ctrl+Z): ' + hist.current[hist.current.length - 1].txt : 'Nada para deshacer'} aria-label="Deshacer">↶</button><button className="btn" onClick={redo} disabled={!nf} title={nf ? 'Rehacer (Ctrl+Y): ' + fut.current[fut.current.length - 1].txt : 'Nada para rehacer'} aria-label="Rehacer">↷</button></span><Hermanas /></div>
+          <span className="undo"><button className="btn" onClick={undo} disabled={!nh} title={nh ? 'Deshacer (Ctrl+Z): ' + hist.current[hist.current.length - 1].txt : 'Nada para deshacer'} aria-label="Deshacer">↶</button><button className="btn" onClick={redo} disabled={!nf} title={nf ? 'Rehacer (Ctrl+Y): ' + fut.current[fut.current.length - 1].txt : 'Nada para rehacer'} aria-label="Rehacer">↷</button></span>{verT && <MatBtn />}<Hermanas /></div>
       </header>
       {mas && <div className="mas-ovl" onClick={() => setMas(false)}><div className="mas-hoja" role="dialog" aria-label="Más secciones" onClick={e => e.stopPropagation()}><i className="mas-grab" /><h3>Más secciones</h3>
         {tabs.filter(t => !fijas.includes(t[0])).map(([k, l, d]) => <button key={k} className={'mas-it' + (tabV === k ? ' on' : '')} onClick={() => irA(k)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d={d} /></svg><span><b>{l}</b><small>{TAB_DESC[k]}</small></span></button>)}</div></div>}
@@ -2932,7 +3122,10 @@ export function App({ db, ses, S0 }) {
       {modal && modal.k === 'imp' && <Importer mode={modal.mode} proyId={modal.proyId} onClose={close} />}
       {modal && modal.k === 'asig' && <AsigDlg {...modal} onClose={close} />}
       {modal && modal.k === 'salida' && <SalidaDlg key={modal.id || 'nueva'} {...modal} onClose={close} />}
+      {modal && modal.k === 'material' && <MaterialDlg onClose={close} />}
+      {modal && modal.k === 'ficha' && <FichaDlg k={modal.key} nombre={modal.nombre} onClose={modal.volver ? () => setModal({ k: 'material' }) : close} />}
       {modal && modal.k === 'plan' && <PlanificarDlg proyId={modal.proyId} alcance={modal.alcance} onClose={close} />}
+      {verT && !modal && <MatAlerta />}
       {conf && <ConfirmarDlg {...conf} onClose={() => setConf(null)} />}
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>

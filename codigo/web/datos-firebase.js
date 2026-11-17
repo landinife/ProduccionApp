@@ -77,6 +77,12 @@ export function iniciar() {
   desub.push(onSnapshot(query(C.log, orderBy('ts', 'desc'), limit(300)), s => { partes.log = s.docs.map(d => ({ ...d.data(), id: d.id })); listo(s); }, falla));
 }
 export const escuchar = cb => onEstado(e => { if (e.fase === 'listo') cb(e.S, e.remoto); });
+// Stock de StockApp (solo lectura, nunca se escribe desde acá). Lo puede leer quien también es usuario de StockApp;
+// si no, avisa "sinacceso" y la app sigue funcionando sin el aviso de material.
+export function escucharStock(cb) {
+  return onSnapshot(collection(db, 'stockapp_items'), s => cb({ items: s.docs.map(d => ({ ...d.data(), id: d.id })), ts: Date.now() }),
+    e => cb({ error: e && e.code === 'permission-denied' ? 'sinacceso' : 'error', msg: e && e.message }));
+}
 
 // ---------- escritura: solo lo que cambió ----------
 let seq = Date.now();

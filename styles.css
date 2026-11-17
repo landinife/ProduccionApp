@@ -1417,3 +1417,66 @@ select.ci.est.e-proximo { background: transparent; }
 .mot-sw { display: inline-block; width: 14px; height: 14px; border-radius: 50%; flex: none; background: var(--aus, var(--warn)); }
 .mot-l .lrow input[type=color] { width: 36px; height: 34px; padding: 2px; flex: none; } .mot-l .lrow input:not([type=color]) { flex: 1; min-width: 0; }
 .oc-d.aus-c { background: color-mix(in srgb, var(--aus) 18%, var(--panel)); box-shadow: inset 0 0 0 2px var(--aus); } .oc-d.aus-c .oc-mot { font-weight: 600; }
+
+/* ===== Material para lo que falta fabricar (cruce con StockApp, 17/11) ===== */
+.matb { height: 44px; min-width: 52px; display: inline-flex; align-items: center; gap: 5px; padding: 0 10px; border-radius: 10px; margin-left: 4px; }
+.matb svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.matb b { font-size: 15px; }
+.matb.bad { color: #fff; background: color-mix(in srgb, var(--bad) 70%, transparent); border-color: var(--bad); }
+.matb.warn { color: #1a1400; background: color-mix(in srgb, var(--warn) 85%, transparent); border-color: var(--warn); }
+.matb.ok { color: var(--ok); } .matb.gris { color: var(--mut); }
+.matc .sec-h .dgrp-t { flex: 0 1 auto; } .matc .sec-h h2 { margin: 0; }
+.matv { display: flex; flex-direction: column; gap: 10px; }
+.matk { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.matk-i { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255,255,255,.04); color: var(--ink); text-align: left; font: inherit; cursor: pointer; }
+.matk-i b { font-size: 24px; line-height: 1.1; } .matk-i span { font-size: 13px; color: var(--mut); }
+.matk-i.bad b { color: var(--bad); } .matk-i.warn b { color: var(--warn); } .matk-i.ok b { color: var(--ok); } .matk-i.gris { cursor: default; } .matk-i.gris b { color: var(--mut); }
+.matk-i.on { border-color: var(--accent); background: rgba(255,255,255,.09); }
+.tmat td { vertical-align: middle; } .matr { cursor: pointer; } .matr:hover td { background: rgba(255,255,255,.04); }
+.matr.falta td:first-child { color: var(--bad); font-weight: 600; } .matr.res td:first-child { color: var(--warn); font-weight: 600; }
+.matdot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.matdet > td { background: rgba(255,255,255,.025); padding: 8px 10px 12px; }
+.matdet .note { margin: 0 0 8px; } .matdet .note:not(.bad) { color: var(--warn); border-color: var(--warn); }
+.matsf { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--line); padding-top: 8px; }
+.matsf-l { display: flex; flex-direction: column; gap: 2px; }
+.matsf-f { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; border-bottom: 1px dashed var(--line); }
+.matimp { flex-wrap: wrap; gap: 8px; } .matimp label.btn { cursor: pointer; }
+.fstk { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 6px; flex-basis: 100%; }
+.fichad { display: flex; flex-direction: column; gap: 10px; } .fichad h3 { margin: 6px 0 0; font-size: 15px; }
+.fichad label { display: flex; flex-direction: column; gap: 4px; } .fichad label.chk { flex-direction: row; align-items: center; gap: 8px; }
+.fichad .dos { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.fichad-it { width: 100%; min-height: 150px; }
+@media (max-width: 760px) { .fichad .dos { grid-template-columns: 1fr; } .matb { min-width: 44px; padding: 0 8px; } }
+.fichad-tipo { display: flex; flex-wrap: wrap; gap: 6px; } .fichad-tipo .togb { cursor: pointer; flex-direction: row; }
+.modal.wide:has(.matv) { width: min(100%, 1080px); }
+.tmat td:nth-child(2), .matdet .tdg td:first-child, .matdet .tdg td:nth-child(2) { white-space: normal; min-width: 180px; }
+.tmat .tag { margin-left: 6px; }
+@media (max-width: 760px) {
+  .matb { position: absolute; right: 112px; top: 8px; margin: 0; }
+  .top:has(.matb) h1 { padding-right: 164px; }
+  .tmat, .tmat > tbody { display: block; } .tmat > thead { display: none; }
+  .tmat tr.matr { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  .tmat tr.matr td { border: 0; padding: 2px 0; text-align: left; white-space: normal; min-width: 0; background: transparent !important; }
+  .tmat tr.matr td:nth-child(1), .tmat tr.matr td:nth-child(2) { grid-column: 1 / -1; }
+  .tmat tr.matr td[data-l]::before { content: attr(data-l); display: block; font-size: 11px; color: var(--mut); }
+  .tmat tr.matdet { display: block; } .tmat tr.matdet > td { display: block; }
+  .matdet .tdg, .matdet .tdg tbody { display: block; } .matdet .tdg thead { display: none; }
+  .matdet .tdg tr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 6px 0; border-bottom: 1px dashed var(--line); }
+  .matdet .tdg td { border: 0; padding: 0; white-space: normal; min-width: 0 !important; text-align: left; }
+  .matdet .tdg td:first-child { flex-basis: 100%; font-weight: 600; } .matdet .tdg td:nth-child(4)::after { content: ' u.'; }
+}
+/* alerta de material: botón que late en rojo y aviso flotante */
+.matb.bad { animation: matlate 1.6s ease-in-out infinite; box-shadow: 0 0 0 0 color-mix(in srgb, var(--bad) 70%, transparent); }
+@keyframes matlate { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--bad) 65%, transparent); } 50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--bad) 0%, transparent); } }
+.matal { position: fixed; right: 18px; bottom: 18px; z-index: 60; width: min(420px, calc(100vw - 24px)); padding: 14px 16px; border-radius: 20px; background: rgba(40,18,20,.96); border: 1.5px solid var(--bad); box-shadow: 0 18px 50px rgba(0,0,0,.55), 0 0 0 4px color-mix(in srgb, var(--bad) 22%, transparent); animation: matentra .35s ease-out; }
+.matal-h { display: flex; align-items: center; gap: 10px; } .matal-h b { font-size: 17px; flex: 1; color: #fff; }
+.matal-ic { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--bad); color: #fff; font-weight: 700; }
+.matal p { margin: 8px 0 6px; font-size: 14px; } .matal ul { margin: 0 0 10px; padding-left: 18px; font-size: 13px; } .matal li { margin: 2px 0; }
+.matal-b { display: flex; justify-content: flex-end; gap: 8px; }
+.matal .danger-b { background: var(--bad); color: #fff; border-color: var(--bad); }
+@keyframes matentra { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .matb.bad, .matal { animation: none; } }
+@media (max-width: 760px) { .matal { right: 12px; bottom: 84px; } }
+.top .matb.bad { background: var(--bad) !important; color: #fff !important; border-color: var(--bad) !important; }
+.top .matb.warn { background: var(--warn) !important; color: #1a1400 !important; border-color: var(--warn) !important; }
+.top .matb.ok { color: var(--ok) !important; border-color: color-mix(in srgb, var(--ok) 45%, var(--line)) !important; }
