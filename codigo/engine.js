@@ -35,6 +35,10 @@ export function schedAt(S, d) {
 export const netOf = h => (hm(h.salida) - hm(h.entrada) - (Number(h.descansoMin) || 0)) / 60;
 export const feriadoDe = (S, d) => S.feriados.find(f => f.fecha === d);
 export const choque = (a, b) => (a || 'normal') === (b || 'normal') || a === 'ambos' || b === 'ambos';   // dos turnos que se pisan
+// Solapes (18/11): las operaciones marcadas "Se puede solapar" en Configuración (centro de mecanizado y router: máquinas automáticas, un operario controla las dos)
+// pueden correr a la vez con el mismo operario. Dos tareas solapan si las dos son de operaciones solapables y DISTINTAS (una misma máquina no hace dos a la vez).
+export const opSolapa = (S, t) => !!t && !!t.operacionId && (S.operaciones || []).some(o => o.id === t.operacionId && o.solapa);
+export const solapan = (S, a, b) => !!a && !!b && a.id !== b.id && !!a.operacionId && a.operacionId !== b.operacionId && opSolapa(S, a) && opSolapa(S, b);
 export const isWork = (S, d) => { const g = dow(d); return g >= 1 && g <= 5 && !feriadoDe(S, d); };
 // Disponibilidad del operario: nuevo = cuenta desde su fecha "desde"; ocasional = solo los días que se marcaron en "dias" (de lunes a viernes no feriados)
 export const noDispDe = (S, op, d) => {
@@ -248,13 +252,17 @@ export function derive(S) {
   const load = {};
   S.tareas.forEach(t => {
     const r = D[t.id]; if (r.parent) return;
+    const solp = opSolapa(S, t);
     t.ops.forEach(op => r.segs.forEach(s => {
-      const add = (turno, h, sigue) => { if (h <= 0.001) return; const k = `${op}|${s.d}|${turno}`; const c = load[k] = load[k] || { h: 0, items: [] }; c.h += h; c.items.push({ id: t.id, h, sigue }); };
+      const add = (turno, h, sigue) => { if (h <= 0.001) return; const k = `${op}|${s.d}|${turno}`; const c = load[k] = load[k] || { h: 0, items: [] }; c.h += h; c.items.push({ id: t.id, h, sigue, ...(solp ? { sol: t.operacionId } : {}) }); };
       add(t.turno === 'ambos' ? 'normal' : t.turno, s.h, false);
       if (s.xe > 0 && t.turno === 'ambos') add('extra', s.xe, false);
       else if (s.xe > 0) { const eq = eqSigue(S, s.d, t.ops); add('extra', eq > 0 ? sigueDe(S, op, s.d) * s.xe / eq : 0, true); }
     }));
   });
+  // Solapadas: lo que corre a la vez con otra operación solapable ocupa al operario una sola vez (cuenta la operación que más horas lleva ese día)
+  Object.values(load).forEach(c => { const g = {}; c.items.forEach(i => { if (i.sol) g[i.sol] = (g[i.sol] || 0) + i.h; });
+    const v = Object.values(g); if (v.length < 2) return; const tot = v.reduce((a, b) => a + b, 0), ahorro = tot - Math.max(...v); if (ahorro > 0.001) { c.h -= ahorro; c.solapado = ahorro; } });
   const rootOf = t => { let x = t, g = 0; while (x && x.parentId && byId[x.parentId] && g++ < 50) x = byId[x.parentId]; return x; };
   return { D, SUB, kids, byId, load, rootOf };
 }
@@ -287,7 +295,7 @@ export function reflow(S, id) {
     { let p = tareas.find(t => t.id === a.parentId), g = 0; while (p && p.partes && g++ < 20) p = tareas.find(t => t.id === p.parentId);   // la pieza padre que la usa espera a que termine
       if (p && p.parentId !== undefined && !esGrupo({ tareas }, p) && p.inicio && p.estado !== 'terminada') { const fp = finOf(cur(), tareas.find(t => t.id === a.parentId)) || fin; if (p.inicio < fp) mover(p, fp); } }
     for (const op of a.ops) {
-      const pisadas = tareas.filter(x => x.id !== a.id && choque(x.turno, a.turno) && x.ops.includes(op) && x.inicio && x.estado !== 'terminada' && leaf(x.id) && x.inicio >= a.inicio && x.inicio < fin)
+      const pisadas = tareas.filter(x => x.id !== a.id && choque(x.turno, a.turno) && x.ops.includes(op) && x.inicio && x.estado !== 'terminada' && leaf(x.id) && !solapan(cur(), x, a) && x.inicio >= a.inicio && x.inicio < fin)
         .sort((p, q) => p.inicio < q.inicio ? -1 : 1);
       let cursor = fin;
       for (const x of pisadas) cursor = mover(tareas.find(t => t.id === x.id), cursor) || cursor;
@@ -329,24 +337,26 @@ export function dupTask(S, id) {
 }
 // Primer momento libre: después de la última tarea sin terminar de CUALQUIERA de los operarios.
 // Si una tarea ya tendría que haber terminado (atrasada) y sigue abierta, se cuenta lo que le falta desde ahora.
-export function nextFree(S, op, turno, ops) {
-  const los = ops && ops.length ? ops : [op]; let c = nowDT();
-  const cola = S.tareas.filter(t => t.ops.some(o => los.includes(o)) && choque(t.turno, turno) && t.inicio && t.estado !== 'terminada' && isLeaf(S, t.id)).sort((a, b) => a.inicio < b.inicio ? -1 : 1);
+export function nextFree(S, op, turno, ops, tarea) {   // tarea (opcional): si es solapable, no espera a las solapables de otra operación
+  const los = ops && ops.length ? ops : [op]; let c = nowDT(); const ahora = c;
+  const cola = S.tareas.filter(t => t.ops.some(o => los.includes(o)) && choque(t.turno, turno) && t.inicio && t.estado !== 'terminada' && isLeaf(S, t.id) && !solapan(S, t, tarea)).sort((a, b) => a.inicio < b.inicio ? -1 : 1);
   cola.forEach(t => { const f = finOf(S, t); if (!f) return;
     if (f > c) { c = f; return; }
+    if (f > ahora && opSolapa(S, t)) return;   // corre a la vez con otra solapable: su fin ya está cubierto, no está atrasada
     const falta = Math.max(0, (Number(t.hh) || 0) - llevado(S, t)) / Math.max(1, t.ops.length);   // atrasada: lo que le falta, desde ahora
     if (falta > 0) { const w = addWork(S, normStart(S, c, t.turno, t.ops), falta, t.turno, t.ops); if (w.end && w.end > c) c = w.end; } });
   return normStart(S, c, turno, los);
 }
 // Hueco siguiente para una tarea nueva: detrás de lo que el operario tiene abierto (pendiente o en proceso);
 // si no tiene nada abierto, pegada al fin de la última que finalizó (aunque ya haya pasado: se carga después).
-export function pegadoA(S, ops, turno, sinId) {
+export function pegadoA(S, ops, turno, sinId, tarea) {
   const los = (ops || []).filter(Boolean); if (!los.length) return null;
+  const tar = tarea || S.tareas.find(x => x.id === sinId);
   const S2 = sinId ? { ...S, tareas: S.tareas.filter(x => x.id !== sinId) } : S;
-  const mias = S2.tareas.filter(t => t.ops.some(o => los.includes(o)) && choque(t.turno, turno) && t.inicio && isLeaf(S2, t.id));
+  const mias = S2.tareas.filter(t => t.ops.some(o => los.includes(o)) && choque(t.turno, turno) && t.inicio && isLeaf(S2, t.id) && !solapan(S2, t, tar));
   const abiertas = mias.filter(t => t.estado !== 'terminada');
-  if (abiertas.length) { const tras = abiertas.reduce((a, t) => (finOf(S2, t) || '') > (finOf(S2, a) || '') ? t : a); return { ini: nextFree(S2, los[0], turno, los), tras }; }
-  const hechas = mias.filter(t => finOf(S2, t)); if (!hechas.length) return { ini: nextFree(S2, los[0], turno, los), tras: null };
+  if (abiertas.length) { const tras = abiertas.reduce((a, t) => (finOf(S2, t) || '') > (finOf(S2, a) || '') ? t : a); return { ini: nextFree(S2, los[0], turno, los, tar), tras }; }
+  const hechas = mias.filter(t => finOf(S2, t)); if (!hechas.length) return { ini: nextFree(S2, los[0], turno, los, tar), tras: null };
   const tras = hechas.reduce((a, t) => finOf(S2, t) > finOf(S2, a) ? t : a);
   return { ini: normStart(S2, finOf(S2, tras), turno, los), tras };
 }
@@ -357,10 +367,10 @@ export function assignTo(S, id, op, d, turno, fromOp) {
   const tu = turno || t.turno || 'normal'; let inicio;
   if (d) {
     let c = `${d}T00:00`;
-    S.tareas.forEach(x => { if (x.id !== id && x.ops.includes(op) && choque(x.turno, tu) && x.inicio && x.estado !== 'terminada' && isLeaf(S, x.id)) { const f = finOf(S, x); if (f.slice(0, 10) === d && f > c) c = f; } });
+    S.tareas.forEach(x => { if (x.id !== id && x.ops.includes(op) && choque(x.turno, tu) && x.inicio && x.estado !== 'terminada' && isLeaf(S, x.id) && !solapan(S, x, t)) { const f = finOf(S, x); if (f.slice(0, 10) === d && f > c) c = f; } });
     inicio = normStart(S, c, tu, ops);
     if (inicio.slice(0, 10) !== d) inicio = normStart(S, `${d}T00:00`, tu, ops);
-  } else inicio = t.inicio && t.ops.length ? t.inicio : nextFree(S, op, tu, ops);
+  } else inicio = t.inicio && t.ops.length ? t.inicio : nextFree(S, op, tu, ops, t);
   return patchTask(S, id, { ops, turno: tu, inicio }, true);
 }
 export function unassign(S, id, op) {
@@ -414,8 +424,9 @@ function arrastrarCola(S, S2) {
   const cls = t => t.turno === 'extra' ? 'extra' : 'normal';
   const vivas = S.tareas.filter(t => t.inicio && t.ops.length && t.estado !== 'terminada' && isLeaf(S, t.id)).sort((a, b) => a.inicio < b.inicio ? -1 : a.inicio > b.inicio ? 1 : 0);
   const finAntes = {}; vivas.forEach(t => { finAntes[t.id] = finOf(S, t); });
-  const ult = {}, prevs = {};   // anterior de cada tarea en la cola de cada uno de sus operarios
-  vivas.forEach(t => { prevs[t.id] = []; t.ops.forEach(o => { const key = o + '|' + cls(t); if (ult[key]) prevs[t.id].push({ id: ult[key], gap: Math.max(0, workBetween(S, finAntes[ult[key]], t.inicio, t.turno, t.ops)) }); ult[key] = t.id; }); });
+  const ult = {}, prevs = {};   // anterior de cada tarea en la cola de cada uno de sus operarios (si la anterior corre a la vez, se salta y se toma la que sigue hacia atrás con las que corrían junto a ella)
+  const prevDe = (lst, t) => { let k = lst.length - 1; while (k >= 0 && solapan(S, lst[k], t)) k--; if (k < 0) return []; const h = lst[k], out = [h]; for (let j = k - 1; j >= 0 && solapan(S, lst[j], h); j--) out.push(lst[j]); return out; };
+  vivas.forEach(t => { prevs[t.id] = []; t.ops.forEach(o => { const key = o + '|' + cls(t), lst = ult[key] = ult[key] || []; prevDe(lst, t).forEach(p => prevs[t.id].push({ id: p.id, gap: Math.max(0, workBetween(S, finAntes[p.id], t.inicio, t.turno, t.ops)) })); lst.push(t); }); });
   const cambio = new Set(); const get = id => S2.tareas.find(x => x.id === id);
   vivas.forEach(t0 => { let t = get(t0.id);
     const mov = prevs[t.id].filter(p => cambio.has(p.id));
@@ -465,7 +476,8 @@ export function partir(S, id, { ops, correr, turno, desde, corte } = {}) {
 }
 export const pausar = (S, id) => partir(S, id);
 // Tareas que están corriendo ahora y comparten algún operario con "ops" (para avisar antes de pisarlas)
-export const enCurso = (S, ops, exceptoId) => S.tareas.filter(x => x.id !== exceptoId && corriendo(x) && x.ops.some(o => (ops || []).includes(o)));
+// tarea (opcional, para una tarea nueva que todavía no está en S): las solapables de otra operación no cuentan como ocupado
+export const enCurso = (S, ops, exceptoId, tarea) => { const t0 = tarea || S.tareas.find(x => x.id === exceptoId); return S.tareas.filter(x => x.id !== exceptoId && corriendo(x) && x.ops.some(o => (ops || []).includes(o)) && !solapan(S, x, t0)); };
 // Pausa esas tareas: lo hecho queda cerrado y lo que falta sigue en la cola
 export const pausarEnCurso = (S, ops, exceptoId, corte) => enCurso(S, ops, exceptoId).reduce((a, x) => partir(a, x.id, corte ? { corte } : {}), S);   // corte: fecha y hora en que se cierra lo hecho (sin corte, ahora)
 // Uno de los operarios deja la tarea: se parte y el resto sigue en curso con los que quedan
@@ -507,7 +519,7 @@ export function volverAPlanta(S, id) {
   const S1 = { ...S, tareas: S.tareas.map(x => x.id === id ? { ...x, estado: 'pendiente', avance: 0, hhReal: 0, finReal: null, realFin: false, crono: null, pausada: false, tercerizada: false, proveedor: '', tercFecha: null, tercNota: '' } : x) };
   const r = S1.tareas.find(x => x.id === id);
   if (!r.ops.length) return S1;
-  const ini = r.inicio && r.inicio > nowDT() ? r.inicio : nextFree(S1, r.ops[0], r.turno, r.ops);
+  const ini = r.inicio && r.inicio > nowDT() ? r.inicio : nextFree(S1, r.ops[0], r.turno, r.ops, r);
   return patchTask({ ...S1, tareas: S1.tareas.map(x => x.id === id ? { ...x, inicio: ini } : x) }, id, {}, true);
 }
 // ---- Próximo a realizar: piezas que se marcan para hacer primero (la marca guarda cuándo se puso, para ordenarlas) ----
@@ -629,13 +641,13 @@ export function adelantarCola(S, id, finPlan) {
   const viva = x => x.id !== id && x.inicio && x.ops.length && x.estado !== 'terminada' && isLeaf(S2, x.id);
   for (const op of t.ops) {
     let cursor = t.finReal, finAnt = finPlan;
-    const cola = S2.tareas.filter(x => viva(x) && x.ops.includes(op) && cls(x) === cls(t) && x.inicio >= (t.inicio || '')).sort((a, b) => a.inicio < b.inicio ? -1 : 1);
+    const cola = S2.tareas.filter(x => viva(x) && x.ops.includes(op) && cls(x) === cls(t) && !solapan(S2, x, t) && x.inicio >= (t.inicio || '')).sort((a, b) => a.inicio < b.inicio ? -1 : 1);
     for (const x0 of cola) {
       const x = S2.tareas.find(y => y.id === x0.id);
       if (!esPend(x) || x.manual || x.inicio > normStart(S2, finAnt, x.turno, x.ops)) break;
       const finViejo = finOf(S2, x); let ni = cursor;
       predsDe(S2, x).forEach(pid => { const pt = S2.tareas.find(y => y.id === pid); const f = pt && pt.estado !== 'terminada' && pt.inicio ? finOf(S2, pt) : finTerc(pt); if (f && f > ni) ni = f; });
-      x.ops.filter(o => o !== op).forEach(o => S2.tareas.forEach(y => { if (viva(y) && y.id !== x.id && y.ops.includes(o) && choque(y.turno, x.turno) && y.inicio < x.inicio) { const f = finOf(S2, y); if (f > ni) ni = f; } }));   // los otros operarios de la tarea también tienen que estar libres
+      x.ops.filter(o => o !== op).forEach(o => S2.tareas.forEach(y => { if (viva(y) && y.id !== x.id && y.ops.includes(o) && choque(y.turno, x.turno) && !solapan(S2, y, x) && y.inicio < x.inicio) { const f = finOf(S2, y); if (f > ni) ni = f; } }));   // los otros operarios de la tarea también tienen que estar libres
       ni = normStart(S2, ni, x.turno, x.ops);
       if (ni >= x.inicio) break;
       S2 = { ...S2, tareas: S2.tareas.map(y => y.id === x.id ? { ...y, inicio: ni, empuje: y.empuje === ni ? null : (y.empuje || y.inicio) } : y) }; n++;
@@ -668,7 +680,7 @@ export function pisadasDe(S, t) {
   if (!t || !t.inicio || !t.ops.length || t.estado === 'terminada') return [];
   const fin = addWork(S, t.inicio, calDur(t), t.turno, t.ops).end; if (!fin) return [];
   const out = [];
-  S.tareas.forEach(x => { if (x.id === t.id || !x.inicio || x.estado === 'terminada' || !isLeaf(S, x.id) || !choque(x.turno, t.turno)) return;
+  S.tareas.forEach(x => { if (x.id === t.id || !x.inicio || x.estado === 'terminada' || !isLeaf(S, x.id) || !choque(x.turno, t.turno) || solapan(S, x, t)) return;
     const op = t.ops.find(o => x.ops.includes(o)); if (!op) return;
     const fx = finOf(S, x); if (x.inicio < fin && fx > t.inicio) out.push({ op, tarea: x, fin: fx }); });
   return out.sort((a, b) => a.fin < b.fin ? 1 : -1);
@@ -693,7 +705,7 @@ export function compactar(S, op) {
     if ((op && !t0.ops.includes(op)) || !esPend(t0)) return;
     const t = S2.tareas.find(x => x.id === t0.id); if (t.inicio <= now) return;
     let ni = now;
-    S2.tareas.forEach(x => { if (x.id === t.id || pos[x.id] == null || pos[x.id] > pos[t.id] || cls(x) !== cls(t) || !x.ops.some(o => t.ops.includes(o))) return; const f = finOf(S2, x); if (f > ni) ni = f; });
+    S2.tareas.forEach(x => { if (x.id === t.id || pos[x.id] == null || pos[x.id] > pos[t.id] || cls(x) !== cls(t) || !x.ops.some(o => t.ops.includes(o)) || solapan(S2, x, t)) return; const f = finOf(S2, x); if (f > ni) ni = f; });
     predsDe(S2, t).forEach(pid => { const pt = S2.tareas.find(x => x.id === pid); const f = pt && pt.estado !== 'terminada' && pt.inicio ? finOf(S2, pt) : finTerc(pt); if (f && f > ni) ni = f; });
     ni = normStart(S2, ni, t.turno, t.ops);
     if (ni >= t.inicio || !addWork(S2, ni, Math.min(0.1, calDur(t) || 0.1), t.turno, t.ops).ok) return;
@@ -871,7 +883,7 @@ export function recomendar(S, t) {
   const sin = { ...S, tareas: S.tareas.filter(x => x.id !== t.id) }, tu = t.turno || 'normal', out = [];
   S.operarios.filter(o => o.activo).forEach(o => {
     const nivel = o.op1 === t.operacionId ? 1 : o.op2 === t.operacionId ? 2 : 0; if (!nivel) return;
-    const ini = nextFree(sin, o.id, tu, [o.id]); const w = addWork(S, ini, Number(t.hh) || 0, tu, [o.id]);
+    const ini = nextFree(sin, o.id, tu, [o.id], t); const w = addWork(S, ini, Number(t.hh) || 0, tu, [o.id]);
     out.push({ op: o.id, nombre: o.nombre, nivel, ini, fin: w.ok ? w.end : null });
   });
   return out.sort((a, b) => a.nivel - b.nivel || (a.ini < b.ini ? -1 : a.ini > b.ini ? 1 : 0));
@@ -960,7 +972,7 @@ export function planificarGrupo(S, filtro, horas = {}, opts = {}) {
     PR[t.id].forEach(p => { const pt = W.tareas.find(x => x.id === p); if (!pt) return; const f = pt.estado !== 'terminada' ? finOf(W, pt) : finTerc(pt); if (f && f > minIni) minIni = f; });
     let best = null;
     elig[t.id].forEach(({ o, nivel }) => {
-      let ini = nextFree(W, o.id, tu, [o.id]); if (minIni > ini) ini = normStart(W, minIni, tu, [o.id]);
+      let ini = nextFree(W, o.id, tu, [o.id], t); if (minIni > ini) ini = normStart(W, minIni, tu, [o.id]);
       const w = addWork(W, ini, h, tu, [o.id]); if (!w.ok) return;
       if (!best || w.end < best.fin || (w.end === best.fin && nivel < best.nivel)) best = { o, nivel, ini, fin: w.end };
     });
@@ -1114,10 +1126,17 @@ export function cargaDiaria(S, V) {
     const real = Math.max(0, Number(t.hhReal) || 0), os = t.ops || []; if (!(real > 0) || !os.length) return;
     const ds_ = diasPieza(S, t, r); if (!ds_.length) return;
     const tipo = t.tipo === 'proy' ? claseP(prs.get(t.proyId)) : 'rep', h = real / ds_.length / os.length;
-    os.forEach(o => ds_.forEach(d => { const c = C(o, d); c[tipo] += h; c.total += h; c.items.push({ t: t.id, tipo, h, dias: ds_.length, real }); })); });
+    const sol = opSolapa(S, t) ? t.operacionId : null;
+    os.forEach(o => ds_.forEach(d => { const c = C(o, d); c[tipo] += h; c.total += h; c.items.push({ t: t.id, tipo, h, dias: ds_.length, real, ...(sol ? { sol } : {}) }); })); });
   cargasTodas(S).forEach(a => { const h0 = Math.max(0, Number(a.horas) || 0); if (!(h0 > 0) || !a.opId || !a.desde) return;
     const ds_ = diasAsig(S, a), tipo = destinoTipo(S, a.destino), h = h0 / ds_.length;
-    ds_.forEach(d => { const c = C(a.opId, d); c[tipo] += h; c.total += h; c.glob += h; c.items.push({ a: a.id, tipo, h, ...(a.salida ? { sal: a.salida } : {}) }); }); });
+      ds_.forEach(d => { const c = C(a.opId, d); c[tipo] += h; c.total += h; c.glob += h; c.items.push({ a: a.id, tipo, h, ...(a.salida ? { sal: a.salida } : {}) }); }); });
+  // Solapadas: si en un día el operario llevó piezas de dos operaciones solapables (centro de mecanizado y router), esas horas corrieron a la vez:
+  // al operario se le cuenta una sola vez (la operación que más horas llevó) y se achican parejo las horas de esas piezas ese día.
+  // Las HH de cada pieza (Tiempos y Costos, tablas de proyectos y Estadísticas por proyecto) no se tocan: conservan su tiempo completo.
+  Object.values(R).forEach(c => { const g = {}; c.items.forEach(i => { if (i.sol) g[i.sol] = (g[i.sol] || 0) + i.h; });
+    const v = Object.values(g); if (v.length < 2) return; const tot = v.reduce((a, b) => a + b, 0), keep = Math.max(...v); if (!(tot - keep > 0.001)) return; const f = keep / tot;
+    c.items.forEach(i => { if (!i.sol) return; const nh = i.h * f, dif = i.h - nh; c[i.tipo] -= dif; c.total -= dif; i.hCompleta = i.h; i.h = nh; }); c.solapado = tot - keep; });
   return R;
 }
 
