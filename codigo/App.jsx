@@ -2639,11 +2639,12 @@ function ImportFichas({ d, onClose }) {
   const R = useMemo(() => { const IT = new Map((stock.items || []).map(i => [(i.codigo || '').trim().toUpperCase(), i])), col = (r, ...ns) => { const k = Object.keys(r).find(x => ns.some(n => x.trim().toLowerCase().startsWith(n))); return k ? r[k] : ''; };
     const ok = [], err = [];
     d.rows.forEach((r, i) => { const cod = String(col(r, 'código', 'codigo')).trim(); if (!cod) return; const k = E.claveCod(cod), ic = String(col(r, 'ítem', 'item')).trim().toUpperCase();
-      const si = v => /^(s[ií]|x|1|true)$/i.test(String(v).trim()), largo = xNum(col(r, 'largo')), corte = xNum(col(r, 'corte')), chapa = si(col(r, 'chapa')), noMat = si(col(r, 'sin material', 'no consume'));
-      if (!ic && largo == null && !chapa && !noMat) return;
+      // celda vacía = no se toca lo que ya tenía la ficha; "Sí" / "No" marcan o desmarcan
+      const sn = v => { const x = String(v).trim(); return !x ? null : /^(s[ií]|x|1|true)$/i.test(x); }, largo = xNum(col(r, 'largo')), corte = xNum(col(r, 'corte')), chapa = sn(col(r, 'chapa')), noMat = sn(col(r, 'sin material', 'no consume'));
+      if (!ic && largo == null && corte == null && chapa == null && noMat == null) return;
       const it = ic ? IT.get(ic) : null; if (ic && !it) { err.push(`Fila ${i + 2}: ${cod} → el ítem ${ic} no existe en StockApp`); return; }
       const ant = E.fichaDe(S, k) || {};
-      ok.push({ k, cod, patch: { ...(it ? { stockId: it.id } : {}), ...(largo != null ? { largoU: largo } : {}), corteU: corte, chapa, noMat }, it, ya: !!(ant.stockId || ant.largoU || ant.chapa || ant.noMat) }); });
+      ok.push({ k, cod, patch: { ...(it ? { stockId: it.id } : {}), ...(largo != null ? { largoU: largo } : {}), ...(corte != null ? { corteU: corte } : {}), ...(chapa != null ? { chapa } : {}), ...(noMat != null ? { noMat } : {}) }, it, ya: !!(ant.stockId || ant.largoU || ant.chapa || ant.noMat) }); });
     return { ok, err }; }, [d, stock, S.fichas]);
   const aplicar = () => { up(s => R.ok.reduce((a, x) => conFicha(a, x.k, x.patch), s)); ui.toast(`Fichas actualizadas: ${R.ok.length} ${R.ok.length === 1 ? 'pieza' : 'piezas'}`); onClose(); };
   return <Modal title="Importar fichas de material" onClose={onClose} foot={<><span className="mut">{d.archivo}</span><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!R.ok.length} onClick={aplicar}>Aplicar a {R.ok.length} {R.ok.length === 1 ? 'pieza' : 'piezas'}</button></>}>
