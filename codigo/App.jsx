@@ -155,7 +155,7 @@ function Desvio({ real, plan }) { const d = real - plan; if (!(plan > 0)) return
 // Qué puede cambiar cada usuario. Las mismas reglas están también en Firebase (codigo/reglas-produccionapp.txt).
 function permiso(p, n, pm) {
   if (pm.admin) return null;
-  if (['cfg', 'operarios', 'operaciones', 'feriados', 'usuarios', 'codigos', 'materiales', 'cotizaciones', 'tarifas', 'historico', 'fichas'].some(k => p[k] !== n[k])) return 'Solo un administrador puede cambiar la configuración.';
+  if (['cfg', 'operarios', 'operaciones', 'feriados', 'usuarios', 'codigos', 'materiales', 'cotizaciones', 'tarifas', 'historico', 'fichas', 'motivosAus'].some(k => p[k] !== n[k])) return 'Solo un administrador puede cambiar la configuración.';
   if (p.asignaciones !== n.asignaciones) return 'Solo un administrador puede cargar horas globales.';
   const DEF = ['nombre', 'cant', 'prioridad', 'operacionId', 'hh', 'preds', 'parentId', 'entrega', 'proyId'];
   const old = Object.fromEntries(p.tareas.map(t => [t.id, t])); const seen = new Set(); let rep = false, proyDef = p.proyectos !== n.proyectos, proyProg = false;
@@ -183,7 +183,7 @@ function describir(p, n) {
     if (add.length) out.push('Agregó ' + lista(add)); if (del.length) out.push('Borró ' + lista(del));
     if (chg.length) out.push(chg.slice(0, 3).map(t => `"${t.nombre}": ${dif(old[t.id], t).map(f => `${CAMPOS[f]} ${val(p, f, old[t.id][f])} → ${val(n, f, t[f])}`).join(', ')}`).join(' · ') + (chg.length > 3 ? ` · y ${chg.length - 3} tareas más` : ''));
     if (out.length) k = 't:' + [...add, ...del, ...chg].slice(0, 4).map(t => t.id).join() + ':' + (chg[0] ? dif(old[chg[0].id], chg[0]).join() : ''); }
-  [['proyectos', 'Cambió proyectos'], ['asignaciones', 'Cambió cargas globales de horas'], ['extras', 'Cambió horas extra'], ['extraModo', 'Cambió el uso de una extra'], ['ausencias', 'Cambió ausencias'], ['operarios', 'Cambió operarios'], ['operaciones', 'Cambió operaciones'], ['codigos', 'Cambió códigos de operación'], ['materiales', 'Cambió materiales'], ['tarifas', 'Cambió tarifas de mano de obra'], ['historico', 'Cambió el historial importado'], ['fichas', 'Cambió la ficha de una pieza (material y peso)'], ['cotizaciones', 'Cambió cotizaciones'], ['feriados', 'Cambió feriados'], ['usuarios', 'Cambió usuarios o permisos'], ['cfg', 'Cambió horarios o apariencia']]
+  [['proyectos', 'Cambió proyectos'], ['asignaciones', 'Cambió cargas globales de horas'], ['extras', 'Cambió horas extra'], ['extraModo', 'Cambió el uso de una extra'], ['ausencias', 'Cambió ausencias'], ['motivosAus', 'Cambió motivos de ausencia'], ['operarios', 'Cambió operarios'], ['operaciones', 'Cambió operaciones'], ['codigos', 'Cambió códigos de operación'], ['materiales', 'Cambió materiales'], ['tarifas', 'Cambió tarifas de mano de obra'], ['historico', 'Cambió el historial importado'], ['fichas', 'Cambió la ficha de una pieza (material y peso)'], ['cotizaciones', 'Cambió cotizaciones'], ['feriados', 'Cambió feriados'], ['usuarios', 'Cambió usuarios o permisos'], ['cfg', 'Cambió horarios o apariencia']]
     .forEach(([key, txt]) => { if (p[key] !== n[key] && !(key === 'extraModo' && p.extras !== n.extras)) { out.push(txt); k += '|' + key; } });
   return out.length ? { k, txt: out.join(' · ') } : null;
 }
@@ -504,7 +504,7 @@ function Resumen() {
     const fer = E.feriadoDe(S, d), aus = E.ausenciaDe(S, o.id, d), wd = E.isWork(S, d);
     const motivo = aus ? aus.motivo : fer ? 'Feriado' : !wd ? '' : null;
     return <td key={d} className={d === hoy ? 'hoy' : ''}>
-      <div className={`half sem-${semOf(ln, cn)}${motivo !== null ? ' blk' : ''}${aus ? ' aus' : ''}`} {...dnd(o.id, d, 'normal')}>
+      <div className={`half sem-${semOf(ln, cn)}${motivo !== null ? ' blk' : ''}${aus ? ' aus' : ''}`} style={E.ausStyle(S, aus)} {...dnd(o.id, d, 'normal')}>
         <div className="half-h"><span className="tn">N</span>
           {motivo !== null ? <span className="ld">{motivo}</span> : <span className="ld">{fN(ln)}/{fN(cn)} h</span>}
           {motivo === null && <button className="mini" aria-label="Asignar tarea" onClick={() => ui.modal({ k: 'pick', op: o.id, d, turno: 'normal' })}>+</button>}
@@ -1943,7 +1943,7 @@ function CalOperarios({ cab }) {
   const xs = sel && dias.find(x => x.d === sel);
   const nuevaAsig = () => ui.modal({ k: 'asig', opId: o.id, desde: sel || (d1 <= hoy ? d1 : hoy), hasta: sel || (dUlt < hoy ? dUlt : hoy) });
   const celda = x => { const ancho = Math.max(x.dp, x.c.total, 0.0001), vac = x.dp <= 0 && x.c.total <= 0;
-    return <button key={x.d} className={'oc-d' + (x.alerta ? ' ' + x.alerta : '') + (x.fut ? ' fut' : '') + (vac ? ' vac' : '') + (x.d === hoy ? ' hoy' : '') + (x.d === sel ? ' sel' : '') + (x.c.glob > 0 ? ' glob' : '')} onClick={() => setSel(x.d === sel ? null : x.d)}
+    return <button key={x.d} className={'oc-d' + (x.alerta ? ' ' + x.alerta : '') + (x.fut ? ' fut' : '') + (vac ? ' vac' : '') + (x.d === hoy ? ' hoy' : '') + (x.d === sel ? ' sel' : '') + (x.c.glob > 0 ? ' glob' : '') + (x.aus && E.colorAus(S, x.aus.motivo) ? ' aus-c' : '')} style={E.ausStyle(S, x.aus)} onClick={() => setSel(x.d === sel ? null : x.d)}
       aria-label={`${E.fDia(x.d)}: ${fN(x.c.total)} h cargadas de ${fN(x.dp)} disponibles`}>
       <span className="oc-h"><b>{Number(x.d.slice(8))}</b><span className="oc-dn">{E.fDia(x.d).slice(0, 3)}</span>{x.dp > 0 && <small>{fN(x.dp)} h</small>}</span>
       {(x.aus || x.fer) && <small className="oc-mot">{x.aus ? x.aus.motivo : x.fer.nombre}</small>}
@@ -2147,10 +2147,28 @@ const MES_L = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', '
 const mesMas = (mes, n) => { const [y, m] = mes.split('-').map(Number); const d = new Date(y, m - 1 + n, 1); return `${d.getFullYear()}-${E.pad(d.getMonth() + 1)}`; };
 const habiles = (S, d1, d2) => { let h = 0; for (let d = d1, i = 0; d <= d2 && i < 800; d = E.addDays(d, 1), i++) if (E.isWork(S, d)) h++; return h; };
 
+// Motivos de ausencia precargados (nombre + color). Los elige el desplegable de "Cargar ausencias" y se ven de su color en los calendarios.
+// Si se cambia el nombre de un motivo, las ausencias ya cargadas con ese nombre se renombran para no perder el color.
+function MotivosAusencia({ S, up }) {
+  const lista = E.motivosAus(S);
+  const set = nueva => up(s => ({ ...s, motivosAus: nueva }));
+  const color = (id, c) => set(lista.map(m => m.id === id ? { ...m, color: c } : m));
+  const renombrar = (m, nombre) => up(s => ({ ...s, motivosAus: lista.map(x => x.id === m.id ? { ...x, nombre } : x), ausencias: (s.ausencias || []).map(a => a.motivo === m.nombre ? { ...a, motivo: nombre } : a) }));
+  return <div className="mot-l">
+    {lista.map(m => <div className="lrow" key={m.id}>
+      <input type="color" aria-label="Color" value={m.color} onChange={e => color(m.id, e.target.value)} />
+      <input aria-label="Nombre del motivo" value={m.nombre} onChange={e => renombrar(m, e.target.value)} />
+      <button className="btn sm danger" onClick={() => set(lista.filter(x => x.id !== m.id))}>Borrar</button></div>)}
+    <div className="row"><button className="btn sm" onClick={() => set([...lista, { id: E.uid(), nombre: 'Nuevo motivo', color: '#BA7517' }])}>+ Motivo</button></div>
+    <p className="mut">Cada motivo se ve de su color en los calendarios de ausencias. Si cambiás un nombre, las ausencias ya cargadas se renombran solas. Un motivo que no esté en la lista se ve en amarillo.</p>
+  </div>;
+}
 // Carga de ausencias desde un calendario: clic en el primer día y clic en el último; los días del medio quedan marcados
 function AusPicker({ S, onAdd }) {
   const hoy = E.today();
-  const [op, setOp] = useState(''); const [mes, setMes] = useState(hoy.slice(0, 7)); const [ini, setIni] = useState(''); const [fin, setFin] = useState(''); const [motivo, setMotivo] = useState('Vacaciones');
+  const [op, setOp] = useState(''); const [mes, setMes] = useState(hoy.slice(0, 7)); const [ini, setIni] = useState(''); const [fin, setFin] = useState('');
+  const motivos = E.motivosAus(S); const [motivo, setMotivo] = useState(() => (motivos[0] ? motivos[0].nombre : 'Vacaciones')); const [otro, setOtro] = useState(false);
+  const colSel = E.colorAus(S, motivo);
   const [y, m] = mes.split('-').map(Number), nd = new Date(y, m, 0).getDate(), lead = (E.dow(`${mes}-01`) + 6) % 7;
   const celdas = [...Array(lead).fill(null), ...Array.from({ length: nd }, (_, i) => `${mes}-${E.pad(i + 1)}`)];
   const clic = d => { if (!ini || fin) { setIni(d); setFin(''); } else if (d < ini) setIni(d); else setFin(d); };
@@ -2160,11 +2178,12 @@ function AusPicker({ S, onAdd }) {
   const agregar = () => { if (!op || !ini) return; onAdd({ id: E.uid(), opId: op, desde: ini, hasta, motivo: motivo.trim() || 'Ausencia' }); setIni(''); setFin(''); };
   return <div className="ausp">
     <div className="row"><select aria-label="Operario" value={op} onChange={e => setOp(e.target.value)}><option value="">Elegí el operario</option>{ops.map(o => <option key={o.id} value={o.id}>{nomApe(o)}</option>)}</select>
-      <input aria-label="Motivo" list="motivos-aus" value={motivo} onChange={e => setMotivo(e.target.value)} /><datalist id="motivos-aus"><option value="Vacaciones" /><option value="Falta" /><option value="Enfermedad" /><option value="Licencia" /></datalist></div>
+      <select aria-label="Motivo" value={otro ? '__otro' : motivo} onChange={e => { if (e.target.value === '__otro') { setOtro(true); setMotivo(''); } else { setOtro(false); setMotivo(e.target.value); } }}>{motivos.map(x => <option key={x.id} value={x.nombre}>{x.nombre}</option>)}<option value="__otro">Otro…</option></select>
+      {otro && <input aria-label="Motivo (otro)" placeholder="Escribí el motivo" value={motivo} onChange={e => setMotivo(e.target.value)} />}</div>
     <div className="ausp-nav"><button className="btn sm" aria-label="Mes anterior" onClick={() => setMes(mesMas(mes, -1))}>◀</button><b>{MES_L[m - 1]} {y}</b><button className="btn sm" aria-label="Mes siguiente" onClick={() => setMes(mesMas(mes, 1))}>▶</button></div>
-    <div className="ausp-cal">{['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((x, i) => <span key={i} className="dh">{x}</span>)}
+    <div className="ausp-cal" style={colSel ? { '--aus': colSel } : undefined}>{['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((x, i) => <span key={i} className="dh">{x}</span>)}
       {celdas.map((d, i) => { if (!d) return <span key={'v' + i} />; const mia = op && E.ausenciaReal(S, op, d); const enSel = ini && d >= ini && d <= hasta;
-        return <button key={d} type="button" className={(E.isWork(S, d) ? '' : 'off ') + (mia ? 'ya ' : '') + (enSel ? 'sel ' : '') + (d === ini || d === fin ? 'ext ' : '') + (d === hoy ? 'hoy' : '')} title={mia ? 'Ya tiene: ' + mia.motivo : ''} onClick={() => clic(d)}>{+d.slice(8)}</button>; })}</div>
+        return <button key={d} type="button" style={enSel ? undefined : E.ausStyle(S, mia)} className={(E.isWork(S, d) ? '' : 'off ') + (mia ? 'ya ' : '') + (enSel ? 'sel ' : '') + (d === ini || d === fin ? 'ext ' : '') + (d === hoy ? 'hoy' : '')} title={mia ? 'Ya tiene: ' + mia.motivo : ''} onClick={() => clic(d)}>{+d.slice(8)}</button>; })}</div>
     <p className="mut">{!ini ? 'Hacé clic en el primer día de la ausencia.' : !fin ? 'Ahora clic en el último día (o agregá solo este día).' : ''}{ini && <b className={choca ? 'c-bad' : ''}> Del {fDM(ini)} al {fDM(hasta)} · {habiles(S, ini, hasta)} días hábiles{choca ? ' · ⚠ se pisa con otra ausencia de este operario' : ''}</b>}</p>
     <div className="row"><button className="btn" disabled={!op || !ini} onClick={agregar}>Agregar ausencia</button>{ini && <button className="btn sm" onClick={() => { setIni(''); setFin(''); }}>Limpiar</button>}</div>
   </div>;
@@ -2203,11 +2222,12 @@ function AusResumen({ S }) {
     <div className="ausp-nav"><button className="btn sm" aria-label="Mes anterior" onClick={() => setDesde(mesMas(desde, -1))}>◀</button><b>Desde {MES_L[+desde.slice(5) - 1]} {desde.slice(0, 4)}</b><button className="btn sm" aria-label="Mes siguiente" onClick={() => setDesde(mesMas(desde, 1))}>▶</button>
       <label className="inl">Ver<select value={n} onChange={e => setN(+e.target.value)}><option value={1}>1 mes</option><option value={2}>2 meses</option><option value={3}>3 meses</option></select></label></div>
     <div className="ausr"><table><thead><tr><th className="nm" />{Array.from({ length: n }, (_, k) => { const mm = mesMas(desde, k); return <th key={mm} colSpan={dias.filter(d => d.startsWith(mm)).length} className="mh">{MES_L[+mm.slice(5) - 1]} {mm.slice(0, 4)}</th>; })}</tr>
-      <tr><th className="nm" />{dias.map(d => <th key={d} className={cls(d)}>{d.slice(8)}</th>)}</tr></thead>
+      <tr><th className="nm" />{dias.map(d => <th key={d} className={cls(d)}><span className="dn">{'DLMMJVS'[E.dow(d)]}</span>{d.slice(8)}</th>)}</tr></thead>
       <tbody><tr className="cnt"><th className="nm">Ausentes por día</th>{dias.map(d => { const c = cuenta(d); return <td key={d} className={(c > 1 ? 'multi ' : '') + cls(d)}>{c || ''}</td>; })}</tr>
-        {ops.map(o => <tr key={o.id}><th className="nm">{nomApe(o)}</th>{dias.map(d => { const a = E.ausenciaReal(S, o.id, d); return <td key={d} className={(a ? 'aus ' : '') + cls(d)} title={a ? `${nomApe(o)}: ${a.motivo} (${fDM(a.desde)} al ${fDM(a.hasta)})` : ''}>{a ? (a.motivo || '?')[0].toUpperCase() : ''}</td>; })}</tr>)}
+        {ops.map(o => <tr key={o.id}><th className="nm">{nomApe(o)}</th>{dias.map(d => { const a = E.ausenciaReal(S, o.id, d); return <td key={d} style={E.ausStyle(S, a)} className={(a ? 'aus ' : '') + cls(d)} title={a ? `${nomApe(o)}: ${a.motivo} (${fDM(a.desde)} al ${fDM(a.hasta)})` : ''}>{a ? (a.motivo || '?')[0].toUpperCase() : ''}</td>; })}</tr>)}
         {ops.length === 0 && <tr><td className="mut">No hay operarios activos.</td></tr>}</tbody></table></div>
-    <p className="mut">Cada letra es la inicial del motivo (V = Vacaciones). Pasá el cursor sobre un casillero para ver el detalle. Si un día aparece un número mayor a 1 en rojo, faltan varios operarios ese día.</p>
+    <div className="ausr-lg">{E.motivosAus(S).map(m => <span key={m.id}><i style={{ background: m.color }} />{m.nombre}</span>)}</div>
+    <p className="mut">Cada letra es la inicial del motivo. Pasá el cursor sobre un casillero para ver el detalle. Si un día aparece un número mayor a 1 en rojo, faltan varios operarios ese día.</p>
   </div>;
 }
 function ListEdit({ title, items, onAdd, onDel, render, addLabel, extra, nota, rowClass }) {
@@ -2218,7 +2238,7 @@ function ListEdit({ title, items, onAdd, onDel, render, addLabel, extra, nota, r
     {items.map((it, i) => <div key={it.id || i} className={'lrow' + (rowClass ? rowClass(it) : '')}>{render(it, i)}<button className="btn sm danger" onClick={() => { const nom = typeof it === 'string' ? it : (it.nombre || it.email || ''); ui.confirmar({ titulo: '¿Borrar' + (nom ? ` “${nom}”` : ' este elemento') + '?', texto: 'Se borra de la lista. Podés deshacerlo arriba.', si: 'Sí, borrar', peligro: true, onSi: () => onDel(it, i) }); }}>Borrar</button></div>)}</section>;
 }
 const PlCtx = createContext({ c: () => '', h: t => t });
-const CFG_SECS = ['Atajos de teclado', 'Operarios', 'Días que viene (ocasionales)', 'Cargar ausencias (calendario)', 'Calendario de ausencias', 'Ausencias', 'Operaciones', 'Códigos de operación', 'Tarifas de mano de obra', 'Materiales', 'Horarios laborales', 'Feriados', 'Usuarios y permisos', 'Color de énfasis', 'Datos', 'Registro de cambios', 'Sesión'];
+const CFG_SECS = ['Atajos de teclado', 'Operarios', 'Días que viene (ocasionales)', 'Cargar ausencias (calendario)', 'Calendario de ausencias', 'Motivos de ausencia', 'Ausencias', 'Operaciones', 'Códigos de operación', 'Tarifas de mano de obra', 'Materiales', 'Horarios laborales', 'Feriados', 'Usuarios y permisos', 'Color de énfasis', 'Datos', 'Registro de cambios', 'Sesión'];
 function Atajos() {
   const PL = useContext(PlCtx);
   const G = [['En todas las pantallas', [['Esc', 'Cierra la ventana abierta (editar tarea, operario, parte del día…)'], ['Ctrl + Z', 'Deshace el último cambio (si estás escribiendo en una celda, deshace lo escrito)'], ['Ctrl + Y  /  Ctrl + Mayús + Z', 'Rehace lo que deshiciste']]],
@@ -2275,12 +2295,13 @@ function Config() {
     <section className={'card' + PL.c('Días que viene (ocasionales)')}><div className="sec-h"><h2>{PL.h('Días que viene (ocasionales)')}</h2></div><DiasPicker S={S} onSet={setDisp} /></section>
     <section className={'card' + PL.c('Cargar ausencias (calendario)')}><div className="sec-h"><h2>{PL.h('Cargar ausencias (calendario)')}</h2></div><AusPicker S={S} onAdd={addAus} /></section>
     <section className={'card full' + PL.c('Calendario de ausencias')}><div className="sec-h"><h2>{PL.h('Calendario de ausencias')}</h2></div><AusResumen S={S} /></section>
+    <section className={'card' + PL.c('Motivos de ausencia')}><div className="sec-h"><h2>{PL.h('Motivos de ausencia')}</h2></div><MotivosAusencia S={S} up={up} /></section>
     {/* Ausencias: los días en que falta un operario sus tareas no avanzan (se corren y ese día no suma horas). La fila nueva no tiene operario hasta que se elige. */}
     <ListEdit title="Ausencias" items={S.ausencias} addLabel="+ Ausencia" onAdd={() => up(s => ({ ...s, ausencias: [...s.ausencias, { id: E.uid(), opId: '', desde: E.today(), hasta: E.today(), motivo: 'Falta' }] }))}
       onDel={a => up(s => E.setAusencias(s, s.ausencias.filter(x => x.id !== a.id)))}
       render={a => <><select aria-label="Operario" value={a.opId} onChange={e => setAus(a.id, { opId: e.target.value })}><option value="">Elegí el operario</option>{S.operarios.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select>
         <input aria-label="Desde" type="date" value={a.desde} onChange={e => e.target.value && setAus(a.id, { desde: e.target.value, hasta: e.target.value > a.hasta ? e.target.value : a.hasta })} /><input aria-label="Hasta" type="date" value={a.hasta} min={a.desde} onChange={e => e.target.value && setAus(a.id, { hasta: e.target.value })} />
-        <input aria-label="Motivo" value={a.motivo} onChange={e => setL('ausencias', a.id, { motivo: e.target.value })} />
+        <select aria-label="Motivo" value={a.motivo} onChange={e => setL('ausencias', a.id, { motivo: e.target.value })}>{!E.motivosAus(S).some(m => m.nombre === a.motivo) && <option value={a.motivo}>{a.motivo}</option>}{E.motivosAus(S).map(m => <option key={m.id} value={m.nombre}>{m.nombre}</option>)}</select><span className="mot-sw" style={E.ausStyle(S, a)} />
         {resumenAus(a)}</>}
       rowClass={a => incluyeHoy(a) ? ' aus-hoy' : ''}
       nota="Los días de ausencia, las tareas de ese operario no avanzan: terminan más tarde y ese día no suma horas (tampoco en el cronómetro ni en Tiempos)." />

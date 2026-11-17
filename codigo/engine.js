@@ -44,6 +44,18 @@ export const noDispDe = (S, op, d) => {
   return null;
 };
 export const ausenciaReal = (S, op, d) => (S.ausencias || []).find(a => a.opId === op && a.desde <= d && d <= a.hasta);   // cualquiera que toque ese día (aunque sea medio día)
+// Motivos de ausencia precargados (nombre + color). Si el administrador nunca los editó (S.motivosAus no existe) se usan estos.
+export const MOTIVOS_AUS_BASE = [
+  { id: 'm-vac', nombre: 'Vacaciones', color: '#378ADD' },
+  { id: 'm-falta', nombre: 'Falta', color: '#E24B4A' },
+  { id: 'm-enf', nombre: 'Enfermedad', color: '#7F77DD' },
+  { id: 'm-lic', nombre: 'Licencia', color: '#1D9E75' },
+];
+export const motivosAus = S => (Array.isArray(S.motivosAus) ? S.motivosAus : MOTIVOS_AUS_BASE);
+// Color de un motivo (se busca por nombre, sin importar mayúsculas); null si el motivo no está en la lista
+export const colorAus = (S, motivo) => { const k = String(motivo || '').trim().toLowerCase(); const m = motivosAus(S).find(x => String(x.nombre || '').trim().toLowerCase() === k); return m ? m.color : null; };
+// Estilo en línea con la variable --aus (la usan los estilos de los calendarios); undefined si el motivo no tiene color
+export const ausStyle = (S, aus) => { const c = aus && colorAus(S, aus.motivo); return c ? { '--aus': c } : undefined; };
 // Una ausencia puede tener hora de salida (desdeHora, el primer día) y de regreso (hastaHora, el último día); sin hora, son días enteros.
 // Si tiene "destino" ('pv' o 'p:<id del caso>') es una salida a Post Venta: el tiempo fuera cuenta como horas del operario cargadas a ese destino.
 export const tramoAus = (a, d) => [d === a.desde && a.desdeHora ? hm(a.desdeHora) : 0, d === a.hasta && a.hastaHora ? hm(a.hastaHora) : 1440];   // minutos del día d en que está fuera
