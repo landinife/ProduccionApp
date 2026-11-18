@@ -2085,6 +2085,7 @@ function SalidasPV({ p }) {
 function Importer({ mode, proyId, onClose }) {
   const { S, up, ui } = useApp();
   const campos = mode === 'rep' ? [['orden', 'OV/OC'], ['codigo', 'Código (opcional)'], ['nombre', 'Descripción'], ['cant', 'Cantidad'], ['cliente', 'Cliente']] : [['n', 'N° (1, 1.1, 1.2…)'], ['codigo', 'Código'], ['cant', 'Cantidad'], ['nombre', 'Descripción (opcional)']];
+  const { stock } = useApp(); const [fichasH, setFichasH] = useState(null); const [conFichas, setConFichas] = useState(true);   // hoja Fichas del mismo archivo (la arma la skill de importación)
   const [rows, setRows] = useState(null); const [fecha, setFecha] = useState(E.today()); const [head, setHead] = useState(true); const [map, setMap] = useState({}); const [txt, setTxt] = useState('');
   const cargar = rs => { rs = rs.filter(r => r && r.some(c => String(c == null ? '' : c).trim() !== '')); if (!rs.length) { ui.toast('La planilla está vacía'); return; }
     const h = rs[0].map(c => String(c == null ? '' : c).toLowerCase()); const m = {};
@@ -2092,7 +2093,7 @@ function Importer({ mode, proyId, onClose }) {
     campos.forEach(([k], i) => { const j = h.findIndex(c => pista[k].some(p => k === 'n' && p === 'n' ? c.trim() === 'n' : c.includes(p))); m[k] = j >= 0 ? j : (i < rs[0].length && !k.match(/codigo/) ? i : ''); });
     setRows(rs); setMap(m); };
   const file = e => { const f = e.target.files[0]; if (!f) return; if (!window.XLSX) { ui.toast('No se pudo cargar el lector de Excel. Probá pegando las celdas.'); return; }
-    const fr = new FileReader(); fr.onload = () => { try { const wb = window.XLSX.read(fr.result, { type: 'array' }); cargar(window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' })); } catch (err) { ui.toast('No se pudo leer el archivo. Tiene que ser .xlsx, .xls o .csv'); } }; fr.readAsArrayBuffer(f); };
+    const fr = new FileReader(); fr.onload = () => { try { const wb = window.XLSX.read(fr.result, { type: 'array' }); const hf = mode !== 'rep' && wb.SheetNames.find(n => n.trim().toLowerCase() === 'fichas'); setFichasH(hf ? window.XLSX.utils.sheet_to_json(wb.Sheets[hf], { defval: '' }) : null); cargar(window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' })); } catch (err) { ui.toast('No se pudo leer el archivo. Tiene que ser .xlsx, .xls o .csv'); } }; fr.readAsArrayBuffer(f); };
   const cols = rows ? Array.from({ length: Math.max(...rows.map(r => r.length)) }, (_, i) => i) : [];
   const data = rows ? rows.slice(head ? 1 : 0) : [];
   const val = (r, k) => map[k] === '' || map[k] == null ? '' : String(r[map[k]] == null ? '' : r[map[k]]).trim();
@@ -2112,6 +2113,8 @@ function Importer({ mode, proyId, onClose }) {
       const k = clave(ctxFila(r, nomPorN), nomFila(r)); const e = yaEstan.has(k) ? 'cargada' : vis.has(k) ? 'doble' : ''; vis.add(k); return e; }); })();
   const cuenta = { nueva: data.filter((r, i) => nomFila(r) && !repe[i]).length, cargada: repe.filter(e => e === 'cargada').length, doble: repe.filter(e => e === 'doble').length };
   const aImportar = data.filter((r, i) => nomFila(r) && !(saltar && repe[i])).length;
+  const RF = useMemo(() => fichasH ? leerFichas(S, fichasH, stock && stock.items) : null, [fichasH, S.fichas, stock]), nF = RF && conFichas ? RF.ok.length : 0;
+  const ponFichas = st => nF ? RF.ok.reduce((a, x) => conFicha(a, x.k, x.patch), st) : st;
   const importar = () => {
     let nuevos;
     if (mode === 'rep') nuevos = data.filter((r, i) => !(saltar && repe[i])).map(r => ({ ...E.blankTask('rep'), orden: val(r, 'orden'), nombre: nomFila(r), cant: Number(val(r, 'cant')) || 1, cliente: val(r, 'cliente'), creada: fecha || E.today() })).filter(t => t.nombre);
@@ -2122,10 +2125,12 @@ function Importer({ mode, proyId, onClose }) {
         const t = { ...E.blankTask('proy', proyId), nombre: nomFila(r), cant: Number(val(r, 'cant')) || 1, _n: n }; if (n) ids[n] = t.id; if (!porClave.has(k)) porClave.set(k, t.id); return t; }).filter(t => t && t.nombre);
       nuevos = nuevos.map(({ _n, ...t }) => { const i = _n.lastIndexOf('.'); return { ...t, parentId: i > 0 && ids[_n.slice(0, i)] ? ids[_n.slice(0, i)] : null }; }); }
     nuevos = nuevos.map(t => ({ ...t, ...E.autoCompletar(S, t, true) }));
-    if (!nuevos.length) { ui.toast(saltar && cuenta.cargada ? 'Todas las filas ya estaban cargadas. No hay nada nuevo.' : 'No encontré filas para importar. Revisá las columnas elegidas.'); return; }
-    up(s => ({ ...s, tareas: [...s.tareas, ...nuevos] })); ui.toast(nuevos.length === 1 ? "1 fila importada" : `${nuevos.length} filas importadas`); onClose();
+    const txF = nF ? ` · fichas de material: ${nF} ${nF === 1 ? 'pieza' : 'piezas'}` : '';
+    if (!nuevos.length) { if (nF) { up(s => ponFichas(s)); ui.toast('El árbol ya estaba cargado: no se repitió nada' + txF); onClose(); return; }
+      ui.toast(saltar && cuenta.cargada ? 'Todas las filas ya estaban cargadas. No hay nada nuevo.' : 'No encontré filas para importar. Revisá las columnas elegidas.'); return; }
+    up(s => ponFichas({ ...s, tareas: [...s.tareas, ...nuevos] })); ui.toast((nuevos.length === 1 ? "1 fila importada" : `${nuevos.length} filas importadas`) + txF); onClose();
   };
-  return <Modal title={mode === 'rep' ? 'Importar repuestos' : 'Importar árbol de piezas'} onClose={onClose} wide foot={rows && <><button className="btn" onClick={() => setRows(null)}>Elegir otra planilla</button><span className="sp" /><button className="btn pri-b" disabled={!aImportar} onClick={importar}>{aImportar === 1 ? 'Importar 1 fila nueva' : `Importar ${aImportar} filas${saltar ? ' nuevas' : ''}`}</button></>}>
+  return <Modal title={mode === 'rep' ? 'Importar repuestos' : 'Importar árbol de piezas'} onClose={onClose} wide foot={rows && <><button className="btn" onClick={() => setRows(null)}>Elegir otra planilla</button><span className="sp" />{RF && aImportar > 0 && RF.ok.length > 0 && <button className="btn" title="No agrega ninguna pieza al árbol: solo carga largo, sin material, etc. en las fichas" onClick={() => { up(st => RF.ok.reduce((x, f) => conFicha(x, f.k, f.patch), st)); ui.toast(`Fichas de material: ${RF.ok.length} ${RF.ok.length === 1 ? 'pieza' : 'piezas'} (el árbol no se tocó)`); onClose(); }}>Solo las fichas ({RF.ok.length})</button>}<button className="btn pri-b" disabled={!aImportar && !nF} onClick={importar}>{!aImportar ? `Cargar ${nF} ${nF === 1 ? 'ficha' : 'fichas'} de material` : (aImportar === 1 ? 'Importar 1 fila nueva' : `Importar ${aImportar} filas${saltar ? ' nuevas' : ''}`) + (nF ? ` y ${nF} ${nF === 1 ? 'ficha' : 'fichas'}` : '')}</button></>}>
     {!rows ? <div className="form">
       <label className="g2">Archivo de Excel (.xlsx)<input id="imp-file" type="file" accept=".xlsx,.xls,.csv" onChange={file} /></label>
       <label className="g2">O pegá acá las celdas copiadas desde Excel<textarea id="imp-txt" rows="6" value={txt} onChange={e => setTxt(e.target.value)} placeholder={campos.map(c => c[1]).join('\t')} /></label>
@@ -2137,6 +2142,8 @@ function Importer({ mode, proyId, onClose }) {
         <label className="chk g2"><input id="imp-head" type="checkbox" checked={head} onChange={e => setHead(e.target.checked)} /> La primera fila tiene los títulos</label>
         <label className="chk g2"><input id="imp-saltar" type="checkbox" checked={saltar} onChange={e => setSaltar(e.target.checked)} /> Saltear las filas que ya están cargadas{mode === 'rep' ? ' (misma OV/OC y misma pieza)' : ' (misma pieza bajo el mismo padre)'}</label></div>
       <p className="note"><b className="c-ok">{cuenta.nueva} nuevas</b> · {cuenta.cargada} ya cargadas{cuenta.doble ? ` · ${cuenta.doble} repetidas dentro de la planilla` : ''}{mode === 'rep' && data.some(r => !val(r, 'orden')) ? ' · las filas sin OV/OC se toman siempre como nuevas' : ''}</p>
+      {RF && <div className="note impf"><label className="chk"><input type="checkbox" checked={conFichas} onChange={e => setConFichas(e.target.checked)} /> <b>Cargar también las fichas de material</b> (hoja Fichas del mismo archivo: largo del plano, sin material…)</label>
+        <span className="mut">{RF.ok.length} {RF.ok.length === 1 ? 'pieza cambia' : 'piezas cambian'}{RF.iguales ? ` · ${RF.iguales} ya estaban iguales (no se tocan)` : ''}{RF.err.length ? ` · ${RF.err.length} con un ítem que no existe en StockApp (se saltean)` : ''}{RF.sinStock ? ` · ${RF.sinStock} traen ítem de StockApp pero no se puede leer StockApp con este usuario: se carga el resto y el ítem no` : ''}. Valen para la pieza en cualquier proyecto; las celdas vacías no tocan lo que ya tenía la ficha.</span></div>}
       <div className="scroll"><table className="tt"><thead><tr><th>Estado</th>{campos.map(c => <th key={c[0]}>{c[1]}</th>)}</tr></thead><tbody>{data.map((r, i) => ({ r, i })).sort((a, b) => !!repe[a.i] - !!repe[b.i]).slice(0, 8).map(({ r, i }) => <tr key={i} className={repe[i] && saltar ? 'done' : ''}><td>{repe[i] === 'cargada' ? <span className="tag">Ya cargada</span> : repe[i] === 'doble' ? <span className="tag warn">Repetida</span> : <span className="tag ok">Nueva</span>}</td>{campos.map(c => <td key={c[0]}>{val(r, c[0])}</td>)}</tr>)}</tbody></table></div>
       {data.length > 8 && <p className="mut">…y {data.length - 8} filas más (primero se muestran las nuevas).</p>}</>}
   </Modal>;
@@ -2634,21 +2641,29 @@ function MaterialVista({ corta }) {
   </div>;
 }
 // Importar fichas: columnas Código, Ítem StockApp (código de StockApp), Largo plano (mm), Corte (mm), Chapa (nesting) y Sin material. Solo cambia esos datos de la ficha.
+// Lee la hoja Fichas (filas como objetos por título de columna). Columnas por el comienzo del título: Código, Ítem, Largo, Corte, Chapa, Sin material / No consume.
+// Celda vacía = no se toca lo que ya tenía la ficha; "Sí" / "No" marcan o desmarcan. Devuelve solo las piezas en las que algo cambia (cambian) y cuántas ya estaban iguales.
+function leerFichas(S, rows, items) {
+  const IT = items ? new Map(items.map(i => [(i.codigo || '').trim().toUpperCase(), i])) : null, col = (r, ...ns) => { const k = Object.keys(r).find(x => ns.some(n => x.trim().toLowerCase().startsWith(n))); return k ? r[k] : ''; };
+  const ok = [], err = [], vistos = new Set(); let iguales = 0, sinStock = 0;
+  rows.forEach((r, i) => { const cod = String(col(r, 'código', 'codigo')).trim(); if (!cod) return; const k = E.claveCod(cod), ic = String(col(r, 'ítem', 'item')).trim().toUpperCase();
+    const sn = v => { const x = String(v).trim(); return !x ? null : /^(s[ií]|x|1|true)$/i.test(x); }, largo = xNum(col(r, 'largo')), corte = xNum(col(r, 'corte')), chapa = sn(col(r, 'chapa')), noMat = sn(col(r, 'sin material', 'no consume'));
+    if (!ic && largo == null && corte == null && chapa == null && noMat == null) return;
+    let it = null; if (ic) { if (!IT) sinStock++; else { it = IT.get(ic); if (!it) { err.push(`Fila ${i + 2}: ${cod} → el ítem ${ic} no existe en StockApp`); return; } } }
+    const ant = E.fichaDe(S, k) || {};
+    const patch = { ...(it ? { stockId: it.id } : {}), ...(largo != null ? { largoU: largo } : {}), ...(corte != null ? { corteU: corte } : {}), ...(chapa != null ? { chapa } : {}), ...(noMat != null ? { noMat } : {}) };
+    if (!Object.keys(patch).length) return;
+    if (vistos.has(k)) return; vistos.add(k);
+    if (Object.keys(patch).every(x => (ant[x] ?? (x === 'chapa' || x === 'noMat' ? false : null)) === patch[x])) { iguales++; return; }   // ya estaba igual: no se repite
+    ok.push({ k, cod, patch, it, ya: !!(ant.stockId || ant.largoU || ant.chapa || ant.noMat) }); });
+  return { ok, err, iguales, sinStock };
+}
 function ImportFichas({ d, onClose }) {
   const { S, up, ui, stock } = useApp();
-  const R = useMemo(() => { const IT = new Map((stock.items || []).map(i => [(i.codigo || '').trim().toUpperCase(), i])), col = (r, ...ns) => { const k = Object.keys(r).find(x => ns.some(n => x.trim().toLowerCase().startsWith(n))); return k ? r[k] : ''; };
-    const ok = [], err = [];
-    d.rows.forEach((r, i) => { const cod = String(col(r, 'código', 'codigo')).trim(); if (!cod) return; const k = E.claveCod(cod), ic = String(col(r, 'ítem', 'item')).trim().toUpperCase();
-      // celda vacía = no se toca lo que ya tenía la ficha; "Sí" / "No" marcan o desmarcan
-      const sn = v => { const x = String(v).trim(); return !x ? null : /^(s[ií]|x|1|true)$/i.test(x); }, largo = xNum(col(r, 'largo')), corte = xNum(col(r, 'corte')), chapa = sn(col(r, 'chapa')), noMat = sn(col(r, 'sin material', 'no consume'));
-      if (!ic && largo == null && corte == null && chapa == null && noMat == null) return;
-      const it = ic ? IT.get(ic) : null; if (ic && !it) { err.push(`Fila ${i + 2}: ${cod} → el ítem ${ic} no existe en StockApp`); return; }
-      const ant = E.fichaDe(S, k) || {};
-      ok.push({ k, cod, patch: { ...(it ? { stockId: it.id } : {}), ...(largo != null ? { largoU: largo } : {}), ...(corte != null ? { corteU: corte } : {}), ...(chapa != null ? { chapa } : {}), ...(noMat != null ? { noMat } : {}) }, it, ya: !!(ant.stockId || ant.largoU || ant.chapa || ant.noMat) }); });
-    return { ok, err }; }, [d, stock, S.fichas]);
+  const R = useMemo(() => leerFichas(S, d.rows, stock && stock.items), [d, stock, S.fichas]);
   const aplicar = () => { up(s => R.ok.reduce((a, x) => conFicha(a, x.k, x.patch), s)); ui.toast(`Fichas actualizadas: ${R.ok.length} ${R.ok.length === 1 ? 'pieza' : 'piezas'}`); onClose(); };
   return <Modal title="Importar fichas de material" onClose={onClose} foot={<><span className="mut">{d.archivo}</span><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!R.ok.length} onClick={aplicar}>Aplicar a {R.ok.length} {R.ok.length === 1 ? 'pieza' : 'piezas'}</button></>}>
-    <p><b>{R.ok.length}</b> {R.ok.length === 1 ? 'pieza' : 'piezas'} con datos{R.ok.filter(x => x.ya).length ? ` (${R.ok.filter(x => x.ya).length} ya tenían ítem o largo: se reemplazan)` : ''}. Solo se cambian ítem, largo, corte, chapa y sin material; el material y el peso para el costo quedan como estaban. Se deshace con Ctrl+Z.</p>
+    <p><b>{R.ok.length}</b> {R.ok.length === 1 ? 'pieza cambia' : 'piezas cambian'}{R.ok.filter(x => x.ya).length ? ` (${R.ok.filter(x => x.ya).length} ya tenían datos: se actualizan)` : ''}{R.iguales ? ` · ${R.iguales} ya estaban iguales (no se tocan)` : ''}. Solo se cambian ítem, largo, corte, chapa y sin material; el material y el peso para el costo quedan como estaban. Se deshace con Ctrl+Z.</p>
     {R.err.length > 0 && <div className="note bad">{R.err.slice(0, 15).map(e => <div key={e}>{e}</div>)}{R.err.length > 15 && <div>y {R.err.length - 15} más</div>}</div>}
     <div className="scroll"><table className="tt"><thead><tr><th>Código</th><th>Ítem</th><th className="num">Largo mm</th><th className="num">Corte mm</th><th>Chapa</th><th>Sin material</th></tr></thead>
       <tbody>{R.ok.slice(0, 200).map(x => <tr key={x.k}><td>{x.cod}{x.ya && <small className="mut"> · reemplaza</small>}</td><td>{x.it ? nomIt(x.it) : <span className="mut">—</span>}</td><td className="num">{x.patch.largoU ?? '—'}</td><td className="num">{x.patch.corteU ?? <span className="mut">auto</span>}</td><td>{x.patch.chapa ? 'Sí' : ''}</td><td>{x.patch.noMat ? 'Sí' : ''}</td></tr>)}</tbody></table></div>

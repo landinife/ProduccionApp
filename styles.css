@@ -1484,3 +1484,4 @@ select.ci.est.e-proximo { background: transparent; }
 .tefi { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px dashed var(--line); border-radius: 10px; }
 .tefi .fstk { flex-basis: auto; font-size: 14px; }
 .fstk .btn { align-self: center; }
+.impf { display: flex; flex-direction: column; gap: 4px; }
