@@ -230,6 +230,20 @@ function avisarOcupado(S, ui, otras, ops, nombre, onSi) {
   const cuales = otras.map(x => `"${x.nombre}"`).join(' y ');
   ui.confirmar({ titulo: '¿Pausar la tarea en curso?', texto: `${quien} ya está con ${cuales} en curso. Si seguís, ${otras.length === 1 ? 'esa tarea se pausa' : 'esas tareas se pausan'} (lo hecho queda registrado y lo que falta sigue en la cola) y arranca "${nombre}".`, si: 'Sí, pausar y arrancar', onSi });
 }
+// Alguno de los operarios no trabaja el día de inicio (ausencia, "Activo desde" o ocasional que no viene): la tarea no avanzaría ese día
+function faltaDia(S, x) {
+  if (!x.inicio || !x.ops.length) return null; const d = x.inicio.slice(0, 10);
+  const ni = E.normStart(S, x.inicio, x.turno, x.ops); if (ni.slice(0, 10) === d) return null;
+  const quien = x.ops.map(o => ({ o, a: E.ausenciaDe(S, o, d) })).filter(z => z.a);
+  return quien.length && quien.length < x.ops.length ? { d, ni, quien } : quien.length ? { d, ni, quien, todos: true } : null;
+}
+const txtAus = (S, f) => f.quien.map(z => `${opName(S, z.o)} (${z.a.motivo || 'ausente'})`).join(', ');
+function avisarAusente(S, ui, f, t, onSacar, onIgual) {
+  const varios = f.quien.length > 1, nom = f.quien.map(z => opName(S, z.o)).join(' y ');
+  ui.confirmar({ titulo: varios ? 'Hay operarios que no estaban ese día' : 'Un operario no estaba ese día',
+    texto: `${txtAus(S, f)} no ${varios ? 'figuran' : 'figura'} trabajando el ${fDia(f.d)}. Con un operario ausente la tarea no avanza ese día, así que "${t.nombre.trim()}" se correría al ${fDT(f.ni)}. Si no trabajó en esta tarea, sacalo; si sí estuvo, corregí su ausencia, "Activo desde" u "Ocasional" en Configuración.`,
+    ...(f.todos ? { si: 'Guardar igual', onSi: onIgual } : { si: `Sacar a ${nom} y guardar`, onSi: onSacar, no: `Guardar igual (se corre al ${fDia(f.ni.slice(0, 10))})`, onNo: onIgual }) });
+}
 // La tarea se puso en medio de otra que el operario tenía en curso: pausarla a la hora de inicio de la nueva (o guardar sin tocarla)
 function avisarInterrumpe(S, ui, otras, t, retoma, onSi, onNo) {
   const quien = [...new Set(otras.flatMap(x => x.ops.filter(o => t.ops.includes(o))))].map(o => opName(S, o)).join(' y ');
@@ -264,6 +278,7 @@ function MeterDlg({ id, op, d, turno, from, onClose }) {
     {futuro ? <small className="hint bad">Para pausar lo que está en curso, la hora tiene que ser ahora o antes.</small>
       : lst.length ? <p className="note">Lo hecho hasta las {hora} queda registrado y lo que falta {retoma ? `sigue en curso desde el fin real (${fDT(retoma)})` : `sigue detrás de "${t.nombre}"`}.</p>
       : ini ? <p className="note">A esa hora no había nada en curso: la tarea se ubica a las {hora} sin pausar nada.</p> : null}
+    {ini && (f => f && <small className="hint bad">{txtAus(S, f)} no figura trabajando el {fDia(d)}: la tarea se correría al {fDT(f.ni)}. Abrila en el editor para sacarlo o corregí su ausencia en Configuración.</small>)(faltaDia(S, { ...tt, inicio: ini }))}
     {finMal && <small className="hint bad">El fin real ({fDT(fin)}) queda antes de ese inicio: corregilo después en el editor.</small>}
   </Modal>;
 }
@@ -1565,24 +1580,29 @@ function TaskEditor({ id, draft, onClose }) {
   const scope = S.tareas.filter(x => x.id !== t.id && !V.D[x.id].parent && x.id !== t.parentId && (t.tipo === 'proy' ? x.proyId === t.proyId : x.tipo === 'rep' && V.rootOf(x).orden === V.rootOf(t).orden));
   const cod = E.codOp(S, t.nombre), hist = !parent ? E.historial(S, t.nombre) : null, recs = !parent ? E.recomendar(S, { ...t, hh }) : [];
   const alSalirNombre = () => { if (parent) return; const a = E.autoCompletar(S, t, !hhTocado); if (Object.keys(a).length) setT(p => ({ ...p, ...a })); };
-  const save = (conf, meter) => {   // meter: true = pausar lo que estaba en curso a la hora de inicio, false = guardar sin pausar (sin dato: pregunta)
+  const save = (conf, meter, aus) => {   // aus: { sin: [operarios a sacar] } o { ok: true } (respuesta al aviso de operario ausente); meter: true = pausar lo que estaba en curso a la hora de inicio, false = guardar sin pausar (sin dato: pregunta)
     if (!t.nombre.trim()) { ui.toast('Poné el nombre de la pieza'); return; }
     const pisa = t.estado === 'en proceso' && (isNew || orig.estado !== 'en proceso') && !t.frenada && t.ops.length ? E.enCurso(S, t.ops, t.id, t) : [];   // arranca ahora: avisa si el operario ya tiene otra en curso (las solapables de otra operación no cuentan)
-    if (pisa.length && conf !== true) { avisarOcupado(S, ui, pisa, t.ops, t.nombre.trim(), () => save(true, meter)); return; }
+    if (pisa.length && conf !== true) { avisarOcupado(S, ui, pisa, t.ops, t.nombre.trim(), () => save(true, meter, aus)); return; }
     const x = { ...t, hh, cant: Number(t.cant) || 0, avance: Math.min(100, Math.max(0, Number(t.avance) || 0)), hhReal: Number(t.hhReal) || 0 };
     if (x.estado !== 'terminada') { x.tercerizada = false; x.sinFecha = false; }   // si deja de estar finalizada, deja de ser tercerizada
     if (!E.esPend(x)) x.proximo = null; else if (x.estado === 'proximo') x.proximo = x.proximo || E.nowDT(); else x.proximo = null;   // al iniciarla o finalizarla deja de estar en Próximo a realizar
     if (x.estado === 'terminada') { x.avance = 100; if (!x.finReal && !x.sinFecha) x.finReal = E.nowDT(); if (x.sinFecha) { x.finReal = null; x.realFin = false; } if (x.realFin && !(x.inicio && x.finReal > x.inicio)) x.realFin = false; } else { x.finReal = null; x.realFin = false; }
     if (x.estado !== orig.estado || isNew) x.crono = x.estado === 'en proceso' ? { acum: orig.crono ? Number(orig.crono.acum) || 0 : x.hhReal, desde: E.nowDT() } : x.estado === 'terminada' ? { acum: x.hhReal, desde: null } : null;
+    if (x.estado === 'terminada' && !x.sinFecha && !x.realFin && x.finReal && x.inicio && x.finReal > x.inicio && x.inicio !== orig.inicio) { x.realFin = true; if (!(x.hhReal > 0) && x.ops.length) x.hhReal = Math.round(E.workBetween(S, x.inicio, x.finReal, x.turno, x.ops) * x.ops.length * 100) / 100; }   // se corrigió el inicio: el fin real que había quedado antes vuelve a valer
+    if (aus && aus.sin) { x.ops = x.ops.filter(o => !aus.sin.includes(o)); if (x.realFin && x.finReal > x.inicio && x.ops.length) x.hhReal = Math.round(E.workBetween(S, x.inicio, x.finReal, x.turno, x.ops) * x.ops.length * 100) / 100; }
     if (!x.ops.length || (x.frenada && x.estado !== 'terminada')) x.inicio = x.inicio || null; else if (!x.inicio) { const pg = E.pegadoA(S, x.ops, x.turno, x.id, x); x.inicio = pg ? pg.ini : E.nextFree(S, x.ops[0], x.turno, x.ops, x); }   // frenada sin fecha: sigue sin ocupar el calendario
     // se finaliza acá: si es antes de lo planificado, el fin real es ahora y la cadena del operario sigue
     const cierra = !isNew && !parent && !x.sinFecha && x.estado === 'terminada' && orig.estado !== 'terminada' && orig.inicio && orig.ops.length;
     const finPlan = cierra ? E.finOf(S, orig) : null;
     if (cierra && !x.realFin && finPlan && x.finReal < finPlan && x.inicio < x.finReal) x.realFin = true;
+    // un operario no trabaja ese día (ausencia, "Activo desde", ocasional): la tarea entera se correría al día siguiente → avisar quién es
+    const fAus = !aus && !parent && !x.sinFecha && x.inicio && (isNew || x.inicio !== orig.inicio || x.ops.join() !== orig.ops.join()) ? faltaDia(S, x) : null;
+    if (fAus) { avisarAusente(S, ui, fAus, x, () => save(conf, meter, { sin: fAus.quien.map(z => z.o) }), () => save(conf, meter, { ok: true })); return; }
     // puesta en medio de otra: si el inicio cae cuando el operario ya tenía otra en curso, ofrece pausarla a esa hora
     const corta = !parent && !pisa.length && !x.sinFecha && !(x.frenada && x.estado !== 'terminada') && (isNew || x.inicio !== orig.inicio || x.ops.join() !== orig.ops.join() || x.estado !== orig.estado) ? E.interrumpidas(S, x, x.inicio) : [];
     const retoma = x.estado === 'terminada' && x.realFin && x.finReal > x.inicio && x.finReal <= E.nowDT() ? x.finReal : null;   // ya terminó: lo interrumpido sigue en curso desde su fin real
-    if (corta.length && meter === undefined) { avisarInterrumpe(S, ui, corta, x, retoma, () => save(true, true), () => save(true, false)); return; }
+    if (corta.length && meter === undefined) { avisarInterrumpe(S, ui, corta, x, retoma, () => save(true, true, aus), () => save(true, false, aus)); return; }
     const mover = !parent && (isNew || ['inicio', 'hh', 'turno'].some(k => x[k] !== orig[k]) || !!x.realFin !== !!orig.realFin || (x.realFin && x.finReal !== orig.finReal) || x.ops.join() !== orig.ops.join() || (x.preds || []).join() !== (orig.preds || []).join());
     let r = null;
     up(s => { const s0 = pisa.length ? E.pausarEnCurso(s, x.ops, x.id) : corta.length && meter ? E.interrumpir(s, x, x.inicio, retoma) : s; const s2 = E.patchTask(isNew ? { ...s0, tareas: [...s0.tareas, x] } : s0, x.id, x, mover); if (!cierra) return s2; r = E.trasCerrar(s2, s, x.id, finPlan); return r.S; });
