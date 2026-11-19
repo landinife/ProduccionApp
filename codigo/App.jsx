@@ -1337,6 +1337,58 @@ function SeccEstado({ roots, vis, tabla }) {
   return secs.length ? <>{secs}</> : <Vacio ic="ok" chico t="No hay piezas pendientes ni en proceso" />;
 }
 
+// Exportar un proyecto (o caso de Post Venta / Taller) a Excel para analizar tiempos y costos de fabricación.
+// Hojas: Resumen, Piezas (el árbol con tiempos y costos), Por operación y Por operario. Costos en USD con las tarifas y precios vigentes.
+function exportarProyecto(S, V, p, toast) {
+  if (!window.XLSX) { toast('No se pudo cargar el generador de Excel'); return; }
+  const X = window.XLSX, wb = X.utils.book_new(), n2 = v => Math.round((Number(v) || 0) * 100) / 100, vacio = v => v > 0 ? n2(v) : '';
+  const roots = S.tareas.filter(t => t.proyId === p.id && !t.parentId), filas = flatten(roots, V, new Set());
+  if (!filas.length) { toast('El proyecto no tiene piezas para exportar'); return; }
+  // costo del trabajo propio de cada pieza (sin las hijas), con las horas reales y con las planificadas
+  const propio = {}; filas.forEach(({ t }) => { const r = V.D[t.id]; if (r.parent) return; const base = { nombre: t.nombre, cant: t.cant, operacionId: t.operacionId, material: t.material, peso: t.peso };
+    const real = E.costo(S, { ...base, hh: esTerc(t) ? 0 : Number(t.hhReal) || 0 }), vh = E.valorHora(S, t.nombre, t.operacionId);
+    propio[t.id] = { hh: Number(t.hh) || 0, hhReal: esTerc(t) ? 0 : Number(t.hhReal) || 0, mo: real.mo, moPlan: vh ? (Number(t.hh) || 0) * vh.valor : 0, mat: real.mat, peso: real.peso, m: real.m, vh, falta: Number(t.hhReal) > 0 && !esTerc(t) ? real.falta : [], fin: t.estado === 'terminada' }; });
+  const sumSub = id => { const own = propio[id] ? [propio[id]] : []; const ch = (V.kids[id] || []).map(c => sumSub(c.id)); const l = [...own, ...ch];
+    return { hh: l.reduce((a, x) => a + x.hh, 0), hhReal: l.reduce((a, x) => a + x.hhReal, 0), mo: l.reduce((a, x) => a + x.mo, 0), moPlan: l.reduce((a, x) => a + x.moPlan, 0), mat: l.reduce((a, x) => a + x.mat, 0), peso: l.reduce((a, x) => a + (x.peso || 0), 0), falta: [...new Set(l.flatMap(x => x.falta))] }; };
+  const piezas = filas.map(({ t, depth, hasKids }) => { const r = V.D[t.id], k = E.claveCod(t.nombre), cant = Math.max(1, Number(t.cant) || 1), x = hasKids ? sumSub(t.id) : propio[t.id];
+    const fin = r.estado === 'terminada', h = !hasKids ? E.historial(S, t.nombre) : null, pr = propio[t.id], tot = x.mo + x.mat;
+    return { Nivel: depth + 1, Pieza: '   '.repeat(depth) + t.nombre, Código: /^TPF/i.test(k) ? k : '', Fila: hasKids ? (r.parent ? 'Grupo (suma de hijas)' : 'Ensamblaje (propio + hijas)') : 'Pieza', Cantidad: cant,
+      Operación: r.parent ? '' : operName(S, t.operacionId), Operarios: r.parent ? '' : (t.ops || []).map(o => opName(S, o)).join(', '), Estado: esTerc(t) ? 'tercerizada' : estTxt(r.estado),
+      Inicio: r.inicio ? r.inicio.replace('T', ' ') : '', Fin: r.fin ? r.fin.replace('T', ' ') : '',
+      'HH plan': n2(x.hh), 'HH reales': n2(x.hhReal), 'HH reales por unidad': x.hhReal > 0 ? n2(x.hhReal / cant) : '',
+      'Diferencia real − plan (h)': fin && x.hh > 0 && x.hhReal > 0 ? n2(x.hhReal - x.hh) : '', 'Desvío %': fin && x.hh > 0 && x.hhReal > 0 ? Math.round((x.hhReal - x.hh) / x.hh * 100) : '',
+      'Tiempo estándar (h/u)': h ? n2(h.porUnidad) : '', 'Veces fabricada': h ? h.n : '',
+      'Valor hora (USD)': pr && pr.vh ? n2(pr.vh.valor) : '', 'Costo MO plan (USD)': vacio(x.moPlan), 'Costo MO real (USD)': vacio(x.mo),
+      Material: pr && pr.m ? pr.m.nombre : '', 'Peso (kg)': vacio(x.peso), 'Costo material (USD)': vacio(x.mat), 'Costo total (USD)': vacio(tot), 'Costo por unidad (USD)': tot > 0 ? n2(tot / cant) : '',
+      'Falta para el costo': esTerc(t) ? 'tercerizada (sin costo de planta)' : x.falta.join(', ') }; });
+  // por operación y por operario: solo trabajo propio (sin sumar dos veces los grupos)
+  const own = filas.filter(({ t }) => propio[t.id]).map(({ t }) => ({ t, x: propio[t.id] }));
+  const porOp = {}; own.forEach(({ t, x }) => { const g = porOp[t.operacionId || ''] = porOp[t.operacionId || ''] || { n: 0, nf: 0, hh: 0, hhReal: 0, hhF: 0, hhRF: 0, mo: 0 };
+    g.n++; g.hh += x.hh; g.hhReal += x.hhReal; g.mo += x.mo; if (x.fin && x.hhReal > 0) { g.nf++; g.hhF += x.hh; g.hhRF += x.hhReal; } });
+  const opsH = Object.entries(porOp).map(([id, g]) => ({ Operación: id ? operName(S, id) : 'Sin operación', Piezas: g.n, Finalizadas: g.nf, 'HH plan': n2(g.hh), 'HH reales': n2(g.hhReal),
+    'HH plan (finalizadas)': n2(g.hhF), 'HH reales (finalizadas)': n2(g.hhRF), 'Desvío % (finalizadas)': g.hhF > 0 ? Math.round((g.hhRF - g.hhF) / g.hhF * 100) : '', 'Costo MO real (USD)': n2(g.mo) })).sort((a, b) => b['HH reales'] - a['HH reales']);
+  const porOpe = {}; own.forEach(({ t, x }) => { const ops = (t.ops || []).length ? t.ops : ['']; ops.forEach(o => { const g = porOpe[o] = porOpe[o] || { n: 0, hh: 0, hhReal: 0 }; g.n++; g.hh += x.hh / ops.length; g.hhReal += x.hhReal / ops.length; }); });
+  const opeH = Object.entries(porOpe).map(([id, g]) => ({ Operario: id ? opName(S, id) : 'Sin asignar', Piezas: g.n, 'HH plan': n2(g.hh), 'HH reales': n2(g.hhReal) })).sort((a, b) => b['HH reales'] - a['HH reales']);
+  const T = own.reduce((a, { x }) => ({ hh: a.hh + x.hh, hhReal: a.hhReal + x.hhReal, mo: a.mo + x.mo, moPlan: a.moPlan + x.moPlan, mat: a.mat + x.mat }), { hh: 0, hhReal: 0, mo: 0, moPlan: 0, mat: 0 });
+  const prev = Math.max(0, Number(p.hhPrevias) || 0), nFin = own.filter(o => o.x.fin).length, inco = own.filter(o => o.x.hhReal > 0 && o.x.falta.length).length;
+  const ini = filas.map(f => V.D[f.t.id].inicio).filter(Boolean).sort()[0], finP = filas.map(f => V.D[f.t.id].fin).filter(Boolean).sort().pop();
+  const res = [['Proyecto', p.nombre], ['Exportado', E.today()], ['Entrega', p.entrega || ''], ['Inicio', ini ? ini.slice(0, 10) : ''], ['Fin (real o planificado)', finP ? finP.slice(0, 10) : ''], [],
+    ['Piezas con trabajo propio', own.length], ['Finalizadas', nFin], ['Avance %', Math.round((roots.reduce((a, t) => a + V.D[t.id].hh * V.D[t.id].avance, 0) / (roots.reduce((a, t) => a + V.D[t.id].hh, 0) || 1)))], [],
+    ['HH planificadas', n2(T.hh)], ['HH reales cargadas en las piezas', n2(T.hhReal)], ['HH reales previas (del proyecto)', n2(prev)], ['HH reales totales', n2(T.hhReal + prev)], [],
+    ['Costo mano de obra planificado (USD)', n2(T.moPlan)], ['Costo mano de obra real (USD)', n2(T.mo)], ['Costo material de las piezas con ficha (USD)', n2(T.mat)], ['Costo total calculado (USD)', n2(T.mo + T.mat)], [],
+    ['Notas'], ['• Costos con las tarifas y precios de material vigentes en Configuración.'], ['• Las HH reales previas se exportan solo como dato (sin costo): asignales vos el valor que corresponda.'],
+    ['• Las tercerizadas no suman horas ni costo de planta.'], ['• Una tarea con el cronómetro corriendo suma sus horas recién al pausarla o finalizarla.'], ['• En "Por operario", las horas de una pieza con varios operarios se reparten en partes iguales.'],
+    ...(inco ? [[`• ${inco} pieza(s) con horas tienen el costo incompleto: ver la columna "Falta para el costo" en Piezas.`]] : [])];
+  const hoja = (rows, anchos) => { const ws = X.utils.json_to_sheet(rows); ws['!cols'] = anchos.map(w => ({ wch: w })); ws['!autofilter'] = { ref: ws['!ref'] }; return ws; };
+  const wr = X.utils.aoa_to_sheet(res); wr['!cols'] = [{ wch: 44 }, { wch: 22 }];
+  X.utils.book_append_sheet(wb, wr, 'Resumen');
+  X.utils.book_append_sheet(wb, hoja(piezas, [6, 48, 24, 24, 9, 20, 22, 14, 16, 16, 9, 9, 10, 12, 9, 12, 9, 10, 12, 12, 18, 9, 12, 12, 12, 30]), 'Piezas');
+  X.utils.book_append_sheet(wb, hoja(opsH, [24, 8, 11, 10, 10, 14, 14, 14, 14]), 'Por operación');
+  X.utils.book_append_sheet(wb, hoja(opeH, [26, 8, 10, 10]), 'Por operario');
+  const nom = (p.nombre || 'proyecto').replace(/[\\/:*?"<>|]+/g, '').trim().slice(0, 60) || 'proyecto';
+  saveFile(`${nom} - tiempos y costos ${E.today()}.xlsx`, X.write(wb, { type: 'array', bookType: 'xlsx' }), toast);
+}
+
 function Proyectos({ pv = false, tl = false }) {
   const { S, V, up, ui, pm } = useApp(); const clase = pv ? 'pv' : tl ? 'tl' : 'proy', caso = pv || tl; const lista = S.proyectos.filter(x => E.claseP(x) === clase), activos = lista.filter(x => !x.terminado), terminados = lista.filter(x => x.terminado), LK = 'produccionapp-' + clase + '-actual'; const movil = useMovil(); const [vistaM, setVistaM] = useState(() => prefG('movil-vista', 'lista')); const [masM, setMasM] = useState(false); const [pid, setPid0] = useState(() => { try { return localStorage.getItem(LK) || null; } catch (e) { return null; } });
   const setPid = id => { setPid0(id); try { id ? localStorage.setItem(LK, id) : localStorage.removeItem(LK); } catch (e) { } if (typeof window.scrollTo === 'function') window.scrollTo({ top: 0 }); };
@@ -1425,7 +1477,7 @@ function Proyectos({ pv = false, tl = false }) {
         <span className={'presum-n' + (nFren ? ' warn' : '')}><b>⏸ {nFren}</b><small>{nFren === 1 ? 'frenada' : 'frenadas'}</small></span>
         <i className="kar">{masM ? '▴' : '▾'}</i>
       </button>
-      {masM && <div className="presum-mas">{kpis}<h3>Datos del proyecto</h3>{datosForm}<div className="row"><button className="btn" onClick={() => ui.modal({ k: 'imp', mode: 'proy', proyId: p.id })}>Importar árbol .xlsx</button><button className="btn pri-b" onClick={() => ui.modal({ k: 'plan', proyId: p.id })}>Planificar proyecto</button>{pv && pm.admin && <button className="btn" onClick={() => ui.modal({ k: 'salida', proyId: p.id })}>+ Salida de operario</button>}</div></div>}
+      {masM && <div className="presum-mas">{kpis}<h3>Datos del proyecto</h3>{datosForm}<div className="row"><button className="btn" onClick={() => ui.modal({ k: 'imp', mode: 'proy', proyId: p.id })}>Importar árbol .xlsx</button><button className="btn" title="Descarga un Excel con los tiempos y costos de fabricación de cada pieza de este proyecto" onClick={() => exportarProyecto(S, V, p, ui.toast)}>Exportar a Excel (.xlsx)</button><button className="btn pri-b" onClick={() => ui.modal({ k: 'plan', proyId: p.id })}>Planificar proyecto</button>{pv && pm.admin && <button className="btn" onClick={() => ui.modal({ k: 'salida', proyId: p.id })}>+ Salida de operario</button>}</div></div>}
     </section>
     {det && <Desglose roots={roots} ts={i.ts} vista={det} hhv={hhv} setHhv={setHhv} color={p.color} prev={i.prev} cerrar={() => setDet(null)} />}
     {buscador}
@@ -1437,7 +1489,7 @@ function Proyectos({ pv = false, tl = false }) {
   return <div className="view">{tabs}
     <section>
       <div className="sec-h"><div className="row"><span className="chip" style={{ '--c': p.color }}>{p.ini}</span><h2>{p.nombre}</h2>{p.terminado && <span className="tag ok">✓ Terminado{p.terminadoEl ? ` el ${fD(p.terminadoEl)}` : ''}</span>}</div>
-        <div className="row"><button className="btn" onClick={() => ui.modal({ k: 'imp', mode: 'proy', proyId: p.id })}>Importar árbol .xlsx</button><button className="btn" onClick={() => ui.modal({ k: 'plan', proyId: p.id })}>Planificar proyecto</button>{pv && pm.admin && <button className="btn" onClick={() => ui.modal({ k: 'salida', proyId: p.id })}>+ Salida de operario</button>}<button className="btn pri-b" onClick={() => ui.modal({ k: 'task', draft: E.blankTask('proy', p.id, pv) })}>+ Pieza</button></div></div>
+        <div className="row"><button className="btn" onClick={() => ui.modal({ k: 'imp', mode: 'proy', proyId: p.id })}>Importar árbol .xlsx</button><button className="btn" title="Descarga un Excel con los tiempos y costos de fabricación de cada pieza de este proyecto" onClick={() => exportarProyecto(S, V, p, ui.toast)}>Exportar a Excel (.xlsx)</button><button className="btn" onClick={() => ui.modal({ k: 'plan', proyId: p.id })}>Planificar proyecto</button>{pv && pm.admin && <button className="btn" onClick={() => ui.modal({ k: 'salida', proyId: p.id })}>+ Salida de operario</button>}<button className="btn pri-b" onClick={() => ui.modal({ k: 'task', draft: E.blankTask('proy', p.id, pv) })}>+ Pieza</button></div></div>
       {datosForm}
       {kpis}
     </section>
