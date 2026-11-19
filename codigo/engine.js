@@ -480,6 +480,20 @@ export const pausar = (S, id) => partir(S, id);
 export const enCurso = (S, ops, exceptoId, tarea) => { const t0 = tarea || S.tareas.find(x => x.id === exceptoId); return S.tareas.filter(x => x.id !== exceptoId && corriendo(x) && x.ops.some(o => (ops || []).includes(o)) && !solapan(S, x, t0)); };
 // Pausa esas tareas: lo hecho queda cerrado y lo que falta sigue en la cola
 export const pausarEnCurso = (S, ops, exceptoId, corte) => enCurso(S, ops, exceptoId).reduce((a, x) => partir(a, x.id, corte ? { corte } : {}), S);   // corte: fecha y hora en que se cierra lo hecho (sin corte, ahora)
+// Meter una tarea en medio de otra: las tareas en curso de sus operarios que ya corrían antes de "ini" (ini ya pasó o es ahora)
+export const interrumpidas = (S, t, ini) => (!t || !ini || !(t.ops || []).length || ini > nowDT()) ? [] :
+  S.tareas.filter(x => x.id !== t.id && x.estado === 'en proceso' && corriendo(x) && !estaFrenada(x) && x.crono.desde < ini && isLeaf(S, x.id) && x.ops.some(o => t.ops.includes(o)) && choque(x.turno, t.turno) && !solapan(S, x, t));
+// Las pausa a las "ini" (lo hecho hasta ahí queda cerrado). retoma: fin real de la tarea nueva (ya pasado): lo que falta sigue en curso desde ahí;
+// sin retoma, lo que falta queda en la cola y la tarea nueva lo corre detrás de ella al ubicarse.
+export function interrumpir(S, t, ini, retoma) {
+  const lst = interrumpidas(S, t, ini); if (!lst.length) return S;
+  const antes = new Set(S.tareas.map(x => x.id)), ids = new Set(lst.map(x => x.id));
+  let S2 = lst.reduce((a, x) => partir(a, x.id, { corte: ini }), S);
+  if (!retoma || retoma <= ini || retoma > nowDT()) return S2;
+  const restos = S2.tareas.filter(x => (!antes.has(x.id) || ids.has(x.id)) && x.estado === 'pendiente' && x.ops.length && isLeaf(S2, x.id)).map(x => x.id);
+  restos.forEach(rid => { S2 = { ...S2, tareas: S2.tareas.map(y => y.id === rid ? { ...y, estado: 'en proceso', pausada: false, proximo: null, crono: { acum: 0, desde: retoma }, inicio: normStart(S2, retoma, y.turno, y.ops) } : y) }; S2 = reflow(S2, rid); });
+  return S2;
+}
 // Uno de los operarios deja la tarea: se parte y el resto sigue en curso con los que quedan
 export function salir(S, id, op) {
   const t = S.tareas.find(x => x.id === id); if (!t || t.ops.length < 2 || !t.ops.includes(op)) return S;

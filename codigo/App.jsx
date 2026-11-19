@@ -90,14 +90,14 @@ function Modal({ title, onClose, children, wide, foot, arriba }) {
     </div>
   </div>;
 }
-function ConfirmarDlg({ titulo, texto, si = 'Sí', peligro, fecha, onSi, onClose }) {
+function ConfirmarDlg({ titulo, texto, si = 'Sí', peligro, fecha, onSi, no, onNo, onClose }) {   // no + onNo: segunda opción (por ejemplo "No, solo guardar")
   const [f, setF] = useState(fecha || '');
   useEffect(() => { const k = e => { if (e.key === 'Escape') { e.stopImmediatePropagation(); onClose(); } }; window.addEventListener('keydown', k, true); return () => window.removeEventListener('keydown', k, true); }, [onClose]);
   return <div className="ovl ovl-conf" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
     <div className="modal conf" role="alertdialog" aria-label={titulo}>
       <header><h2>{titulo}</h2></header>
       <div className="modal-b"><p>{texto}</p>{fecha !== undefined && <label className="fld">¿Qué día terminó?<input type="date" value={f} max={E.today()} onChange={e => setF(e.target.value)} /></label>}</div>
-      <footer><button className="btn" autoFocus={!!peligro} onClick={onClose}>Cancelar</button><button className={'btn ' + (peligro ? 'danger' : 'ok-b')} autoFocus={!peligro} onClick={() => { onClose(); onSi(fecha !== undefined ? (f || E.today()) : undefined); }}>{si}</button></footer>
+      <footer><button className="btn" autoFocus={!!peligro} onClick={onClose}>Cancelar</button>{no && <button className="btn" onClick={() => { onClose(); onNo(); }}>{no}</button>}<button className={'btn ' + (peligro ? 'danger' : 'ok-b')} autoFocus={!peligro} onClick={() => { onClose(); onSi(fecha !== undefined ? (f || E.today()) : undefined); }}>{si}</button></footer>
     </div>
   </div>;
 }
@@ -229,6 +229,43 @@ function avisarOcupado(S, ui, otras, ops, nombre, onSi) {
   const quien = [...new Set(otras.flatMap(x => x.ops.filter(o => ops.includes(o))))].map(o => opName(S, o)).join(' y ');
   const cuales = otras.map(x => `"${x.nombre}"`).join(' y ');
   ui.confirmar({ titulo: '¿Pausar la tarea en curso?', texto: `${quien} ya está con ${cuales} en curso. Si seguís, ${otras.length === 1 ? 'esa tarea se pausa' : 'esas tareas se pausan'} (lo hecho queda registrado y lo que falta sigue en la cola) y arranca "${nombre}".`, si: 'Sí, pausar y arrancar', onSi });
+}
+// La tarea se puso en medio de otra que el operario tenía en curso: pausarla a la hora de inicio de la nueva (o guardar sin tocarla)
+function avisarInterrumpe(S, ui, otras, t, retoma, onSi, onNo) {
+  const quien = [...new Set(otras.flatMap(x => x.ops.filter(o => t.ops.includes(o))))].map(o => opName(S, o)).join(' y ');
+  const cuales = otras.map(x => `"${x.nombre}"`).join(' y '), una = otras.length === 1;
+  ui.confirmar({ titulo: `¿Pausar ${una ? 'la tarea' : 'las tareas'} en curso?`,
+    texto: `${quien} ya estaba con ${cuales} en curso a las ${fDT(t.inicio)}. Si la pausás a esa hora para meter "${t.nombre.trim()}", lo hecho hasta ahí queda registrado y lo que falta ${retoma ? `sigue en curso desde el fin real (${fDT(retoma)})` : `sigue detrás de "${t.nombre.trim()}"`}.`,
+    si: `Sí, pausar a las ${t.inicio.slice(11, 16)}`, onSi, no: 'No, solo guardar', onNo });
+}
+// Al soltar una tarea en la Semana sobre un día en que el operario tenía otra en curso: meterla a una hora y pausar la otra, o ponerla al final del día
+function MeterDlg({ id, op, d, turno, from, onClose }) {
+  const { S, up, ui } = useApp(); const t = S.tareas.find(x => x.id === id);
+  const ahora = E.nowDT(), hoy = E.today();
+  const [hora, setHora] = useState(() => { if (d === hoy) return ahora.slice(11, 16); const m = E.schedAt(S, d).in; return `${E.pad(Math.floor(m / 60))}:${E.pad(m % 60)}`; });
+  if (!t) return null;
+  let nOps = t.ops.filter(o => o !== from); if (!nOps.includes(op)) nOps = [...nOps, op];
+  const tt = { ...t, ops: nOps, turno }, ini = hora ? d + 'T' + hora : '';
+  const futuro = !!ini && ini > ahora, lst = ini && !futuro ? E.interrumpidas(S, tt, ini) : [];
+  const enc = E.interrumpidas(S, tt, d === hoy ? ahora : d + 'T23:59');   // las que estaban en curso ese día (para el texto)
+  const fin = t.estado === 'terminada' && !t.sinFecha && t.finReal ? t.finReal : null, finMal = !!fin && !!ini && fin <= ini;
+  const retoma = fin && !finMal && fin <= ahora ? fin : null;
+  const alFinal = () => { up(s => E.assignTo(s, id, op, d, turno, from)); onClose(); };
+  const meter = () => {
+    if (!ini || futuro) return;
+    up(s => { const s1 = E.interrumpir(s, tt, ini, retoma); const patch = { ops: nOps, turno, inicio: ini };
+      if (fin && !finMal) { patch.realFin = true; if (!(Number(t.hhReal) > 0)) patch.hhReal = Math.round(E.workBetween(s1, ini, fin, turno, nOps) * nOps.length * 100) / 100; }
+      return E.patchTask(s1, id, patch, true); });
+    ui.toast(lst.length ? `"${t.nombre}" entra a las ${hora}; ${lst.map(x => `"${x.nombre}"`).join(' y ')} quedó pausada a esa hora` : `"${t.nombre}" entra a las ${hora}`); onClose();
+  };
+  return <Modal title="¿Meterla en medio?" onClose={onClose} foot={<><button className="btn" onClick={onClose}>Cancelar</button><button className="btn" onClick={alFinal}>Ponerla al final del día</button><span className="sp" /><button className="btn pri-b" disabled={!ini || futuro} onClick={meter}>{lst.length ? `Pausar y meterla a las ${hora}` : `Meterla a las ${hora || '—'}`}</button></>}>
+    <p><b>{opName(S, op)}</b> tenía en curso {enc.map(x => <span key={x.id}><b>{x.nombre}</b> (desde {fDT(x.crono.desde)}) </span>)}el {fDia(d)}.</p>
+    <label className="fld">¿A qué hora empezó "{t.nombre}"?<input type="time" value={hora} onChange={e => setHora(e.target.value)} /></label>
+    {futuro ? <small className="hint bad">Para pausar lo que está en curso, la hora tiene que ser ahora o antes.</small>
+      : lst.length ? <p className="note">Lo hecho hasta las {hora} queda registrado y lo que falta {retoma ? `sigue en curso desde el fin real (${fDT(retoma)})` : `sigue detrás de "${t.nombre}"`}.</p>
+      : ini ? <p className="note">A esa hora no había nada en curso: la tarea se ubica a las {hora} sin pausar nada.</p> : null}
+    {finMal && <small className="hint bad">El fin real ({fDT(fin)}) queda antes de ese inicio: corregilo después en el editor.</small>}
+  </Modal>;
 }
 const iniciarConAviso = (S, up, ui, id) => { const t = S.tareas.find(x => x.id === id); if (!t) return;
   const otras = E.enCurso(S, t.ops, id), go = () => up(s => E.iniciar(s, id));
@@ -482,6 +519,8 @@ function Resumen() {
   const nuevaExtra = (op, d) => up(s => E.setExtraDia(s, op, d, 2, s.tareas.some(t => t.ops.includes(op) && t.turno === 'extra' && t.estado !== 'terminada') ? 'aparte' : 'sigue'));
   const drop = (e, op, d, turno) => { e.preventDefault(); e.currentTarget.classList.remove('over'); try { const x = JSON.parse(e.dataTransfer.getData('text/plain'));
     if (x.tu && x.tu !== turno && x.from === op) { up(s => E.partirEnDia(s, x.id, d, turno)); ui.toast(`Desde el ${fDia(d)} sigue en ${turno === 'extra' ? 'horas extra' : 'turno normal'}; lo anterior queda en ${x.tu === 'extra' ? 'horas extra' : 'turno normal'}`); return; }
+    const tx = S.tareas.find(y => y.id === x.id);
+    if (tx && d <= hoy && E.interrumpidas(S, { ...tx, ops: [op], turno }, d === hoy ? E.nowDT() : d + 'T23:59').length) { ui.modal({ k: 'meter', id: x.id, op, d, turno, from: x.from }); return; }   // el operario tenía otra en curso ese día: preguntar
     up(s => E.assignTo(s, x.id, op, d, turno, x.from)); } catch (err) { } };
   const dnd = (op, d, turno) => ({ onDragOver: e => { e.preventDefault(); e.currentTarget.classList.add('over'); }, onDragLeave: e => e.currentTarget.classList.remove('over'), onDrop: e => drop(e, op, d, turno) });
   let capSem = 0, loadSem = 0, rojas = 0;
@@ -1526,10 +1565,10 @@ function TaskEditor({ id, draft, onClose }) {
   const scope = S.tareas.filter(x => x.id !== t.id && !V.D[x.id].parent && x.id !== t.parentId && (t.tipo === 'proy' ? x.proyId === t.proyId : x.tipo === 'rep' && V.rootOf(x).orden === V.rootOf(t).orden));
   const cod = E.codOp(S, t.nombre), hist = !parent ? E.historial(S, t.nombre) : null, recs = !parent ? E.recomendar(S, { ...t, hh }) : [];
   const alSalirNombre = () => { if (parent) return; const a = E.autoCompletar(S, t, !hhTocado); if (Object.keys(a).length) setT(p => ({ ...p, ...a })); };
-  const save = conf => {
+  const save = (conf, meter) => {   // meter: true = pausar lo que estaba en curso a la hora de inicio, false = guardar sin pausar (sin dato: pregunta)
     if (!t.nombre.trim()) { ui.toast('Poné el nombre de la pieza'); return; }
     const pisa = t.estado === 'en proceso' && (isNew || orig.estado !== 'en proceso') && !t.frenada && t.ops.length ? E.enCurso(S, t.ops, t.id, t) : [];   // arranca ahora: avisa si el operario ya tiene otra en curso (las solapables de otra operación no cuentan)
-    if (pisa.length && conf !== true) { avisarOcupado(S, ui, pisa, t.ops, t.nombre.trim(), () => save(true)); return; }
+    if (pisa.length && conf !== true) { avisarOcupado(S, ui, pisa, t.ops, t.nombre.trim(), () => save(true, meter)); return; }
     const x = { ...t, hh, cant: Number(t.cant) || 0, avance: Math.min(100, Math.max(0, Number(t.avance) || 0)), hhReal: Number(t.hhReal) || 0 };
     if (x.estado !== 'terminada') { x.tercerizada = false; x.sinFecha = false; }   // si deja de estar finalizada, deja de ser tercerizada
     if (!E.esPend(x)) x.proximo = null; else if (x.estado === 'proximo') x.proximo = x.proximo || E.nowDT(); else x.proximo = null;   // al iniciarla o finalizarla deja de estar en Próximo a realizar
@@ -1540,9 +1579,13 @@ function TaskEditor({ id, draft, onClose }) {
     const cierra = !isNew && !parent && !x.sinFecha && x.estado === 'terminada' && orig.estado !== 'terminada' && orig.inicio && orig.ops.length;
     const finPlan = cierra ? E.finOf(S, orig) : null;
     if (cierra && !x.realFin && finPlan && x.finReal < finPlan && x.inicio < x.finReal) x.realFin = true;
+    // puesta en medio de otra: si el inicio cae cuando el operario ya tenía otra en curso, ofrece pausarla a esa hora
+    const corta = !parent && !pisa.length && !x.sinFecha && !(x.frenada && x.estado !== 'terminada') && (isNew || x.inicio !== orig.inicio || x.ops.join() !== orig.ops.join() || x.estado !== orig.estado) ? E.interrumpidas(S, x, x.inicio) : [];
+    const retoma = x.estado === 'terminada' && x.realFin && x.finReal > x.inicio && x.finReal <= E.nowDT() ? x.finReal : null;   // ya terminó: lo interrumpido sigue en curso desde su fin real
+    if (corta.length && meter === undefined) { avisarInterrumpe(S, ui, corta, x, retoma, () => save(true, true), () => save(true, false)); return; }
     const mover = !parent && (isNew || ['inicio', 'hh', 'turno'].some(k => x[k] !== orig[k]) || !!x.realFin !== !!orig.realFin || (x.realFin && x.finReal !== orig.finReal) || x.ops.join() !== orig.ops.join() || (x.preds || []).join() !== (orig.preds || []).join());
     let r = null;
-    up(s => { const s0 = pisa.length ? E.pausarEnCurso(s, x.ops, x.id) : s; const s2 = E.patchTask(isNew ? { ...s0, tareas: [...s0.tareas, x] } : s0, x.id, x, mover); if (!cierra) return s2; r = E.trasCerrar(s2, s, x.id, finPlan); return r.S; });
+    up(s => { const s0 = pisa.length ? E.pausarEnCurso(s, x.ops, x.id) : corta.length && meter ? E.interrumpir(s, x, x.inicio, retoma) : s; const s2 = E.patchTask(isNew ? { ...s0, tareas: [...s0.tareas, x] } : s0, x.id, x, mover); if (!cierra) return s2; r = E.trasCerrar(s2, s, x.id, finPlan); return r.S; });
     const a = avisoCadena(r); if (a) ui.toast(a); onClose();
   };
   const foot = <>
@@ -3190,6 +3233,7 @@ export function App({ db, ses, S0 }) {
       {modal && modal.k === 'frenar' && <FrenarDlg id={modal.id} pausa={false} onClose={close} />}
       {modal && modal.k === 'tercerizar' && <TercerizarDlg id={modal.id} ids={modal.ids} onClose={close} />}
       {modal && modal.k === 'retomar' && <RetomarDlg id={modal.id} onClose={close} />}
+      {modal && modal.k === 'meter' && <MeterDlg {...modal} onClose={close} />}
       {modal && modal.k === 'extras' && <ExtrasAviso ids={modal.ids} onClose={close} />}
       {aviso && <ExtrasAviso ids={aviso} onClose={() => setAviso(null)} />}
       {modal && modal.k === 'lote' && <LoteEditor ids={modal.ids} titulo={modal.titulo} onClose={close} />}
