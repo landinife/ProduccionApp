@@ -789,13 +789,16 @@ export const serieCod = k => { const m = /^TPF([RD])/i.exec(k || ''); return m ?
 // número correlativo único: el último grupo de números pegado al TPFR / TPFD (TPFR-111-222-3333 → 3333); lo que venga después (-B2, rev 3…) no cuenta
 export const numPieza = k => { const se = serieCod(k); if (!se) return null; const m = se === 'Otros' ? /(\d+)\D*$/.exec(k) : /^TPF[RD]((?:[-./ ]*\d+)+)/i.exec(k); if (!m) return null; const g = m[1].match(/\d+/g); return Number(g[g.length - 1]); };
 // tiempo estándar de una pieza: promedio de horas reales por unidad de las veces que se fabricó (sin las descartadas)
+// Si la pieza es de una familia de tiempo, el estándar es el de la familia (todas sus piezas juntas); "propio" es el de la pieza sola, para comparar.
 export function historial(S, nombre) {
   const k = claveCod(nombre); if (!k) return null;
-  const l = fabricaciones(S).filter(f => f.k === k && !f.fuera);
+  const fam = familiaDe(S, k), ks = new Set(fam ? codsFamilia(S, fam.id) : [k]); ks.add(k);
+  const l = fabricaciones(S).filter(f => ks.has(f.k) && !f.fuera);
   if (!l.length) return null;
-  const pu = l.reduce((a, f) => a + f.hu, 0) / l.length;
+  const pu = l.reduce((a, f) => a + f.hu, 0) / l.length, lp = l.filter(f => f.k === k);
   const cnt = {}; l.forEach(f => { if (f.operacionId) cnt[f.operacionId] = (cnt[f.operacionId] || 0) + 1; });
-  return { n: l.length, porUnidad: pu, operacionId: Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0] || null };
+  return { n: l.length, porUnidad: pu, operacionId: Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0] || null,
+    ...(fam ? { fam, nPiezas: new Set(l.map(f => f.k)).size, nPropio: lp.length, propio: lp.length ? lp.reduce((a, f) => a + f.hu, 0) / lp.length : null } : {}) };
 }
 
 // ===== Tiempos y costos =====
@@ -853,7 +856,38 @@ export function valorHora(S, nombre, operacionId) {
 export const materialDe = (S, id) => (S.materiales || []).find(m => m.id === id) || null;
 // Ficha de la pieza: material y peso por unidad, cargados una sola vez por código (S.fichas[código]).
 // Todas sus fabricaciones y cotizaciones los heredan; si una tiene su propio material o peso total, ese manda.
-export const fichaDe = (S, k) => (S.fichas || {})[k] || null;
+// Familias de tiempo (24/11): piezas que se fabrican igual y llevan el mismo tiempo (por ejemplo el eje motor de una cinta de 400 y el de 500 mm).
+// S.familias = [{ id, nombre, ficha: { stockId, chapa, noMat, material, corteU } }]; cada pieza dice a qué familia va en su ficha (S.fichas[código].familia).
+// El tiempo estándar es el promedio por unidad de todas las fabricaciones de la familia. La ficha de la pieza hereda el material de la familia
+// mientras no tenga material propio (ítem de StockApp, chapa o "no consume"); el largo y el peso son siempre de cada pieza.
+export const fichaPropia = (S, k) => (S.fichas || {})[k] || null;
+export const familiaDe = (S, k) => { const f = fichaPropia(S, k), id = f && f.familia; return id ? (S.familias || []).find(x => x.id === id) || null : null; };
+export const codsFamilia = (S, id) => Object.keys(S.fichas || {}).filter(k => (S.fichas[k] || {}).familia === id);
+export const matPropio = f => !!(f && (f.stockId || f.chapa || f.noMat));
+export function fichaDe(S, k) {
+  const f = fichaPropia(S, k), fam = familiaDe(S, k), b = fam && fam.ficha; if (!b) return f;
+  const r = { ...f };
+  if (!matPropio(f) && (b.stockId || b.chapa || b.noMat)) { ['stockId', 'chapa', 'noMat'].forEach(x => { if (b[x]) r[x] = b[x]; }); r.deFam = true; if (r.corteU == null && b.corteU != null) r.corteU = b.corteU; }
+  if (!r.material && b.material) r.material = b.material;
+  return r;
+}
+// Sugerir familia para una pieza sin familia: misma serie, proceso y material del código (TPFD-004-001-…) y descripción parecida, sin contar números ni medidas
+const descPalabras = n => new Set(String(n || '').replace(/^TPF[\w\-./]*\s*/i, '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  .split(/[^a-z0-9ø]+/).filter(w => w && !/\d/.test(w) && !['mm', 'x', 'de', 'del', 'para', 'la', 'el', 'los', 'las', 'con', 'y', 'en', 'a', 'o', 'ø'].includes(w)));
+const prefCod = k => { const m = /^(TPF[RD][-_. ]*\d{3}[-_. ]*\d{3})/i.exec(k || ''); return m ? m[1].toUpperCase().replace(/[_. ]/g, '-') : ''; };
+export function nombresPiezas(S) {   // código → último nombre conocido (tareas, historial importado y cotizaciones)
+  const m = {}; [...(S.historico || []), ...(S.cotizaciones || []), ...S.tareas].forEach(x => { if (x && x.nombre && !x.parte) { const k = claveCod(x.nombre); if (k) m[k] = x.nombre.replace(/\s*\((?:parte \d+|corte)\)\s*$/i, ''); } }); return m;
+}
+export function sugerirFamilia(S, k, nombre, NOM) {
+  if (!k || familiaDe(S, k) || !(S.familias || []).length) return null;
+  NOM = NOM || nombresPiezas(S); const w = descPalabras(nombre || NOM[k]), pk = prefCod(k); if (!w.size) return null;
+  let best = null;
+  (S.familias || []).forEach(fam => codsFamilia(S, fam.id).forEach(c => { if (c === k) return;
+    const w2 = descPalabras(NOM[c] || ''), mismo = pk && pk === prefCod(c); if (!w2.size) return;
+    const inter = [...w].filter(x => w2.has(x)).length, j = inter / (w.size + w2.size - inter), sc = j + (mismo ? 0.2 : 0);
+    if (j >= 0.5 && (mismo || j >= 0.8) && (!best || sc > best.sc)) best = { fam, sc, como: c }; }));
+  return best;
+}
 // ---- Precio del material desde StockApp (24/11) ----
 // stk = { items: Map(id → ítem), dolar } (lo arma stkIdx con lo que llega de StockApp). El precio es el `costo` del ítem, por unidad de stock
 // (por m, kg, barra o unidad); lo escribe ComprasApp al emitir cada OC, siempre en USD. Si está en $ (cargado a mano en StockApp),
@@ -1024,6 +1058,7 @@ export function tiempos(S) {
     x.nombre = ult.nombre; x.operacionId = (v[0] || ult).operacionId || (codOp(S, x.nombre) || {}).operacionId || '';
     x.n = v.length; x.nCot = x.regs.filter(r => r.cot).length; x.prom = v.length ? v.reduce((a, r) => a + r.hu, 0) / v.length : null;
     x.ult = (x.regs.find(r => !r.cot) || {}).fecha || ''; x.serie = serieCod(x.k); x.num = numPieza(x.k);
+    const h = familiaDe(S, x.k) && historial(S, x.nombre); if (h && h.fam) x.fh = h;   // estándar de su familia de tiempo
     return x;
   }).sort((a, b) => (a.num == null) - (b.num == null) || (a.num || 0) - (b.num || 0) || a.k.localeCompare(b.k));
 }

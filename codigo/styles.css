@@ -1511,3 +1511,14 @@ select.ci.est.e-proximo { background: transparent; }
 }
 :root .modal footer .btn.canc-b:not(.pri-b):not(.ghost) { color: var(--warn); border-color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, var(--panel2)); }
 :root .modal footer .btn.canc-b:not(.pri-b):not(.ghost):hover:not(:disabled) { background: color-mix(in srgb, var(--warn) 22%, var(--panel2)); border-color: var(--warn); }
+/* Familias de tiempo (24/11) */
+.tag.fam { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); }
+.tsel { margin: 0 6px 0 2px; width: 18px; height: 18px; accent-color: var(--accent); flex: none; }
+.tfam { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.sugfam.chico { font-size: 12px; } .sugfam { color: var(--mut); }
+.fichad-fam { display: grid; gap: 6px; padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px solid var(--line); }
+.fichad-famat { display: grid; gap: 8px; }
+.famlst { margin: 6px 0; padding-left: 18px; display: grid; gap: 4px; }
+.famcard { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+.famcard .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.famlst .lnk { margin-left: 10px; }

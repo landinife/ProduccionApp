@@ -1694,7 +1694,8 @@ function TaskEditor({ id, draft, onClose }) {
             return <div className="pisa"><span>⚠ {p.slice(0, 2).map(x => <span key={x.tarea.id + x.op}><b>{opName(S, x.op)}</b> está ocupado con <b>{x.tarea.nombre}</b> hasta {fDT(x.fin)}. </span>)}{p.length > 2 && <span className="mut">y {p.length - 2} más. </span>}</span>
               <button type="button" className="btn sm pri-b" onClick={() => set('inicio', hueco)}>Empezar cuando se libere: {fDT(hueco)}</button></div>; })()}</label>
         <label className="hh-ch">Horas-hombre (trabajo total)<span className="incalc"><input id="te-hh" type="number" min="0" step="0.5" value={t.hh} onChange={e => { setHhTocado(true); set('hh', e.target.value); }} /><CalcBtn cant={Number(t.cant) || 0} titulo={(t.nombre || 'Pieza') + ' · duración'} onUse={v => { setHhTocado(true); set('hh', Math.round(v * 100) / 100); }} /></span>
-          {hist && <small className="hint">Se hizo {hist.n} {hist.n === 1 ? 'vez' : 'veces'}: {fHM(hist.porUnidad)} reales por unidad{(() => { const sug = Math.max(0.5, Math.round(hist.porUnidad * Math.max(1, Number(t.cant) || 1) * 2) / 2); return Math.abs(sug - hh) > 0.01 ? <> → <button type="button" className="lnk sm" onClick={() => { setHhTocado(true); set('hh', sug); }}>usar {fN(sug)} h</button></> : ' (ya aplicado)'; })()}</small>}</label></div>
+          {!hist && !parent && !t.corte && <SugFam k={E.claveCod(t.nombre)} nombre={t.nombre} />}
+          {hist && <small className="hint">Se hizo {hist.n} {hist.n === 1 ? 'vez' : 'veces'}{hist.fam ? <> <span className="tag fam">familia {hist.fam.nombre}</span>{hist.nPiezas > 1 ? ` (${hist.nPiezas} piezas)` : ''}</> : ''}: {fHM(hist.porUnidad)} reales por unidad{(() => { const sug = Math.max(0.5, Math.round(hist.porUnidad * Math.max(1, Number(t.cant) || 1) * 2) / 2); return Math.abs(sug - hh) > 0.01 ? <> → <button type="button" className="lnk sm" onClick={() => { setHhTocado(true); set('hh', sug); }}>usar {fN(sug)} h</button></> : ' (ya aplicado)'; })()}</small>}</label></div>
         <label>{t.estado === 'terminada' ? 'Fin planificado' : 'Fin'}<input id="te-fin" type="datetime-local" value={w ? w.end : ''} disabled={!t.inicio} onChange={e => setFin(e.target.value)} /></label>
         <div className="fld"><span>Duración en calendario</span><b className="big">{fH(hh / n)}</b><small className="mut">{fN(hh)} HH ÷ {n} operario{n > 1 ? 's' : ''}</small></div>
         {w && !w.ok && <p className="note bad g2">Faltan {fN(w.falta)} h extra por habilitar en el calendario para poder calcular el fin.</p>}
@@ -2735,6 +2736,16 @@ function ImportHist({ d, onClose }) {
 const conFicha = (s, k, patch) => { const f = { ...((s.fichas || {})[k] || {}), ...patch }, fs = { ...(s.fichas || {}) };
   Object.keys(f).forEach(x => { if (f[x] === '' || f[x] === null || f[x] === undefined || f[x] === false) delete f[x]; });
   if (!Object.keys(f).length) delete fs[k]; else fs[k] = f; return { ...s, fichas: fs }; };
+// Familias de tiempo: sumar piezas a una familia (nueva si fam no tiene id) o sacarlas (famId vacío)
+const ponFam = (s, ks, famId) => ks.reduce((a, k) => conFicha(a, k, { familia: famId || '' }), s);
+const nuevaFam = (s, nombre, ficha) => { const id = E.uid(); return [{ ...s, familias: [...(s.familias || []), { id, nombre: nombre.trim(), ...(ficha ? { ficha } : {}) }] }, id]; };
+const fichaFam = f => { const b = {}; ['stockId', 'chapa', 'noMat', 'material'].forEach(x => { if (f[x]) b[x] = f[x]; }); if (f.corteU != null && f.corteU !== '') b.corteU = Number(f.corteU); return Object.keys(b).length ? b : null; };
+// "¿Es de la familia X?": sugerencia para una pieza sin familia; solo la acepta un administrador
+function SugFam({ k, nombre, chico }) {
+  const { S, up, ui, pm } = useApp(); const sg = useMemo(() => k ? E.sugerirFamilia(S, k, nombre) : null, [k, nombre, S.fichas, S.familias]);
+  if (!sg) return null; const h = E.historial(S, sg.como);
+  return <small className={'hint sugfam' + (chico ? ' chico' : '')}>¿Es de la familia <b>{sg.fam.nombre}</b>?{h ? ` Lleva ${fHM(h.porUnidad)} por unidad.` : ''} {pm.admin && <button type="button" className="lnk sm" onClick={e => { e.stopPropagation(); up(s => ponFam(s, [k], sg.fam.id)); ui.toast(`Sumada a la familia ${sg.fam.nombre}`); }}>Sumar a la familia</button>}</small>;
+}
 const fQ = q => (Math.round((Number(q) || 0) * 1000) / 1000).toLocaleString('es-AR');
 const uIt = it => (it && it.unidad) || 'un';
 const nomIt = it => it ? `${it.codigo ? it.codigo + ' · ' : ''}${it.descripcion || 'Ítem sin nombre'}` : '';
@@ -2868,24 +2879,56 @@ function ImportFichas({ d, onClose }) {
 // línea de la ficha de Tiempos y Costos: a qué ítem de StockApp va y cuánto consume
 function FichaStockLinea({ k, nombre }) {
   const { S, ui, pm, stock } = useApp(); const f = E.fichaDe(S, k) || {}; const it = stock && stock.items ? stock.items.find(i => i.id === f.stockId) : null, c = E.consumoU(S, f, it);
-  return <span className="mut fstk">{f.chapa ? <>Material: sale de chapa (nesting){it ? <> · <b>{nomIt(it)}</b>{f.pesoU ? ` · ${fN(f.pesoU)} kg por unidad` : ' · falta el peso'}</> : ''}.</> : f.noMat ? 'No consume material de stock.' : f.stockId ? <>StockApp: <b>{it ? nomIt(it) : stock && stock.items ? 'ítem borrado en StockApp' : 'ítem vinculado'}</b>{c ? ` · consume ${fQ(c.q)} ${uIt(it)} por unidad (${consTxt(c)})` : f.largoU ? ` · largo ${fN(f.largoU)} mm` : ' · falta el largo'}</> : 'Sin ítem de StockApp (no entra al aviso de material).'}
+  return <span className="mut fstk">{f.chapa ? <>Material: sale de chapa (nesting){it ? <> · <b>{nomIt(it)}</b>{f.pesoU ? ` · ${fN(f.pesoU)} kg por unidad` : ' · falta el peso'}</> : ''}.</> : f.noMat ? 'No consume material de stock.' : f.stockId ? <>StockApp: <b>{it ? nomIt(it) : stock && stock.items ? 'ítem borrado en StockApp' : 'ítem vinculado'}</b>{c ? ` · consume ${fQ(c.q)} ${uIt(it)} por unidad (${consTxt(c)})` : f.largoU ? ` · largo ${fN(f.largoU)} mm` : ' · falta el largo'}</> : 'Sin ítem de StockApp (no entra al aviso de material).'}{f.deFam && <span className="tag fam">de la familia</span>}
     <button type="button" className="btn sm" onClick={() => ui.ficha({ key: k, nombre })}>{pm.admin ? '✎ Editar ficha' : 'Ver ficha'}</button></span>;
 }
 // Ficha de la pieza completa: ítem de StockApp, largo del plano, corte, chapa, y material y peso para el costo
 function FichaDlg({ k, nombre, onClose }) {
-  const { S, up, ui, pm, stock, STK } = useApp(); const f0 = E.fichaDe(S, k) || {};
+  const { S, up, ui, pm, stock, STK } = useApp(); const f0 = E.fichaPropia(S, k) || {};
   const [f, setF] = useState({ stockId: f0.stockId || '', largoU: f0.largoU ?? '', corteU: f0.corteU ?? '', chapa: !!f0.chapa, noMat: !!f0.noMat, consumoU: f0.consumoU ?? '', material: f0.material || '', pesoU: f0.pesoU ?? '' });
   const [q, setQ] = useState(''); const set = p => setF(x => ({ ...x, ...p }));
-  const items = stock && stock.items ? stock.items : [], it = items.find(i => i.id === f.stockId);
+  // familia de tiempo: la pieza comparte el tiempo y, si no elige otro, el material de la familia (el largo y el peso son de cada pieza)
+  const FAMS = S.familias || [], sgF = useMemo(() => !f0.familia ? E.sugerirFamilia(S, k, nombre) : null, []);
+  const [famId, setFamId] = useState(f0.familia || ''); const [famNueva, setFamNueva] = useState('');
+  const fam = FAMS.find(x => x.id === famId) || null, fb = fam && fam.ficha && (fam.ficha.stockId || fam.ficha.chapa || fam.ficha.noMat) ? fam.ficha : null;
+  const [usarFam, setUsarFam] = useState(() => !E.matPropio(f0)); const conFam = !!fb && usarFam;
+  const [paraFam, setParaFam] = useState(false);
+  const fv = conFam ? { ...f, stockId: fb.stockId || '', chapa: !!fb.chapa, noMat: !!fb.noMat, corteU: f.corteU === '' && fb.corteU != null ? fb.corteU : f.corteU } : f;   // lo que vale para la pieza
+  const items = stock && stock.items ? stock.items : [], it = items.find(i => i.id === fv.stockId);
   const qq = q.trim().toLowerCase(), lst = items.filter(i => !qq || `${i.codigo} ${i.descripcion} ${i.formato || ''}`.toLowerCase().includes(qq)).sort((a, b) => (a.codigo || '').localeCompare(b.codigo || '')).slice(0, 80);
   const num = v => v === '' || v == null ? null : Number(v);
-  const ff = { ...f, largoU: num(f.largoU), corteU: f.corteU === '' ? null : Number(f.corteU), consumoU: num(f.consumoU), pesoU: num(f.pesoU) };
-  const c = !f.chapa && !f.noMat && it ? E.consumoU(S, ff, it) : null, u = uIt(it);
-  const ms = !f.noMat ? E.matStock(S, ff, STK) : null, pU = E.pesoUDe(S, ff, it);
+  const ff = { ...fv, largoU: num(f.largoU), corteU: fv.corteU === '' || fv.corteU == null ? null : Number(fv.corteU), consumoU: num(f.consumoU), pesoU: num(f.pesoU), material: f.material || (fam && fam.ficha && fam.ficha.material) || '' };
+  const c = !fv.chapa && !fv.noMat && it ? E.consumoU(S, ff, it) : null, u = uIt(it);
+  const ms = !fv.noMat ? E.matStock(S, ff, STK) : null, pU = E.pesoUDe(S, ff, it);
   // la chapa guarda su ítem solo para el costo (no entra al aviso de material)
-  const guardar = () => { up(s => conFicha(s, k, { ...ff, stockId: f.noMat ? '' : f.stockId, ...(f.chapa || f.noMat ? { largoU: null, corteU: null, consumoU: null } : {}) })); ui.toast('Ficha guardada'); onClose(); };
+  const guardar = () => {
+    if (famId === '+' && !famNueva.trim()) { ui.toast('Poné el nombre de la familia nueva'); return; }
+    const propio = { ...ff, material: f.material, corteU: f.corteU === '' ? null : Number(f.corteU), stockId: fv.noMat ? '' : fv.stockId, ...(fv.chapa || fv.noMat ? { largoU: null, corteU: null, consumoU: null } : {}) };
+    if (conFam) Object.assign(propio, { stockId: '', chapa: false, noMat: false });   // hereda el material de la familia
+    const aFam = !conFam && !!fichaFam(propio) && (famId === '+' || (!!famId && (paraFam || !fb)));   // el material de esta pieza pasa a ser el de la familia
+    up(s => { let a = s, id = famId;
+      if (famId === '+') [a, id] = nuevaFam(a, famNueva, aFam ? fichaFam(propio) : null);
+      else if (aFam) a = { ...a, familias: (a.familias || []).map(x => x.id === id ? { ...x, ficha: fichaFam(propio) } : x) };
+      return conFicha(a, k, { ...propio, ...(aFam ? { stockId: '', chapa: false, noMat: false, material: '' } : {}), familia: id || '' }); });
+    ui.toast(famId === '+' ? `Ficha guardada · familia ${famNueva.trim()} creada` : 'Ficha guardada'); onClose(); };
   return <Modal arriba title={'Ficha de ' + nombre} onClose={onClose} foot={<><span className="mut">Vale para todas las veces que se fabrica.</span><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!pm.admin} onClick={guardar}>Guardar</button></>}>
     <div className="fichad">
+      <div className="fichad-fam">
+        <label>Familia de tiempo <small className="mut">piezas que se fabrican igual y llevan el mismo tiempo</small>
+          <select value={famId} disabled={!pm.admin} onChange={e => { setFamId(e.target.value); setParaFam(false); }}><option value="">— Sin familia (tiempo propio)</option>{FAMS.map(x => <option key={x.id} value={x.id}>{x.nombre} · {E.codsFamilia(S, x.id).length} piezas</option>)}<option value="+">+ Nueva familia…</option></select></label>
+        {famId === '+' && <input autoFocus placeholder="Nombre de la familia (por ejemplo Eje motor cinta, motor 1,5 HP)" value={famNueva} onChange={e => setFamNueva(e.target.value)} />}
+        {!famId && sgF && <small className="hint">¿Es de la familia <b>{sgF.fam.nombre}</b>? <button type="button" className="lnk sm" onClick={() => setFamId(sgF.fam.id)}>Elegirla</button></small>}
+        {fam && (() => { const h = E.historial(S, nombre && E.claveCod(nombre) === k ? nombre : k); return <small className="mut">{h && h.fam && h.fam.id === fam.id ? <>Tiempo de la familia: <b>{fHM(h.porUnidad)}</b> por unidad (promedio de {h.n} {h.n === 1 ? 'vez' : 'veces'}, {h.nPiezas} {h.nPiezas === 1 ? 'pieza' : 'piezas'}).</> : famId !== f0.familia ? 'Al guardar, esta pieza toma el tiempo de la familia.' : 'La familia todavía no tiene fabricaciones.'}</small>; })()}
+      </div>
+      {conFam ? <div className="fichad-famat"><p>Material de la familia: <b>{fb.noMat ? 'no consume material de stock' : (fb.chapa ? 'sale de chapa · ' : '') + (it ? nomIt(it) : fb.stockId ? 'ítem de StockApp' : '—')}</b></p>
+        {pm.admin && <button type="button" className="btn sm" onClick={() => { setUsarFam(false); set({ stockId: fb.stockId || '', chapa: !!fb.chapa, noMat: !!fb.noMat }); }}>Elegir otro material para esta pieza</button>}
+        {!fb.chapa && !fb.noMat && <><div className="dos">
+          <label>Largo del plano (mm)<input type="number" min="0" step="1" value={f.largoU} onChange={e => set({ largoU: e.target.value })} placeholder="pieza terminada" /></label>
+          <label>Corte de serrucho (mm)<input type="number" min="0" step="0.5" value={f.corteU} onChange={e => set({ corteU: e.target.value })} placeholder={fb.corteU != null ? `${fN(fb.corteU)} (de la familia)` : it ? `${fN(E.corteDe(S, it))} (de Configuración)` : 'de Configuración'} /></label>
+        </div>
+        {it && <p className={c ? 'mut' : 'note'}>{c ? <>Consume <b>{fQ(c.q)} {u}</b> por unidad ({consTxt(c)}).</> : u.toLowerCase() === 'kg' ? 'Este ítem va en kg: cargá el peso por unidad abajo.' : 'Falta el largo del plano de esta pieza.'}</p>}</>}</div>
+      : <>{fam && pm.admin && <label className="chk"><input type="checkbox" checked={paraFam || (!fb && famId !== '')} disabled={!fb} onChange={e => setParaFam(e.target.checked)} /> {fb ? 'Guardar este material también como el de la familia' : 'Este material queda como el de la familia (todavía no tiene)'}</label>}
+        {fb && <button type="button" className="lnk sm" onClick={() => setUsarFam(true)}>Usar el material de la familia</button>}
       <div className="fichad-tipo" role="radiogroup" aria-label="Material de la pieza">{[['stock', 'Barra o material de StockApp'], ['chapa', 'Sale de chapa (nesting)'], ['no', 'No consume material de stock']].map(([v, l]) => { const on = v === 'chapa' ? f.chapa : v === 'no' ? f.noMat : !f.chapa && !f.noMat;
         return <label key={v} className={'togb' + (on ? ' on' : '')}><input type="radio" name="tipomat" checked={on} onChange={() => set({ chapa: v === 'chapa', noMat: v === 'no' })} hidden />{l}</label>; })}</div>
       {f.chapa && <p className="mut">Se controla con el programa de nesting: no entra al aviso de material. Elegí la chapa de StockApp y cargá el peso por unidad (Propiedades físicas / Mass Properties de SolidWorks) para el costo.</p>}
@@ -2903,14 +2946,15 @@ function FichaDlg({ k, nombre, onClose }) {
         {it && u.toLowerCase() !== 'm' && <label>Consumo por unidad a mano ({u}) <small className="mut">opcional: manda sobre el largo</small><input type="number" min="0" step="0.001" value={f.consumoU} onChange={e => set({ consumoU: e.target.value })} /></label>}
         {it && <p className={c ? 'mut' : 'note'}>{c ? <>Consume <b>{fQ(c.q)} {u}</b> por unidad ({consTxt(c)}).</> : u.toLowerCase() === 'kg' ? 'Este ítem va en kg: cargá el peso por unidad abajo.' : 'Falta el largo del plano.'}</p>}</>}
       </>}
+      </>}
       <h3>Para el costo</h3>
-      {f.noMat ? <p className="mut">Sin costo de material.</p> : <>
+      {fv.noMat ? <p className="mut">Sin costo de material.</p> : <>
         {ms && ms.usdU != null ? <p className="mut">Material por unidad: <b>{fPlata(ms.usdU)}</b> ({precioTxt(ms)}). Precio de StockApp: lo actualiza ComprasApp con cada OC.</p>
           : ms ? <p className="note">StockApp: falta {ms.falta}. Mientras tanto se usa el material genérico de abajo (si lo tiene).</p>
           : <p className="note">Sin ítem de StockApp: se usa el material genérico de abajo (respaldo).</p>}
         <div className="dos">
           <label>Material genérico (respaldo, USD/kg)<select value={f.material} onChange={e => set({ material: e.target.value })}><option value="">—</option>{(S.materiales || []).map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}</select></label>
-          <label>Peso por unidad (kg) {pU && pU.auto && <small className="mut">auto: {fN(pU.kgm)} kg/m</small>}{(() => { const pa = pU && !pU.auto && E.pesoUDe(S, { ...ff, pesoU: null }, it); return pa && Math.abs(pa.kg - pU.kg) / pa.kg > 0.05 ? <small className="tfal c-bad"> con el kg/m de StockApp da {fN(pa.kg)} kg: <button type="button" className="lnk sm" onClick={() => set({ pesoU: '' })}>usar ese</button></small> : null; })()}<input type="number" min="0" step="0.01" value={f.pesoU} placeholder={pU && pU.auto ? fN(pU.kg) : f.chapa ? 'obligatorio en chapas' : ''} onChange={e => set({ pesoU: e.target.value })} /></label>
+          <label>Peso por unidad (kg) {pU && pU.auto && <small className="mut">auto: {fN(pU.kgm)} kg/m</small>}{(() => { const pa = pU && !pU.auto && E.pesoUDe(S, { ...ff, pesoU: null }, it); return pa && Math.abs(pa.kg - pU.kg) / pa.kg > 0.05 ? <small className="tfal c-bad"> con el kg/m de StockApp da {fN(pa.kg)} kg: <button type="button" className="lnk sm" onClick={() => set({ pesoU: '' })}>usar ese</button></small> : null; })()}<input type="number" min="0" step="0.01" value={f.pesoU} placeholder={pU && pU.auto ? fN(pU.kg) : fv.chapa ? 'obligatorio en chapas' : ''} onChange={e => set({ pesoU: e.target.value })} /></label>
         </div></>}
       {!pm.admin && <p className="note">Solo un administrador edita las fichas.</p>}
     </div>
@@ -2924,7 +2968,8 @@ function Tiempos() {
   const { S, V, up, ui, pm, STK } = useApp();
   const [q, setQ] = useState(''); const [ab, setAb] = useState(() => prefG('tiempos-abiertas', [])); const [cot, setCot] = useState(null);
   useEffect(() => { guardaG('tiempos-abiertas', ab); }, [ab]);
-  const G = useMemo(() => E.tiempos(S), [S.tareas, S.cotizaciones, S.codigos, S.historico, S.operaciones]);
+  const G = useMemo(() => E.tiempos(S), [S.tareas, S.cotizaciones, S.codigos, S.historico, S.operaciones, S.fichas, S.familias]);
+  const [sel, setSel] = useState([]); const [agr, setAgr] = useState(false); const [vfam, setVfam] = useState(false);   // familias de tiempo: piezas tildadas para agrupar
   // sub-pestañas TPFR / TPFD (y "Otros" y "Sin código" solo si hay piezas de ese tipo) y filtro por operación
   const [serie, setSerie] = useState(() => prefG('tiempos-serie', 'TPFR')); const [fop, setFop] = useState(() => prefG('tiempos-op', ''));
   useEffect(() => { guardaG('tiempos-serie', serie); guardaG('tiempos-op', fop); }, [serie, fop]);
@@ -2957,6 +3002,8 @@ function Tiempos() {
         <input id="ti-q" type="search" placeholder="Buscar código o pieza" value={q} onChange={e => setQ(e.target.value)} />
         <button className="btn sm" onClick={() => setAb(ab.length ? [] : vis.map(g => g.k))}>{ab.length ? 'Cerrar todas' : 'Abrir todas'}</button>
         <select id="ti-ord" aria-label="Ordenar" value={orden} onChange={e => setOrden(e.target.value)}><option value="num">Orden: número correlativo</option><option value="costo-d">Orden: mayor costo</option><option value="costo-a">Orden: menor costo</option><option value="falta">Orden: costo incompleto primero</option></select>
+        {pm.admin && sel.length > 0 && <button className="btn pri-b" onClick={() => setAgr(true)} title="Las piezas tildadas pasan a compartir el tiempo estándar">Agrupar en familia (Group) <small>{sel.length}</small></button>}
+        {(S.familias || []).length > 0 && <button className="btn" onClick={() => setVfam(true)}>Familias <small>{(S.familias || []).length}</small></button>}
         {pm.admin && <button className="btn" onClick={() => setFfich(true)} title="Toma material y peso por unidad de las fabricaciones ya cargadas (historial del Costeador y tareas de la app)">Completar fichas desde el historial</button>}
         {pm.admin && <button className="btn pri-b" onClick={() => setCot({})}>+ Cotizar</button>}
       </div></div>
@@ -2967,12 +3014,15 @@ function Tiempos() {
       {faltan.length > 0 && <p className="note">Para ver costos falta cargar en Configuración: {faltan.join(' y ')}.</p>}
       {vis.length === 0 ? <Vacio ic={qq ? 'buscar' : 'reloj'} t={qq || fop ? 'Ninguna pieza coincide con el filtro' : `Todavía no hay tiempos ${serie === 'Otros' ? 'de otros códigos' : serie ? 'de piezas ' + serie : 'de piezas sin código'}`}>{qq || fop ? 'Probá con otra búsqueda u otra operación.' : 'Aparecen solos cuando se finaliza una tarea con horas reales cargadas.'}</Vacio>
         : <div className="tgrupos">{vis.map(g => { const on = ab.includes(g.k) || (!!qq && vis.length <= 3);
-          const { cu, parcial, falta: fl } = CG[g.k], fi = (S.fichas || {})[g.k] || {};
+          const { cu, parcial, falta: fl } = CG[g.k], fi = E.fichaDe(S, g.k) || {};
           return <div key={g.k} className={'dgrp tgrp' + (on ? ' on' : '')}>
-            <div className="dgrp-h"><button className="dgrp-t" aria-expanded={on} onClick={() => tog(g.k)}><span className="car">{on ? '▾' : '▸'}</span><b>{g.nombre}</b></button></div>
+            <div className="dgrp-h">{pm.admin && <input type="checkbox" className="tsel" aria-label={'Tildar ' + g.nombre} checked={sel.includes(g.k)} onChange={() => setSel(a => a.includes(g.k) ? a.filter(x => x !== g.k) : [...a, g.k])} />}<button className="dgrp-t" aria-expanded={on} onClick={() => tog(g.k)}><span className="car">{on ? '▾' : '▸'}</span><b>{g.nombre}</b></button></div>
             <div className="tg-res" onClick={() => tog(g.k)}>
               {g.n ? <span><b className="tg-prom">{fHM(g.prom)}</b> por unidad <span className="mut">· promedio de {g.n} {g.n === 1 ? 'vez' : 'veces'}</span></span> : <span className="mut">Sin fabricaciones todavía</span>}
-              {g.n > 0 && g.n < 3 && <span className="tag warn" title="Con 1 o 2 veces el promedio todavía no es confiable">pocos datos</span>}
+              {g.n > 0 && g.n < 3 && !(g.fh && g.fh.n >= 3) && <span className="tag warn" title="Con 1 o 2 veces el promedio todavía no es confiable">pocos datos</span>}
+              {g.fh ? <span className="tfam"><span className="tag fam">familia {g.fh.fam.nombre}</span> estándar <b>{fHM(g.fh.porUnidad)}</b> <span className="mut">· {g.fh.n} {g.fh.n === 1 ? 'vez' : 'veces'}, {g.fh.nPiezas} {g.fh.nPiezas === 1 ? 'pieza' : 'piezas'}</span>
+                {g.prom > 0 && g.fh.nPiezas > 1 && Math.abs(g.prom - g.fh.porUnidad) / g.fh.porUnidad > 0.2 && <span className="tag warn" title="Su promedio propio se aleja más de 20 % del de la familia: revisá si de verdad se fabrica igual">se aleja {Math.round((g.prom - g.fh.porUnidad) / g.fh.porUnidad * 100)}% de la familia</span>}</span>
+                : <SugFam k={g.k} nombre={g.nombre} chico />}
               {(() => { const rc = g.regs.filter(r => r.hc > 0 && !r.fuera && !r.cot); return rc.length > 0 && <span className="mut" title={`Promedio del corte de material en las ${rc.length === 1 ? 'vez' : rc.length + ' veces'} que se cargó aparte (ya está incluido en el promedio de la pieza)`}>✂ corte ≈ {fHM(rc.reduce((a, r) => a + r.hc / Math.max(1, r.cant), 0) / rc.length)} por unidad</span>; })()}
               {cu != null && <span title={parcial ? `Costo parcial: falta ${fl.join(', ')}` : 'Material + mano de obra, con los precios y tarifas de hoy'}>≈ <b>{fPlata(cu)}</b>{parcial && '*'} <span className="mut">por unidad</span></span>}
               {g.n > 0 && parcial && <span className="tag warn" title="Completá la ficha de la pieza (abrila con ▸)">falta {fl.join(', ')}</span>}
@@ -3015,7 +3065,45 @@ function Tiempos() {
     </section>
     {cot && <CotEditor r={cot} onClose={() => setCot(null)} />}
     {ffich && <FichasHist onClose={() => setFfich(false)} />}
+    {agr && <AgruparDlg ks={sel} G={G} onClose={ok => { setAgr(false); if (ok) setSel([]); }} />}
+    {vfam && <FamiliasDlg G={G} onClose={() => setVfam(false)} />}
   </div>;
+}
+// Agrupar en familia: las piezas tildadas van a una familia existente o a una nueva
+function AgruparDlg({ ks, G, onClose }) {
+  const { S, up, ui } = useApp(); const FAMS = S.familias || [];
+  const ya = [...new Set(ks.map(k => (E.familiaDe(S, k) || {}).id).filter(Boolean))];
+  const [id, setId] = useState(ya.length === 1 ? ya[0] : FAMS.length ? '' : '+'); const [nom, setNom] = useState('');
+  const gs = ks.map(k => G.find(g => g.k === k)).filter(Boolean), ops = [...new Set(gs.map(g => g.operacionId).filter(Boolean))];
+  const n = gs.reduce((a, g) => a + g.n, 0), pu = n ? gs.reduce((a, g) => a + (g.prom || 0) * g.n, 0) / n : null;
+  const ok = () => { if (id === '+' && !nom.trim()) { ui.toast('Poné el nombre de la familia'); return; } if (!id) { ui.toast('Elegí la familia'); return; }
+    up(s => { let a = s, fid = id; if (id === '+') [a, fid] = nuevaFam(a, nom); return ponFam(a, ks, fid); });
+    ui.toast(`${ks.length} ${ks.length === 1 ? 'pieza agrupada' : 'piezas agrupadas'} en la familia ${id === '+' ? nom.trim() : (FAMS.find(x => x.id === id) || {}).nombre}`); onClose(true); };
+  return <Modal title="Agrupar en familia de tiempo" onClose={() => onClose(false)} foot={<><span className="sp" /><button className="btn canc-b" onClick={() => onClose(false)}>Cancelar</button><button className="btn pri-b" data-enter onClick={ok}>Agrupar</button></>}>
+    <p className="mut">Estas piezas se fabrican igual: van a compartir el tiempo estándar (el promedio por unidad de todas juntas). El material, el largo y el peso siguen siendo de cada pieza.</p>
+    <ul className="famlst">{gs.map(g => <li key={g.k}><b>{g.nombre}</b> <span className="mut">· {g.n ? `${fHM(g.prom)} por unidad (${g.n} ${g.n === 1 ? 'vez' : 'veces'})` : 'sin fabricaciones'}{E.familiaDe(S, g.k) ? ` · hoy en ${E.familiaDe(S, g.k).nombre}` : ''}</span></li>)}</ul>
+    {pu != null && <p>Juntas: <b>{fHM(pu)}</b> por unidad <span className="mut">(sin contar las otras piezas que ya tenga la familia)</span></p>}
+    {ops.length > 1 && <p className="note">Ojo: tienen operaciones distintas ({ops.map(o => operName(S, o)).join(', ')}). Una familia debería tener una sola.</p>}
+    <label>Familia<select value={id} onChange={e => setId(e.target.value)}>{!FAMS.length ? null : <option value="">— Elegí —</option>}{FAMS.map(x => <option key={x.id} value={x.id}>{x.nombre} · {E.codsFamilia(S, x.id).length} piezas</option>)}<option value="+">+ Nueva familia…</option></select></label>
+    {id === '+' && <label>Nombre de la familia nueva<input autoFocus value={nom} onChange={e => setNom(e.target.value)} placeholder="por ejemplo Eje motor cinta, motor 1,5 HP" /></label>}
+  </Modal>;
+}
+// Familias: ver sus piezas, cambiarles el nombre, sacar piezas o borrar la familia (las piezas vuelven a su tiempo propio)
+function FamiliasDlg({ G, onClose }) {
+  const { S, up, ui, pm, stock } = useApp(); const NOM = useMemo(() => E.nombresPiezas(S), [S.tareas, S.historico, S.cotizaciones]);
+  const ren = x => { const n = prompt('Nombre de la familia', x.nombre); if (n && n.trim()) up(s => ({ ...s, familias: (s.familias || []).map(f => f.id === x.id ? { ...f, nombre: n.trim() } : f) })); };
+  const borrar = x => { if (!confirm(`¿Borrar la familia "${x.nombre}"? Sus piezas vuelven a tener su tiempo propio y su propio material.`)) return;
+    up(s => ({ ...ponFam(s, E.codsFamilia(s, x.id), ''), familias: (s.familias || []).filter(f => f.id !== x.id) })); ui.toast('Familia borrada'); };
+  const sacar = (x, k) => { up(s => ponFam(s, [k], '')); ui.toast('Pieza sacada de la familia ' + x.nombre); };
+  return <Modal title="Familias de tiempo" wide onClose={onClose} foot={<><span className="sp" /><button className="btn pri-b" data-enter onClick={onClose}>Listo</button></>}>
+    <p className="mut">Cada familia junta piezas que se fabrican igual. Para sumar piezas: tildalas en Tiempos y Costos y tocá "Agrupar en familia", o elegí la familia en la ficha de la pieza. Para cambiar el material de la familia, abrí la ficha de una de sus piezas.</p>
+    {(S.familias || []).map(x => { const ks = E.codsFamilia(S, x.id), h = ks.length ? E.historial(S, ks[0]) : null, fb = x.ficha || {}, it = fb.stockId && stock && stock.items ? stock.items.find(i => i.id === fb.stockId) : null;
+      return <div key={x.id} className="famcard"><div className="row"><b>{x.nombre}</b><span className="mut">{h ? `${fHM(h.porUnidad)} por unidad · ${h.n} ${h.n === 1 ? 'vez' : 'veces'}` : 'sin fabricaciones'}</span><span className="sp" />
+        {pm.admin && <><button className="btn sm" onClick={() => ren(x)}>✎ Nombre</button><button className="btn sm" onClick={() => borrar(x)}>🗑 Borrar</button></>}</div>
+        <small className="mut">Material de la familia: {fb.noMat ? 'no consume material de stock' : fb.stockId || fb.chapa ? (fb.chapa ? 'sale de chapa' : '') + (it ? (fb.chapa ? ' · ' : '') + nomIt(it) : fb.chapa ? '' : 'ítem de StockApp') : 'sin cargar (cada pieza el suyo)'}</small>
+        <ul className="famlst">{ks.map(k => { const g = G.find(y => y.k === k); return <li key={k}><span>{NOM[k] || k.toUpperCase()}</span> <span className="mut">· {g && g.n ? `${fHM(g.prom)} propio (${g.n} ${g.n === 1 ? 'vez' : 'veces'})` : 'sin fabricaciones'}{E.matPropio(E.fichaPropia(S, k)) ? ' · material propio' : ''}</span>
+          {pm.admin && <button className="lnk sm" onClick={() => sacar(x, k)}>sacar</button>} <button className="lnk sm" onClick={() => ui.ficha({ key: k, nombre: NOM[k] || k })}>ficha</button></li>; })}</ul></div>; })}
+  </Modal>;
 }
 // Completar fichas desde el historial: vista previa por pieza y se aplica solo con "Aplicar"
 function FichasHist({ onClose }) {
@@ -3064,7 +3152,7 @@ function CotEditor({ r, onClose }) {
       <label>Material genérico <small className="mut">si la pieza no tiene ítem de StockApp</small><select id="co-mat" value={c.material} onChange={e => set('material', e.target.value)}><option value="">—</option>{(S.materiales || []).map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}</select></label>
       <label>Peso total (kg)<input id="co-peso" type="number" min="0" step="0.1" value={c.peso} placeholder="de toda la cantidad" onChange={e => set('peso', e.target.value)} /></label>
       <label className="g2">Horas-hombre totales<span className="incalc"><input id="co-hh" type="number" min="0" step="0.5" value={c.hh} onChange={e => set('hh', e.target.value)} /><CalcBtn cant={Number(c.cant) || 0} titulo="Horas-hombre de la cotización" onUse={v => set('hh', Math.round(v * 100) / 100)} /></span>
-        {hist ? <small className="hint">Se hizo {hist.n} {hist.n === 1 ? 'vez' : 'veces'}: {fHM(hist.porUnidad)} por unidad × {fN(Number(c.cant) || 1)} = {fN(sug)} HH {Math.abs(sug - (Number(c.hh) || 0)) > 0.01 ? <button type="button" className="lnk sm" onClick={() => set('hh', sug)}>usar</button> : '(ya aplicado)'}</small>
+        {hist ? <small className="hint">Se hizo {hist.n} {hist.n === 1 ? 'vez' : 'veces'}{hist.fam ? ` (familia ${hist.fam.nombre})` : ''}: {fHM(hist.porUnidad)} por unidad × {fN(Number(c.cant) || 1)} = {fN(sug)} HH {Math.abs(sug - (Number(c.hh) || 0)) > 0.01 ? <button type="button" className="lnk sm" onClick={() => set('hh', sug)}>usar</button> : '(ya aplicado)'}</small>
           : c.nombre.trim() ? <small className="hint">Pieza sin historial: estimá las horas-hombre.</small> : null}</label>
     </div>
     <div className="cotres">
