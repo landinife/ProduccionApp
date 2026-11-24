@@ -84,9 +84,13 @@ export function iniciar() {
 export const escuchar = cb => onEstado(e => { if (e.fase === 'listo') cb(e.S, e.remoto); });
 // Stock de StockApp (solo lectura, nunca se escribe desde acá). Lo puede leer quien también es usuario de StockApp;
 // si no, avisa "sinacceso" y la app sigue funcionando sin el aviso de material.
+// Junto con los ítems llega el dólar de StockApp (stockapp_config/general → dolar), para pasar a USD los costos cargados en $.
 export function escucharStock(cb) {
-  return onSnapshot(collection(db, 'stockapp_items'), s => cb({ items: s.docs.map(d => ({ ...d.data(), id: d.id })), ts: Date.now() }),
-    e => cb({ error: e && e.code === 'permission-denied' ? 'sinacceso' : 'error', msg: e && e.message }));
+  let items = null, dolar = 0;
+  const err = e => cb({ error: e && e.code === 'permission-denied' ? 'sinacceso' : 'error', msg: e && e.message });
+  const a = onSnapshot(collection(db, 'stockapp_items'), s => { items = s.docs.map(d => ({ ...d.data(), id: d.id })); cb({ items, dolar, ts: Date.now() }); }, err);
+  const b = onSnapshot(doc(db, 'stockapp_config', 'general'), d => { dolar = Number((d.data() || {}).dolar) || 0; if (items) cb({ items, dolar, ts: Date.now() }); }, () => { });
+  return () => { a(); b(); };
 }
 
 // ---------- escritura: solo lo que cambió ----------

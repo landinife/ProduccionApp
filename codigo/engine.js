@@ -854,36 +854,79 @@ export const materialDe = (S, id) => (S.materiales || []).find(m => m.id === id)
 // Ficha de la pieza: material y peso por unidad, cargados una sola vez por código (S.fichas[código]).
 // Todas sus fabricaciones y cotizaciones los heredan; si una tiene su propio material o peso total, ese manda.
 export const fichaDe = (S, k) => (S.fichas || {})[k] || null;
-// costo de una fabricación o cotización: material (peso total × USD/kg) + mano de obra.
-// Todo se calcula al mostrarlo con el precio del material y la tarifa vigentes: al cambiarlos en Configuración, los costos se actualizan solos.
+// ---- Precio del material desde StockApp (24/11) ----
+// stk = { items: Map(id → ítem), dolar } (lo arma stkIdx con lo que llega de StockApp). El precio es el `costo` del ítem, por unidad de stock
+// (por m, kg, barra o unidad); lo escribe ComprasApp al emitir cada OC, siempre en USD. Si está en $ (cargado a mano en StockApp),
+// se pasa a USD con el dólar de la configuración de StockApp; sin dólar, ese ítem queda sin precio.
+export function stkIdx(stock) { if (!stock || !stock.items) return null; return { items: new Map(stock.items.map(i => [i.id, i])), dolar: Number(stock.dolar) || 0 }; }
+const esARS = m => /^(ars|\$|pesos?)$/i.test(String(m || '').trim());
+export function precioIt(it, stk) {
+  const c = Number(it && it.costo) || 0; if (!(c > 0)) return null;
+  const ci = it.costoInfo || {}, info = { fecha: ci.fecha || it.actualizado || null, oc: ci.origen === 'ComprasApp' ? ci.oc || '' : '', mano: ci.origen === 'StockApp' };
+  if (!esARS(it.moneda)) return { usd: c, ...info };
+  const d = stk ? stk.dolar : 0; return d > 0 ? { usd: c / d, ars: c, dolar: d, ...info } : { usd: null, ars: c, ...info };
+}
+// Peso por unidad: el escrito a mano en la ficha o, si el ítem de StockApp tiene kg/m (kgm), kgm × (largo + corte) / 1000.
+export function pesoUDe(S, f, it) {
+  if (f && Number(f.pesoU) > 0) return { kg: Number(f.pesoU), auto: false };
+  if (!f || !it || f.chapa || f.noMat || !(Number(it.kgm) > 0)) return null;
+  const c = consumoU(S, f, it), kgm = Number(it.kgm); if (!c) return null;
+  if (c.modo === 'm' || (c.modo === 'man' && (it.unidad || '').toLowerCase() === 'm')) return { kg: kgm * c.q, auto: true, kgm };
+  if (c.modo === 'barra') return { kg: kgm * (c.L + c.c) / 1000, auto: true, kgm };
+  return null;
+}
+// Material por unidad con el precio de StockApp: consumo por unidad × precio del ítem. En chapas (sale de chapa) el consumo es el peso
+// por unidad; si la chapa se cuenta por unidad, el precio por kg sale del costo ÷ kg por chapa (kgUn).
+export function matStock(S, f, stk) {
+  const it = f && f.stockId && stk ? stk.items.get(f.stockId) : null; if (!it) return null;
+  const pr = precioIt(it, stk), u = (it.unidad || '').toLowerCase();
+  if (!pr) return { it, falta: 'precio en StockApp' };
+  if (pr.usd == null) return { it, pr, falta: 'dólar de StockApp' };
+  if (f.chapa) { const kg = Number(f.pesoU) || 0; if (!(kg > 0)) return { it, pr, falta: 'peso' };
+    const pkg = u === 'kg' ? pr.usd : Number(it.kgUn) > 0 ? pr.usd / Number(it.kgUn) : null; if (pkg == null) return { it, pr, falta: 'kg por chapa en StockApp' };
+    return { it, pr, q: kg, u: 'kg', pu: pkg, usdU: kg * pkg }; }
+  const c = consumoU(S, f, it); if (!c) return { it, pr, falta: u === 'kg' ? 'peso' : 'largo' };
+  return { it, pr, c, q: c.q, u: it.unidad || 'un', pu: pr.usd, usdU: c.q * pr.usd };
+}
+// costo de una fabricación o cotización: material + mano de obra, con los precios y tarifas vigentes (se recalcula al mostrarlo).
+// Material: 1) el ítem de StockApp de la ficha, con su precio (consumo × precio); 2) respaldo mientras la pieza no tenga ítem con precio:
+// el material genérico de Configuración × peso (marcado "precio genérico"); 3) "no consume material de stock": sin costo de material.
 // Mano de obra: si viene el detalle por tarifa (historial importado), suma cada parte × su tarifa; si no, HH × la tarifa de la operación.
-function costoProp(S, r) {
+function costoProp(S, r, stk) {
   const f = fichaDe(S, r.k || claveCod(r.nombre)), cant = Math.max(1, Number(r.cant) || 1);
   const matId = r.material || (f && f.material) || '', m = materialDe(S, matId), hh = Number(r.hh) || 0;
-  const pesoProp = Number(r.peso) || 0, pesoFicha = f && Number(f.pesoU) > 0 ? Number(f.pesoU) * cant : 0, peso = pesoProp > 0 ? pesoProp : pesoFicha;
+  const ms = f && !f.noMat ? matStock(S, f, stk) : null, pU = f ? pesoUDe(S, f, ms && ms.it) : null;
+  const pesoProp = Number(r.peso) || 0, pesoFicha = pU ? pU.kg * cant : 0, peso = pesoProp > 0 ? pesoProp : pesoFicha;
   let mo = 0, vh = null, det = null; const falta = [];
   if (r.hhCat && Object.keys(r.hhCat).length) {
     det = Object.entries(r.hhCat).map(([id, h]) => { const t = vhDe(tarifaDe(S, id)); return { id, h: Number(h) || 0, t, nombre: (tarifaDe(S, id) || {}).nombre || '?' }; });
     if (det.some(d => !d.t)) falta.push('tarifa'); mo = det.reduce((a, d) => a + (d.t ? d.h * d.t.valor : 0), 0); vh = det.find(d => d.t) ? det.find(d => d.t).t : null;
   } else { vh = valorHora(S, r.nombre, r.operacionId); if (vh) mo = hh * vh.valor; else falta.push('tarifa'); }
-  const mat = m && peso > 0 ? peso * (Number(m.precio) || 0) : 0, total = mo + mat;
-  if (!m) falta.push('material'); else if (!(peso > 0)) falta.push('peso'); else if (!(Number(m.precio) > 0)) falta.push('precio del material');
-  return { mo, mat, total, unit: total / cant, vh, det, m, peso, falta, deFicha: { material: !r.material && !!(f && f.material), peso: !(pesoProp > 0) && pesoFicha > 0 } };
+  let mat = 0, fuente = '';
+  if (f && f.noMat) fuente = 'nomat';
+  else if (ms && ms.usdU != null) { mat = ms.usdU * cant; fuente = 'stock'; }
+  else if (m && peso > 0 && Number(m.precio) > 0) { mat = peso * Number(m.precio); fuente = 'generico'; }
+  else if (ms) falta.push(ms.falta);
+  else if (!m) falta.push('material'); else if (!(peso > 0)) falta.push('peso'); else falta.push('precio del material');
+  const total = mo + mat;
+  return { mo, mat, total, unit: total / cant, vh, det, m: fuente === 'generico' ? m : (fuente ? null : m), peso, falta, fuente, ms, pU,
+    matNom: fuente === 'stock' ? (ms.it.codigo ? ms.it.codigo + ' · ' : '') + (ms.it.descripcion || '') : fuente === 'generico' ? m.nombre : fuente === 'nomat' ? 'no consume material' : '',
+    deFicha: { material: !r.material && !!(f && f.material), peso: !(pesoProp > 0) && pesoFicha > 0 } };
 }
 // Costo de una fabricación. Un ensamblaje (pieza con hijas, por ejemplo soldada) suma su trabajo propio más el costo de todas sus hijas,
 // con el desglose en `hijas`; su propio material es opcional (normalmente está en las hijas).
-export function costo(S, r) {
-  const c = costoProp(S, r); if (!r.desg || !r.desg.length) return c;
-  const propio = { mo: c.mo, mat: c.mat, total: c.total, falta: c.falta.filter(x => x !== 'material' || c.m) };
-  const hijas = r.desg.map(d => { const x = costoProp(S, d); if (!d.terc && !(Number(d.hh) > 0)) x.falta = [...x.falta, 'horas']; if (d.terc) x.falta = []; return { ...d, c: x }; });
+export function costo(S, r, stk) {
+  const c = costoProp(S, r, stk); if (!r.desg || !r.desg.length) return c;
+  const propio = { mo: c.mo, mat: c.mat, total: c.total, falta: c.falta.filter(x => x !== 'material' || c.m) };   // un ensamblaje sin material propio no avisa
+  const hijas = r.desg.map(d => { const x = costoProp(S, d, stk); if (!d.terc && !(Number(d.hh) > 0)) x.falta = [...x.falta, 'horas']; if (d.terc) x.falta = []; return { ...d, c: x }; });
   const mo = c.mo + hijas.reduce((a, h) => a + h.c.mo, 0), mat = c.mat + hijas.reduce((a, h) => a + h.c.mat, 0), total = mo + mat, cant = Math.max(1, Number(r.cant) || 1);
   const faltaH = [...new Set(hijas.flatMap(h => h.c.falta))].map(x => x + ' de las hijas');
   return { ...c, mo, mat, total, unit: total / cant, falta: [...propio.falta, ...faltaH], propio, hijas };
 }
 // costo por unidad de una pieza (grupo de Tiempos): promedio de sus fabricaciones con costo completo;
 // si ninguna está completa, el promedio de lo que se pudo calcular, marcado como parcial con lo que falta
-export function costoGrupo(S, g) {
-  const cs = g.regs.filter(r => !r.cot && !r.fuera).map(r => costo(S, r)), ok = cs.filter(c => !c.falta.length);
+export function costoGrupo(S, g, stk) {
+  const cs = g.regs.filter(r => !r.cot && !r.fuera).map(r => costo(S, r, stk)), ok = cs.filter(c => !c.falta.length);
   const base = ok.length ? ok : cs.filter(c => c.total > 0);
   if (!base.length) return { cu: null, parcial: false, falta: [...new Set(cs.flatMap(c => c.falta))] };
   return { cu: base.reduce((a, c) => a + c.unit, 0) / base.length, parcial: !ok.length, falta: ok.length ? [] : [...new Set(base.flatMap(c => c.falta))] };
