@@ -1489,3 +1489,10 @@ select.ci.est.e-proximo { background: transparent; }
 .tefi .fstk { flex-basis: auto; font-size: 14px; }
 .fstk .btn { align-self: center; }
 .impf { display: flex; flex-direction: column; gap: 4px; }
+
+/* Calendario mensual de Operarios: lo planificado de hoy en adelante (24/11) */
+.oc-pl { background: repeating-linear-gradient(135deg, var(--c) 0 3px, color-mix(in srgb, var(--c) 35%, transparent) 3px 6px) !important; }
+.oc-bar i.oc-pl { opacity: .85; }
+.oc-l .pl { font-style: italic; }
+.oc-k.oc-pl { border-color: var(--c); }
+.oc-st { margin: 12px 0 6px; font-size: 13px; color: var(--mut); text-transform: uppercase; letter-spacing: .04em; }

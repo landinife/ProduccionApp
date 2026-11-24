@@ -2030,20 +2030,23 @@ function Operarios() {
 const TIPOS = ['proy', 'rep', 'pv', 'tl'];
 const ABR_EST = { proy: 'Proy.', rep: 'Rep.', pv: 'PV', tl: 'Taller' };
 // Cómo quedó cargado un día de un operario: disponible, horas por tipo, sin asignar, de más y si hay que revisarlo
-function diaOp(S, CD, op, d, hoy) {
+// Las piezas sin finalizar cuentan con lo planificado (lo mismo que muestra la Semana de Producción); las finalizadas, con sus HH reales.
+function diaOp(S, CD, op, d, hoy, PD = {}) {
   const dp = E.dispDia(S, op, d), c = CD[op + '|' + d] || { proy: 0, rep: 0, pv: 0, tl: 0, total: 0, glob: 0, items: [] };
-  const fut = d > hoy, sin = fut ? 0 : Math.max(0, dp - c.total), exc = c.total - dp;
+  const p = PD[op + '|' + d] || { proy: 0, rep: 0, pv: 0, tl: 0, total: 0, items: [] };
+  const fut = d > hoy, sin = fut ? 0 : Math.max(0, dp - c.total - p.total), exc = c.total + p.total - dp;
   const aus = E.ausenciaDe(S, op, d), fer = E.feriadoDe(S, d), finde = !E.isWork(S, d);
   const motivo = aus ? aus.motivo : fer ? fer.nombre : finde && dp <= 0 ? '' : '';
   const alerta = exc > 0.05 ? 'over' : !fut && d < hoy && dp > 0 && sin >= Math.max(0.5, dp * 0.25) ? 'falta' : '';
-  return { d, dp, c, fut, sin, exc, aus, fer, finde, motivo, alerta };
+  return { d, dp, c, p, fut, sin, exc, aus, fer, finde, motivo, alerta };
 }
 function CalOperarios({ cab }) {
   const { S, V, ui, pm } = useApp(); const hoy = E.today();
   const ops = S.operarios.filter(o => o.activo !== false);
   const [oid, setOid] = useState(() => { try { return localStorage.getItem(KEY + '-calop') || ''; } catch (e) { return ''; } });
   const [mes, setMes] = useState(hoy.slice(0, 7)); const [sel, setSel] = useState(null);
-  const CD = useMemo(() => E.cargaDiaria(S, V), [S, V]);
+  const CD = useMemo(() => E.cargaDiaria(S, V, true), [S, V]);
+  const PD = useMemo(() => E.planDiaria(S, V), [S, V]);
   const o = ops.find(x => x.id === oid) || ops[0];
   const elegir = id => { setOid(id); setSel(null); try { localStorage.setItem(KEY + '-calop', id); } catch (e) { } };
   const antes = k => { const [y, m] = k.split('-').map(Number); return m === 1 ? `${y - 1}-12` : `${y}-${E.pad(m - 1)}`; };
@@ -2051,23 +2054,24 @@ function CalOperarios({ cab }) {
   const d1 = mes + '-01', dUlt = E.addDays(E.mesSig(mes) + '-01', -1);
   const delMes = []; for (let d = d1; d <= dUlt; d = E.addDays(d, 1)) delMes.push(d);
   // días a revisar de cada operario en el mes (para marcar la tira de nombres)
-  const nAlertas = useMemo(() => { const r = {}; ops.forEach(x => { r[x.id] = delMes.filter(d => d <= hoy && diaOp(S, CD, x.id, d, hoy).alerta).length; }); return r; }, [S, CD, mes, hoy]);
+  const nAlertas = useMemo(() => { const r = {}; ops.forEach(x => { r[x.id] = delMes.filter(d => d <= hoy && diaOp(S, CD, x.id, d, hoy, PD).alerta).length; }); return r; }, [S, CD, PD, mes, hoy]);
   const tira = <div className="ttira">{ops.map(x => <button key={x.id} className={'tq' + (o && x.id === o.id ? ' on' : '')} onClick={() => elegir(x.id)} title={nAlertas[x.id] ? `${nAlertas[x.id]} ${nAlertas[x.id] === 1 ? 'día' : 'días'} para revisar este mes` : 'Sin días para revisar este mes'}>
     <Av o={x} i={S.operarios.indexOf(x)} /><b>{x.nombre}</b>{nAlertas[x.id] > 0 && <span className="oc-cnt">{nAlertas[x.id]}</span>}</button>)}</div>;
   if (!o) return <div className="view">{cab}<Vacio ic="gente" t="Todavía no hay operarios activos">Se agregan en Configuración.</Vacio></div>;
-  const dias = delMes.map(d => diaOp(S, CD, o.id, d, hoy));
+  const dias = delMes.map(d => diaOp(S, CD, o.id, d, hoy, PD));
   const lun = E.dow(d1) === 0 ? 6 : E.dow(d1) - 1;   // casillas vacías antes del día 1 (la semana arranca el lunes)
-  const tot = dias.reduce((a, x) => { TIPOS.forEach(k => { a[k] += x.c[k]; }); a.total += x.c.total; a.glob += x.c.glob; a.disp += x.dp; if (!x.fut) { a.dispH += x.dp; a.sin += x.sin; } if (x.exc > 0.05) a.exc += x.exc; if (x.alerta) a.rev++; return a; }, { proy: 0, rep: 0, pv: 0, tl: 0, total: 0, glob: 0, disp: 0, dispH: 0, sin: 0, exc: 0, rev: 0 });
+  const tot = dias.reduce((a, x) => { TIPOS.forEach(k => { a[k] += x.c[k]; }); a.total += x.c.total; a.glob += x.c.glob; a.disp += x.dp; a.plan += x.p.total; if (!x.fut) { a.dispH += x.dp; a.sin += x.sin; } if (x.exc > 0.05) a.exc += x.exc; if (x.alerta) a.rev++; return a; }, { proy: 0, rep: 0, pv: 0, tl: 0, total: 0, glob: 0, disp: 0, dispH: 0, sin: 0, exc: 0, rev: 0, plan: 0 });
   const asigs = (S.asignaciones || []).filter(a => a.opId === o.id && a.desde <= dUlt && (a.hasta || a.desde) >= d1).sort((a, b) => a.desde < b.desde ? -1 : 1);
   const xs = sel && dias.find(x => x.d === sel);
   const nuevaAsig = () => ui.modal({ k: 'asig', opId: o.id, desde: sel || (d1 <= hoy ? d1 : hoy), hasta: sel || (dUlt < hoy ? dUlt : hoy) });
-  const celda = x => { const ancho = Math.max(x.dp, x.c.total, 0.0001), vac = x.dp <= 0 && x.c.total <= 0;
+  const celda = x => { const ancho = Math.max(x.dp, x.c.total + x.p.total, 0.0001), vac = x.dp <= 0 && x.c.total <= 0 && x.p.total <= 0;
     return <button key={x.d} className={'oc-d' + (x.alerta ? ' ' + x.alerta : '') + (x.fut ? ' fut' : '') + (vac ? ' vac' : '') + (x.d === hoy ? ' hoy' : '') + (x.d === sel ? ' sel' : '') + (x.c.glob > 0 ? ' glob' : '') + (x.aus && E.colorAus(S, x.aus.motivo) ? ' aus-c' : '')} style={E.ausStyle(S, x.aus)} onClick={() => setSel(x.d === sel ? null : x.d)}
-      aria-label={`${E.fDia(x.d)}: ${fN(x.c.total)} h cargadas de ${fN(x.dp)} disponibles`}>
+      aria-label={`${E.fDia(x.d)}: ${fN(x.c.total)} h cargadas${x.p.total > 0.05 ? ` y ${fN(x.p.total)} h planificadas` : ''} de ${fN(x.dp)} disponibles`}>
       <span className="oc-h"><b>{Number(x.d.slice(8))}</b><span className="oc-dn">{E.fDia(x.d).slice(0, 3)}</span>{x.dp > 0 && <small>{fN(x.dp)} h</small>}</span>
       {(x.aus || x.fer) && <small className="oc-mot">{x.aus ? x.aus.motivo : x.fer.nombre}</small>}
-      {!vac && <span className="oc-bar" title={`${fN(x.c.total)} h cargadas de ${fN(x.dp)} disponibles`}>{TIPOS.map(k => x.c[k] > 0 && <i key={k} style={{ width: x.c[k] / ancho * 100 + '%', background: COL_EST[k] }} />)}{x.sin > 0 && <i className="oc-sin" style={{ width: x.sin / ancho * 100 + '%' }} />}</span>}
+      {!vac && <span className="oc-bar" title={`${fN(x.c.total)} h cargadas de ${fN(x.dp)} disponibles`}>{TIPOS.map(k => x.c[k] > 0 && <i key={k} style={{ width: x.c[k] / ancho * 100 + '%', background: COL_EST[k] }} />)}{TIPOS.map(k => x.p[k] > 0 && <i key={'p' + k} className="oc-pl" style={{ width: x.p[k] / ancho * 100 + '%', '--c': COL_EST[k] }} />)}{x.sin > 0 && <i className="oc-sin" style={{ width: x.sin / ancho * 100 + '%' }} />}</span>}
       {!vac && <span className="oc-l">{TIPOS.map(k => x.c[k] > 0.05 && <span key={k}><i style={{ background: COL_EST[k] }} />{ABR_EST[k]} <b>{fN(x.c[k])}</b></span>)}
+        {TIPOS.map(k => x.p[k] > 0.05 && <span key={'p' + k} className="pl"><i className="oc-pl" style={{ '--c': COL_EST[k] }} />{ABR_EST[k]} plan. <b>{fN(x.p[k])}</b></span>)}
         {x.sin > 0.05 && <span className="sin"><i />Sin asig. <b>{fN(x.sin)}</b></span>}</span>}
       {x.exc > 0.05 && <small className="oc-exc">+{fN(x.exc)} h de más</small>}
     </button>; };
@@ -2078,13 +2082,14 @@ function CalOperarios({ cab }) {
       <div className="kpis oc-kpis">
         <div className="kpi"><span>Disponible</span><b>{fN(tot.disp)} h</b><em>{fN(tot.dispH)} h hasta hoy</em></div>
         {TIPOS.map(k => <div key={k} className="kpi"><span><i className="est-dot" style={{ background: COL_EST[k] }} />{NOM_EST[k]}</span><b>{fN(tot[k])} h</b><em>{pcE(tot.dispH > 0 ? tot[k] / tot.dispH * 100 : null)} de lo disponible</em></div>)}
+        {tot.plan > 0.05 && <div className="kpi"><span><i className="est-dot oc-pl" style={{ '--c': 'var(--accent)' }} />Planificado</span><b>{fN(tot.plan)} h</b><em>piezas sin finalizar · {pcE(tot.disp > 0 ? tot.plan / tot.disp * 100 : null)} del mes</em></div>}
         <div className={'kpi' + (tot.sin > 0.05 ? ' warn' : '')}><span><i className="est-dot oc-sin" />Sin asignar</span><b>{fN(tot.sin)} h</b><em>hasta hoy{tot.exc > 0.05 ? ` · ${fN(tot.exc)} h cargadas de más` : ''}</em></div>
       </div>
-      <p className="mut oc-ley"><span className="oc-k over" /> cargó más de lo disponible · <span className="oc-k falta" /> quedó un cuarto o más sin asignar · <span className="oc-k glob" /> incluye carga global · {tot.rev ? <b className="c-bad">{tot.rev} {tot.rev === 1 ? 'día para revisar' : 'días para revisar'}</b> : <b className="c-ok">ningún día para revisar</b>}</p>
+      <p className="mut oc-ley"><span className="oc-k over" /> cargó más de lo disponible · <span className="oc-k falta" /> quedó un cuarto o más sin asignar · <span className="oc-k glob" /> incluye carga global · <i className="oc-k oc-pl" style={{ '--c': 'var(--accent)' }} /> planificado (sin finalizar) · {tot.rev ? <b className="c-bad">{tot.rev} {tot.rev === 1 ? 'día para revisar' : 'días para revisar'}</b> : <b className="c-ok">ningún día para revisar</b>}</p>
       <div className="oc-cal">{['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'].map(n => <span key={n} className="oc-dh">{n}</span>)}
         {Array.from({ length: lun }, (_, i) => <span key={'v' + i} className="oc-pad" />)}{dias.map(celda)}</div>
       {xs && <DiaOpDet x={xs} o={o} cerrar={() => setSel(null)} />}
-      <p className="mut">Las horas de una pieza se reparten en partes iguales entre los días hábiles que duró y entre sus operarios: en piezas de varios días el reparto diario es aproximado (el total de la pieza es exacto). No entran las tercerizadas, las finalizadas sin día puntual ni el cronómetro que todavía corre.</p>
+      <p className="mut">Las horas de una pieza se reparten en partes iguales entre los días hábiles que duró y entre sus operarios: en piezas de varios días el reparto diario es aproximado (el total de la pieza es exacto). Una pieza sin finalizar cuenta con sus horas planificadas en los días que ocupa en la Semana de Producción (rayado, «plan.»); al finalizarla pasa a contar con sus HH reales. No entran las tercerizadas ni las finalizadas sin día puntual.</p>
     </section>
     <section><div className="sec-h"><h3>Cargas globales de {o.nombre} en el mes <span className="cnt">{asigs.length}</span></h3></div>
       {asigs.length === 0 ? <p className="mut">No hay cargas globales en este mes. Se usan cuando no se cargaron las tareas puntuales (viajes, vacaciones): elegís operario, fechas, destino y horas.</p>
@@ -2096,11 +2101,15 @@ function CalOperarios({ cab }) {
 function DiaOpDet({ x, o, cerrar }) {
   const { S, V, ui, pm } = useApp(); const s0 = E.schedAt(S, x.d), jor = E.capN(S, o.id, x.d), ext = x.aus ? 0 : E.extraDe(S, o.id, x.d);
   return <div className="calg-det oc-det"><div className="sec-h"><h3>{E.fDia(x.d)} · {o.nombre}</h3><button className="btn sm" onClick={cerrar}>Cerrar</button></div>
-    <p className="mut">{x.aus ? `Ausente: ${x.aus.motivo}. ` : x.fer ? `Feriado: ${x.fer.nombre}. ` : x.finde && !ext ? 'Fin de semana. ' : ''}Disponible {fN(x.dp)} h{x.dp > 0 ? ` (jornada ${fN(jor)} h${ext ? ` + ${fN(ext)} h extra` : ''})` : ''} · cargadas {fN(x.c.total)} h{x.fut ? '' : ` · sin asignar ${fN(x.sin)} h`}{x.exc > 0.05 ? ` · ${fN(x.exc)} h de más` : ''}</p>
+    <p className="mut">{x.aus ? `Ausente: ${x.aus.motivo}. ` : x.fer ? `Feriado: ${x.fer.nombre}. ` : x.finde && !ext ? 'Fin de semana. ' : ''}Disponible {fN(x.dp)} h{x.dp > 0 ? ` (jornada ${fN(jor)} h${ext ? ` + ${fN(ext)} h extra` : ''})` : ''} · cargadas {fN(x.c.total)} h{x.p.total > 0.05 ? ` · planificadas ${fN(x.p.total)} h` : ''}{x.fut ? '' : ` · sin asignar ${fN(x.sin)} h`}{x.exc > 0.05 ? ` · ${fN(x.exc)} h de más` : ''}</p>
     {x.alerta === 'over' && <p className="note bad">Se cargaron más horas de las que tenía disponibles. Revisá las horas reales de las piezas de abajo, si las extras están habilitadas ese día, o si una pieza quedó con un inicio o un fin equivocado (sus horas se reparten entre todos los días que duró).</p>}
     {x.c.solapado > 0.05 && <p className="note">Este día el operario llevó a la vez piezas de dos operaciones que se pueden solapar: se le cuentan {fN(x.c.solapado)} h menos (la operación que más horas llevó cuenta completa). Cada pieza conserva sus horas reales completas.</p>}
     {x.alerta === 'falta' && <p className="note">Quedaron {fN(x.sin)} h sin asignar. Puede faltar cargar una tarea o sus horas reales, o una ausencia.</p>}
-    {x.c.items.length === 0 ? <p className="mut">No hay horas cargadas este día.</p> : <div className="al-l">{x.c.items.map((it, i) => { const t = it.t && V.byId[it.t], a = it.a && !it.sal && (S.asignaciones || []).find(z => z.id === it.a), sa = it.sal && (S.ausencias || []).find(z => z.id === it.sal);
+    {x.p.items.length > 0 && <><h4 className="oc-st">Planificado <span className="cnt">{x.p.items.length}</span></h4><div className="al-l">{x.p.items.map(it => { const t = V.byId[it.t]; if (!t) return null;
+      return <div key={'p' + it.t} className="al-r"><div className="al-b"><span className="row"><Chip t={t} small /><b>{etiqueta(V, t)}</b></span><span className="mut"><i className="est-dot oc-pl" style={{ '--c': COL_EST[it.tipo] }} />{NOM_EST[it.tipo]} · {fN(it.h)} h planificadas este día · {({ 'en proceso': 'En proceso', proximo: 'Próximo a realizar', pendiente: 'Pendiente' })[t.estado] || t.estado} · {fDT(t.inicio)} → {fDT(V.D[t.id].fin)}</span></div>
+        <div className="al-a"><button className="btn sm" onClick={() => ui.modal({ k: 'task', id: t.id })}>Abrir</button></div></div>; })}</div>
+      {x.c.items.length > 0 && <h4 className="oc-st">Finalizadas y cargas globales (horas reales)</h4>}</>}
+    {x.c.items.length === 0 ? (x.p.items.length ? null : <p className="mut">No hay horas cargadas este día.</p>) : <div className="al-l">{x.c.items.map((it, i) => { const t = it.t && V.byId[it.t], a = it.a && !it.sal && (S.asignaciones || []).find(z => z.id === it.a), sa = it.sal && (S.ausencias || []).find(z => z.id === it.sal);
       return <div key={i} className="al-r"><div className="al-b">{t ? <><span className="row"><Chip t={t} small /><b>{etiqueta(V, t)}</b></span><span className="mut"><i className="est-dot" style={{ background: COL_EST[it.tipo] }} />{NOM_EST[it.tipo]} · {fN(it.h)} h este día{it.hCompleta ? ` (de ${fN(it.hCompleta)} h: corrió a la vez con otra operación)` : ''} · la pieza tiene {fN(it.real)} h reales{it.dias > 1 ? ` repartidas en ${it.dias} días` : ''}{t.ops.length > 1 ? ` entre ${t.ops.length} operarios` : ''} · {fDT(t.inicio)} → {fDT(t.finReal || V.D[t.id].fin)}</span></>
         : a ? <><b><i className="est-dot" style={{ background: COL_EST[it.tipo] }} />Carga global: {E.destinoNom(S, a.destino)}</b><span className="mut">{fN(it.h)} h este día · {fN(Number(a.horas) || 0)} h del {fD(a.desde)} al {fD(a.hasta || a.desde)}{a.nota ? ' · ' + a.nota : ''}</span></> : sa ? <><b><i className="est-dot" style={{ background: COL_EST[it.tipo] }} />Salida a Post Venta: {E.destinoNom(S, sa.destino)}</b><span className="mut">{fN(it.h)} h este día · sale {fD(sa.desde)}{sa.desdeHora ? ' ' + sa.desdeHora : ''} → vuelve {fD(sa.hasta)}{sa.hastaHora ? ' ' + sa.hastaHora : ''}{sa.nota ? ' · ' + sa.nota : ''}</span></> : null}</div>
         <div className="al-a">{t && <button className="btn sm" onClick={() => ui.modal({ k: 'task', id: t.id })}>Abrir</button>}{sa && pm.admin && <button className="btn sm" onClick={() => ui.modal({ k: 'salida', id: sa.id })}>Editar</button>}{a && pm.admin && <button className="btn sm" onClick={() => ui.modal({ k: 'asig', id: a.id })}>Editar</button>}</div></div>; })}</div>}
@@ -2113,8 +2122,8 @@ function AsigDlg({ id, opId, desde, hasta, onClose }) {
   const set = (k, v) => setF(x => ({ ...x, [k]: v }));
   const rangoOk = f.desde && f.hasta && f.hasta >= f.desde && E.diffDays(f.desde, f.hasta) <= 366;
   // ayuda: horas disponibles y ya cargadas en esas fechas (sin contar esta misma carga)
-  const ay = useMemo(() => { if (!f.opId || !rangoOk) return null; const CD = E.cargaDiaria({ ...S, asignaciones: (S.asignaciones || []).filter(a => a.id !== f.id) }, V); let disp = 0, carg = 0, libre = 0, dias = 0;
-    for (let d = f.desde; d <= f.hasta; d = E.addDays(d, 1)) { const dp = E.dispDia(S, f.opId, d), c = (CD[f.opId + '|' + d] || {}).total || 0; disp += dp; carg += c; libre += Math.max(0, dp - c); if (dp > 0) dias++; }
+  const ay = useMemo(() => { if (!f.opId || !rangoOk) return null; const CD = E.cargaDiaria({ ...S, asignaciones: (S.asignaciones || []).filter(a => a.id !== f.id) }, V, true), PD = E.planDiaria(S, V); let disp = 0, carg = 0, libre = 0, dias = 0;
+    for (let d = f.desde; d <= f.hasta; d = E.addDays(d, 1)) { const dp = E.dispDia(S, f.opId, d), c = ((CD[f.opId + '|' + d] || {}).total || 0) + ((PD[f.opId + '|' + d] || {}).total || 0); disp += dp; carg += c; libre += Math.max(0, dp - c); if (dp > 0) dias++; }
     return { disp, carg, libre, dias }; }, [S, V, f.opId, f.desde, f.hasta, f.id]);
   const h = Number(String(f.horas).replace(',', '.'));
   const ok = f.opId && f.destino && rangoOk && h > 0;

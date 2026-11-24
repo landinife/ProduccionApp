@@ -1190,10 +1190,11 @@ export function diasAsig(S, a) {
 // Lo cargado a cada operario día por día (clave "op|día"): HH reales de las piezas y cargas globales, separado por tipo.
 // Una pieza de varios operarios reparte sus horas en partes iguales entre ellos; una pieza de varios días, entre sus días hábiles.
 // No entran: tercerizadas, finalizadas sin día puntual, piezas sin operario y el cronómetro que todavía corre.
-export function cargaDiaria(S, V) {
+// soloFin: solo las piezas finalizadas (el calendario mensual muestra las demás con lo planificado, ver planDiaria).
+export function cargaDiaria(S, V, soloFin = false) {
   const R = {}; const C = (op, d) => R[op + '|' + d] = R[op + '|' + d] || { proy: 0, rep: 0, pv: 0, tl: 0, total: 0, glob: 0, items: [] };
   const prs = new Map((S.proyectos || []).map(p => [p.id, p]));
-  S.tareas.forEach(t => { const r = V.D[t.id]; if (!r || r.parent || t.tercerizada || t.sinFecha) return;
+  S.tareas.forEach(t => { const r = V.D[t.id]; if (!r || r.parent || t.tercerizada || t.sinFecha || (soloFin && t.estado !== 'terminada')) return;
     const real = Math.max(0, Number(t.hhReal) || 0), os = t.ops || []; if (!(real > 0) || !os.length) return;
     const ds_ = diasPieza(S, t, r); if (!ds_.length) return;
     const tipo = t.tipo === 'proy' ? claseP(prs.get(t.proyId)) : 'rep', h = real / ds_.length / os.length;
@@ -1210,6 +1211,24 @@ export function cargaDiaria(S, V) {
     c.items.forEach(i => { if (!i.sol) return; const nh = i.h * f, dif = i.h - nh; c[i.tipo] -= dif; c.total -= dif; i.hCompleta = i.h; i.h = nh; }); c.solapado = tot - keep; });
   return R;
 }
+
+// Lo planificado a cada operario día por día (clave "op|día"), tomado de la misma carga que la Semana de Producción (V.load).
+// Solo piezas sin finalizar: mientras no se finaliza, una pieza cuenta con sus horas planificadas en los días que ocupa;
+// al finalizarla pasa a contar con sus HH reales (cargaDiaria con soloFin). No entran tercerizadas ni finalizadas sin día puntual.
+export function planDiaria(S, V) {
+  const R = {}; const prs = new Map((S.proyectos || []).map(p => [p.id, p]));
+  Object.entries(V.load || {}).forEach(([k, c]) => { const [op, d] = k.split('|');
+    (c.items || []).forEach(i => { const t = V.byId[i.id]; if (!t || t.estado === 'terminada' || t.tercerizada || t.sinFecha || !(i.h > 0.001)) return;
+      const tipo = t.tipo === 'proy' ? claseP(prs.get(t.proyId)) : 'rep', h = i.h;
+      const x = R[op + '|' + d] = R[op + '|' + d] || { proy: 0, rep: 0, pv: 0, tl: 0, total: 0, items: [] };
+      x[tipo] += h; x.total += h;
+      const ya = x.items.find(z => z.t === t.id); if (ya) ya.h += h; else x.items.push({ t: t.id, tipo, h, plan: true }); }); });
+  // Solapadas: igual que en la Semana, el operario cuenta una sola vez lo que corre a la vez
+  Object.entries(R).forEach(([k, x]) => { const [op, d] = k.split('|'); let sol = 0; ['normal', 'extra'].forEach(tu => { sol += (V.load[`${op}|${d}|${tu}`] || {}).solapado || 0; });
+    if (sol > 0.001) { const f = Math.max(0, x.total - sol) / x.total; TIPOS_C.forEach(tp => { x[tp] *= f; }); x.total *= f; } });
+  return R;
+}
+const TIPOS_C = ['proy', 'rep', 'pv', 'tl'];
 
 // ---- Estadísticas de horas-hombre (pestaña Estadísticas) ----
 // Reparte las HH reales de cada pieza entre los días hábiles que duró (inicio → fin real, o fin planificado) y de ahí saca meses, % y totales.
