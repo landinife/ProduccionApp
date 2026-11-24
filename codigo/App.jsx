@@ -79,14 +79,23 @@ export function Cargando({ txt = 'Cargando datos…' }) {
       <p className="mut esq-txt">{txt}</p></div></main></div>;
 }
 function etiqueta(V, t) { const p = t.parentId && V.byId[t.parentId]; return p && !p.partes ? `${t.nombre} · ${p.nombre}` : t.nombre; }
-function Modal({ title, onClose, children, wide, foot, arriba }) {
+// Enter en una ventana = el botón principal del pie (Guardar, Aplicar, Agregar…): el que tiene data-enter o, si no, el último pri-b / terc-b / warn-b habilitado.
+// También desde una lista (por ejemplo el ítem de StockApp en la ficha). No actúa en textos de varias líneas, botones, tablas ni cuando otro control ya usó el Enter.
+function enterGuarda(e) {
+  if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey || e.defaultPrevented || e.nativeEvent.isComposing) return;
+  const el = e.target; if (!el || !el.closest || el.closest('textarea, button, a, table, [contenteditable="true"]')) return;
+  const m = e.currentTarget, f = m.querySelector(':scope > footer'); if (!f) return;
+  const b = f.querySelector('button[data-enter]:not(:disabled)') || [...f.querySelectorAll('button.pri-b:not(:disabled), button.terc-b:not(:disabled), button.warn-b:not(:disabled)')].pop();
+  if (!b) return; e.preventDefault(); e.stopPropagation(); if (el.blur) el.blur(); setTimeout(() => b.click(), 0);   // blur primero: los campos que guardan al salir llegan a guardar
+}
+function Modal({ title, onClose, children, wide, foot, arriba, footCls }) {
   // arriba: ventana que se abre encima de otra (por ejemplo la ficha sobre el editor); Esc cierra solo esta
   useEffect(() => { const k = e => { if (e.key === 'Escape') { if (arriba) e.stopImmediatePropagation(); onClose(); } }; window.addEventListener('keydown', k, !!arriba); return () => window.removeEventListener('keydown', k, !!arriba); }, [onClose]);
   return <div className={'ovl' + (arriba ? ' ovl-arriba' : '')} onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-    <div className={'modal' + (wide ? ' wide' : '')} role="dialog" aria-label={title}>
+    <div className={'modal' + (wide ? ' wide' : '')} role="dialog" aria-label={title} onKeyDown={enterGuarda}>
       <header><h2>{title}</h2><button className="btn ghost" onClick={onClose} aria-label="Cerrar">Cerrar</button></header>
       <div className="modal-b">{children}</div>
-      {foot && <footer>{foot}</footer>}
+      {foot && <footer className={footCls}>{foot}</footer>}
     </div>
   </div>;
 }
@@ -772,7 +781,7 @@ function FiltroPop({ titulo, k, valores, elegidos, orden, pos, onOk, onOrden, on
     <button className={'fpop-o' + (orden === 1 ? ' on' : '')} onClick={() => onOrden(orden === 1 ? 0 : 1)}>↑ {az[0]}</button>
     <button className={'fpop-o' + (orden === -1 ? ' on' : '')} onClick={() => onOrden(orden === -1 ? 0 : -1)}>↓ {az[1]}</button>
     <hr />
-    <input type="search" autoFocus placeholder="Buscar…" value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') aceptar(); }} />
+    <input type="search" autoFocus placeholder="Buscar…" value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); aceptar(); } }} />
     <div className="fpop-l">
       <label className="fpop-all"><input type="checkbox" checked={todosVis} onChange={togTodos} /> {ql ? '(Seleccionar todos los resultados)' : '(Seleccionar todo)'}</label>
       {vis.map(v => <label key={v.v} title={v.v}><input type="checkbox" checked={m.has(v.v)} onChange={() => tog(v.v)} /><span className={v.v === VACIO ? 'mut' : ''}>{v.v}</span><small>{v.n}</small></label>)}
@@ -1136,7 +1145,7 @@ function HorasReales({ t }) {
   const { up, ui } = useApp(); const [h, setH] = useState(''); const [m, setM] = useState('');
   const guardar = v => { const x = v !== undefined ? v : (Number(String(h).replace(',', '.')) || 0) + (Number(m) || 0) / 60; if (!(x > 0)) { ui.toast('Cargá las horas reales'); return; } const r = Math.round(x * 100) / 100;
     up(s => E.patchTask(s, t.id, { hhReal: r, crono: { acum: r, desde: null } })); ui.toast(`${t.nombre}: ${fHM(r)} reales cargadas`); };
-  const enter = e => { if (e.key === 'Enter') guardar(); };
+  const enter = e => { if (e.key === 'Enter') { e.preventDefault(); guardar(); } };
   return <span className="hreal"><input className="num" type="number" min="0" step="0.5" placeholder="h" aria-label="Horas" value={h} onChange={e => setH(e.target.value)} onKeyDown={enter} /><span>h</span>
     <input className="num" type="number" min="0" max="59" step="5" placeholder="min" aria-label="Minutos" value={m} onChange={e => setM(e.target.value)} onKeyDown={enter} />
     <CalcBtn cant={Number(t.cant) || 0} titulo={t.nombre} onUse={x => { const tm = Math.round(x * 60); setH(String(Math.floor(tm / 60))); setM(String(tm % 60)); }} />
@@ -1647,8 +1656,8 @@ function TaskEditor({ id, draft, onClose }) {
     {!isNew && E.puedeCorte(S, orig) && <button className="btn" title="Suma el corte de material como una parte más de esta pieza (mismo código), con su operario y su tiempo" onClick={() => ui.modal({ k: 'corte', id })}>✂ Agregar corte</button>}
     {!isNew && !parent && orig.estado !== 'terminada' && <button className="btn terc-b" title="La pieza la hace un proveedor: queda finalizada y tercerizada, sin ocupar planta" onClick={() => ui.modal({ k: 'tercerizar', id })}>↗ Tercerizar</button>}
     {!isNew && !parent && orig.tercerizada && <button className="btn" title="Deshace la tercerización: la pieza vuelve a pendiente y se reprograma en planta" onClick={() => { up(s => E.volverAPlanta(s, id)); ui.toast('Volvió a planta: quedó pendiente y reprogramada'); onClose(); }}>↩ Volver a planta</button>}
-    <span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" onClick={() => save()}>Guardar</button></>;
-  return <Modal title={isNew ? (t.parentId ? 'Nueva tarea hija' : t.tipo === 'rep' ? 'Nuevo repuesto' : 'Nueva pieza') : 'Editar tarea'} onClose={onClose} foot={foot}>
+    <span className="sp" /><button className="btn canc-b" onClick={onClose}>Cancelar</button><button className="btn pri-b" data-enter onClick={() => save()}>Guardar</button></>;
+  return <Modal title={isNew ? (t.parentId ? 'Nueva tarea hija' : t.tipo === 'rep' ? 'Nuevo repuesto' : 'Nueva pieza') : 'Editar tarea'} onClose={onClose} foot={foot} footCls="foot1">
     {orig.tercerizada && <p className="note terc">{tercTxt(orig)}{orig.tercNota ? ` · ${orig.tercNota}` : ''}. Cuenta como finalizada; no ocupa operarios ni horas de planta.</p>}
     {E.estaFrenada(orig) && <p className="note fren">⏸ Frenada · {txtFreno(orig)}{orig.frenada.nota ? ` · ${orig.frenada.nota}` : ''}. {orig.inicio ? `Programada para ${fDT(orig.inicio)}.` : 'No ocupa el calendario hasta que la retomes.'}</p>}
     {!isNew && (orig.frenoHist || []).length > 0 && <p className="mut">Estuvo frenada {orig.frenoHist.length === 1 ? 'una vez' : orig.frenoHist.length + ' veces'}: {orig.frenoHist.map(h => `${h.motivo} (${fD((h.desde || '').slice(0, 10))} → ${fD((h.retomada || '').slice(0, 10))}${h.nota ? ', ' + h.nota : ''})`).join(' · ')}</p>}

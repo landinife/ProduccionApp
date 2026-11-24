@@ -671,8 +671,8 @@ tr:hover .tcalc, .tcalc:focus, td:focus-within .tcalc { opacity: 1; }
 .hhc { display: flex; align-items: center; gap: 2px; }
 .incalc { display: flex; align-items: center; gap: 6px; }
 .incalc input { flex: 1; min-width: 0; }
-.calc-ovl { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px; }
-.calc { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 12px 40px rgba(0,0,0,.45); width: 300px; max-width: 100%; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.calc-ovl { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.calc { background: var(--solid, var(--panel)); color: var(--ink); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 12px 40px rgba(0,0,0,.45); width: 300px; max-width: 100%; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 .calc-h { display: flex; align-items: center; gap: 8px; }
 .calc-h .mut { flex: 1; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .calc-h .btn { margin-left: auto; }
@@ -1498,3 +1498,16 @@ select.ci.est.e-proximo { background: transparent; }
 .oc-st { margin: 12px 0 6px; font-size: 13px; color: var(--mut); text-transform: uppercase; letter-spacing: .04em; }
 /* Corte de material (24/11): horas de corte dentro de las HH de una fabricación */
 .tcor { display: block; font-size: .78em; }
+
+/* Calculadora sólida también en el tema vidrio (el panel del vidrio es transparente) */
+:root[data-theme="glass"] .calc { background: var(--solid); backdrop-filter: none; -webkit-backdrop-filter: none; }
+:root[data-theme="glass"] .calc .calc-d { background: rgba(0,0,0,.35); }
+/* Editor de tareas: todos los botones del pie en una sola línea (PC) y Cancelar en amarillo */
+@media (min-width: 761px) {
+  .modal:has(> footer.foot1) { width: min(100%, 720px); }
+  .modal footer.foot1 { flex-wrap: nowrap; gap: 6px; padding-inline: 12px; }
+  .modal footer.foot1 .btn { padding-inline: 10px; }
+  .modal footer.foot1 .sp { min-width: 4px; }
+}
+:root .modal footer .btn.canc-b:not(.pri-b):not(.ghost) { color: var(--warn); border-color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, var(--panel2)); }
+:root .modal footer .btn.canc-b:not(.pri-b):not(.ghost):hover:not(:disabled) { background: color-mix(in srgb, var(--warn) 22%, var(--panel2)); border-color: var(--warn); }
