@@ -61,20 +61,25 @@ let estado = { fase: 'cargando' }; const subs = new Set();
 const emitir = x => { estado = { ...estado, ...x }; subs.forEach(f => f(estado)); };
 export const onEstado = f => { subs.add(f); f(estado); return () => subs.delete(f); };
 let partes, desub = [];
+// ¿El cambio que llegó es de otro usuario? Un documento borrado ya no trae la marca de "cambio propio pendiente",
+// así que los que borra este equipo se anotan en `borrados` (en escribir) y al llegar su aviso de borrado cuentan como propios.
+// Sin esto, borrar una tarea se tomaba como cambio ajeno y se vaciaba el deshacer.
+const borrados = new Set();
+const ajeno = s => { let r = false; s.docChanges().forEach(ch => { if (ch.type === 'removed' ? !borrados.delete(ch.doc.id) : !ch.doc.metadata.hasPendingWrites) r = true; }); return r; };
 export function detener() { desub.forEach(u => u()); desub = []; estado = { fase: 'cargando' }; }
 export function iniciar() {
   detener(); partes = { cfg: undefined, tareas: new Map(), tareasOk: false, usuarios: undefined, log: undefined };
   const falla = e => emitir({ fase: e && e.code === 'permission-denied' ? 'sinacceso' : 'error', error: e && e.message });
-  const listo = snap => {
+  const listo = remoto => {
     if (partes.cfg === undefined || !partes.tareasOk || partes.usuarios === undefined || partes.log === undefined) return;
     if (partes.cfg === null) { emitir({ fase: 'sinconfig' }); return; }
     const S = { v: 1, extras: {}, extraModo: {}, ausencias: [], asignaciones: [], proyectos: [], ...partes.cfg, tareas: [...partes.tareas.values()].sort((a, b) => (a._n || 0) - (b._n || 0)), usuarios: partes.usuarios, log: partes.log };
-    emitir({ fase: 'listo', S, remoto: !snap.metadata.hasPendingWrites });
+    emitir({ fase: 'listo', S, remoto });
   };
-  desub.push(onSnapshot(C.usuarios, s => { partes.usuarios = s.docs.map(d => ({ ...d.data(), id: d.id, email: d.id })).sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '')); listo(s); }, falla));
-  desub.push(onSnapshot(C.cfg, s => { partes.cfg = s.exists() ? s.data() : null; listo(s); }, falla));
-  desub.push(onSnapshot(C.tareas, s => { s.docChanges().forEach(ch => { if (ch.type === 'removed') partes.tareas.delete(ch.doc.id); else partes.tareas.set(ch.doc.id, { ...ch.doc.data(), id: ch.doc.id }); }); partes.tareasOk = true; listo(s); }, falla));
-  desub.push(onSnapshot(query(C.log, orderBy('ts', 'desc'), limit(300)), s => { partes.log = s.docs.map(d => ({ ...d.data(), id: d.id })); listo(s); }, falla));
+  desub.push(onSnapshot(C.usuarios, s => { const r = ajeno(s); partes.usuarios = s.docs.map(d => ({ ...d.data(), id: d.id, email: d.id })).sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '')); listo(r); }, falla));
+  desub.push(onSnapshot(C.cfg, s => { partes.cfg = s.exists() ? s.data() : null; listo(!s.metadata.hasPendingWrites); }, falla));
+  desub.push(onSnapshot(C.tareas, s => { const r = ajeno(s); s.docChanges().forEach(ch => { if (ch.type === 'removed') partes.tareas.delete(ch.doc.id); else partes.tareas.set(ch.doc.id, { ...ch.doc.data(), id: ch.doc.id }); }); partes.tareasOk = true; listo(r); }, falla));
+  desub.push(onSnapshot(query(C.log, orderBy('ts', 'desc'), limit(300)), s => { partes.log = s.docs.map(d => ({ ...d.data(), id: d.id })); listo(!s.metadata.hasPendingWrites); }, falla));
 }
 export const escuchar = cb => onEstado(e => { if (e.fase === 'listo') cb(e.S, e.remoto); });
 // Stock de StockApp (solo lectura, nunca se escribe desde acá). Lo puede leer quien también es usuario de StockApp;
@@ -90,14 +95,14 @@ export function escribir(p, n, avisar) {
   const ops = [];
   const pt = new Map(p.tareas.map(t => [t.id, t])), nt = new Set(n.tareas.map(t => t.id));
   n.tareas.forEach(t => { const o = pt.get(t.id); if (o !== t) ops.push(b => b.set(doc(C.tareas, t.id), limpio({ ...t, _n: t._n || (o && o._n) || ++seq }))); });
-  p.tareas.forEach(t => { if (!nt.has(t.id)) ops.push(b => b.delete(doc(C.tareas, t.id))); });
+  p.tareas.forEach(t => { if (!nt.has(t.id)) { borrados.add(t.id); ops.push(b => b.delete(doc(C.tareas, t.id))); } });
   const campos = [];
   CFG.forEach(k => { if (p[k] !== n[k]) campos.push(k, limpio(n[k])); });
   MAPAS.forEach(k => { const a = p[k] || {}, c = n[k] || {}; if (a === c) return; new Set([...Object.keys(a), ...Object.keys(c)]).forEach(key => { if (a[key] !== c[key]) campos.push(new FieldPath(k, key), c[key] === undefined ? deleteField() : c[key]); }); });
   if (campos.length) ops.push(b => b.update(C.cfg, ...campos));
   const pu = new Map((p.usuarios || []).map(u => [u.id, u])), nu = new Set((n.usuarios || []).map(u => u.id));
   (n.usuarios || []).forEach(u => { if (pu.get(u.id) !== u) { const { id, email, ...d } = u; ops.push(b => b.set(doc(C.usuarios, u.id.toLowerCase()), limpio(d))); } });
-  (p.usuarios || []).forEach(u => { if (!nu.has(u.id)) ops.push(b => b.delete(doc(C.usuarios, u.id))); });
+  (p.usuarios || []).forEach(u => { if (!nu.has(u.id)) { borrados.add(u.id); ops.push(b => b.delete(doc(C.usuarios, u.id))); } });
   const e = n.log && n.log[0], e0 = p.log && p.log[0];
   if (e && e !== e0 && e.id && (!e0 || e.ts >= e0.ts)) ops.push(b => b.set(doc(C.log, e.id), limpio({ ts: e.ts, email: e.email, quien: e.quien, k: e.k, txt: e.txt, uid: e.uid })));
   for (let i = 0; i < ops.length; i += 450) {
