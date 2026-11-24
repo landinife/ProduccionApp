@@ -2240,7 +2240,7 @@ function SalidasPV({ p }) {
 
 /* ================= IMPORTADOR ================= */
 function Importer({ mode, proyId, onClose }) {
-  const { S, up, ui } = useApp();
+  const { S, V, up, ui } = useApp();
   const campos = mode === 'rep' ? [['orden', 'OV/OC'], ['codigo', 'Código (opcional)'], ['nombre', 'Descripción'], ['cant', 'Cantidad'], ['cliente', 'Cliente']] : [['n', 'N° (1, 1.1, 1.2…)'], ['codigo', 'Código'], ['cant', 'Cantidad'], ['nombre', 'Descripción (opcional)']];
   const { stock } = useApp(); const [fichasH, setFichasH] = useState(null); const [conFichas, setConFichas] = useState(true);   // hoja Fichas del mismo archivo (la arma la skill de importación)
   const [rows, setRows] = useState(null); const [fecha, setFecha] = useState(E.today()); const [head, setHead] = useState(true); const [map, setMap] = useState({}); const [txt, setTxt] = useState('');
@@ -2270,6 +2270,22 @@ function Importer({ mode, proyId, onClose }) {
       const k = clave(ctxFila(r, nomPorN), nomFila(r)); const e = yaEstan.has(k) ? 'cargada' : vis.has(k) ? 'doble' : ''; vis.add(k); return e; }); })();
   const cuenta = { nueva: data.filter((r, i) => nomFila(r) && !repe[i]).length, cargada: repe.filter(e => e === 'cargada').length, doble: repe.filter(e => e === 'doble').length };
   const aImportar = data.filter((r, i) => nomFila(r) && !(saltar && repe[i])).length;
+  /* Repuestos que están en la app sin finalizar pero no en la planilla (24/11). La planilla trae todos los pendientes de entrega
+     y los finalizados se sacan de ella: puede que ya se entregaran, que se cancelaran o que cambiara la OV/OC o la descripción.
+     Solo se avisa; no se toca nada salvo lo que se elija para cada uno (dejar, pasar a finalizada sin día puntual o borrar). */
+  const [accF, setAccF] = useState({});
+  const faltan = useMemo(() => { if (mode !== 'rep' || !rows) return [];
+    const enPlanilla = new Set(data.filter(r => val(r, 'orden') && nomFila(r)).map(r => clave(val(r, 'orden'), nomFila(r)))); if (!enPlanilla.size) return [];
+    return S.tareas.filter(t => t.tipo === 'rep' && !t.parentId && limpia(t.orden) && V.D[t.id] && V.D[t.id].estado !== 'terminada' && !enPlanilla.has(clave(t.orden, t.nombre)))
+      .sort((a, b) => String(a.orden).localeCompare(String(b.orden), 'es', { numeric: true }) || String(a.nombre).localeCompare(String(b.nombre), 'es')); }, [mode, rows, head, map, S.tareas, V]);
+  const ovNuevas = new Set(mode === 'rep' ? data.filter((r, i) => nomFila(r) && !repe[i] && val(r, 'orden')).map(r => limpia(val(r, 'orden'))) : []);   // misma OV/OC que una fila nueva: quizá cambió la descripción
+  const nFin = faltan.filter(t => accF[t.id] === 'fin').length, nBor = faltan.filter(t => accF[t.id] === 'borrar').length, nAcc = nFin + nBor;
+  const todas = a => setAccF(a === 'dejar' ? {} : Object.fromEntries(faltan.map(t => [t.id, a])));
+  const aplicarFaltan = st => faltan.reduce((s, t) => { const a = accF[t.id]; if (!a || a === 'dejar' || !s.tareas.some(x => x.id === t.id)) return s;
+    if (a === 'borrar') return E.delTask(s, t.id);
+    // finalizar: la pieza (o, si tiene partes, cada parte sin finalizar) como "finalizada sin día puntual", con las horas que llevaba
+    return [t.id, ...E.descendants(s, t.id)].filter(id => !s.tareas.some(x => x.parentId === id)).reduce((a2, id) => { const x = a2.tareas.find(y => y.id === id); return x && x.estado !== 'terminada' ? E.setEstado(a2, id, 'sinfecha') : a2; }, s); }, st);
+  const txA = (nFin ? ` · ${nFin} ${nFin === 1 ? 'finalizada' : 'finalizadas'}` : '') + (nBor ? ` · ${nBor} ${nBor === 1 ? 'borrada' : 'borradas'}` : '');
   const RF = useMemo(() => fichasH ? leerFichas(S, fichasH, stock && stock.items) : null, [fichasH, S.fichas, stock]), nF = RF && conFichas ? RF.ok.length : 0;
   const ponFichas = st => nF ? RF.ok.reduce((a, x) => conFicha(a, x.k, x.patch), st) : st;
   const importar = () => {
@@ -2283,11 +2299,13 @@ function Importer({ mode, proyId, onClose }) {
       nuevos = nuevos.map(({ _n, ...t }) => { const i = _n.lastIndexOf('.'); return { ...t, parentId: i > 0 && ids[_n.slice(0, i)] ? ids[_n.slice(0, i)] : null }; }); }
     nuevos = nuevos.map(t => ({ ...t, ...E.autoCompletar(S, t, true) }));
     const txF = nF ? ` · fichas de material: ${nF} ${nF === 1 ? 'pieza' : 'piezas'}` : '';
-    if (!nuevos.length) { if (nF) { up(s => ponFichas(s)); ui.toast('El árbol ya estaba cargado: no se repitió nada' + txF); onClose(); return; }
+    if (!nuevos.length) { if (nF || nAcc) { up(s => aplicarFaltan(ponFichas(s))); ui.toast((mode === 'rep' ? 'No había filas nuevas' : 'El árbol ya estaba cargado: no se repitió nada') + txF + txA); onClose(); return; }
       ui.toast(saltar && cuenta.cargada ? 'Todas las filas ya estaban cargadas. No hay nada nuevo.' : 'No encontré filas para importar. Revisá las columnas elegidas.'); return; }
-    up(s => ponFichas({ ...s, tareas: [...s.tareas, ...nuevos] })); ui.toast((nuevos.length === 1 ? "1 fila importada" : `${nuevos.length} filas importadas`) + txF); onClose();
+    up(s => aplicarFaltan(ponFichas({ ...s, tareas: [...s.tareas, ...nuevos] }))); ui.toast((nuevos.length === 1 ? "1 fila importada" : `${nuevos.length} filas importadas`) + txF + txA); onClose();
   };
-  return <Modal title={mode === 'rep' ? 'Importar repuestos' : 'Importar árbol de piezas'} onClose={onClose} wide foot={rows && <><button className="btn" onClick={() => setRows(null)}>Elegir otra planilla</button><span className="sp" />{RF && aImportar > 0 && RF.ok.length > 0 && <button className="btn" title="No agrega ninguna pieza al árbol: solo carga largo, sin material, etc. en las fichas" onClick={() => { up(st => RF.ok.reduce((x, f) => conFicha(x, f.k, f.patch), st)); ui.toast(`Fichas de material: ${RF.ok.length} ${RF.ok.length === 1 ? 'pieza' : 'piezas'} (el árbol no se tocó)`); onClose(); }}>Solo las fichas ({RF.ok.length})</button>}<button className="btn pri-b" disabled={!aImportar && !nF} onClick={importar}>{!aImportar ? `Cargar ${nF} ${nF === 1 ? 'ficha' : 'fichas'} de material` : (aImportar === 1 ? 'Importar 1 fila nueva' : `Importar ${aImportar} filas${saltar ? ' nuevas' : ''}`) + (nF ? ` y ${nF} ${nF === 1 ? 'ficha' : 'fichas'}` : '')}</button></>}>
+  const pedir = () => !nAcc ? importar() : ui.confirmar({ titulo: '¿Aplicar los cambios a los repuestos que no están en la planilla?', texto: [nFin && `Pasan a finalizada (sin día puntual, con las horas que llevaban): ${nFin}.`, nBor && `Se borran: ${nBor}.`].filter(Boolean).join(' ') + ' Podés deshacerlo arriba.', si: 'Sí, aplicar', peligro: nBor > 0, onSi: importar });
+  const lblBtn = [aImportar ? (aImportar === 1 ? 'Importar 1 fila nueva' : `Importar ${aImportar} filas${saltar ? ' nuevas' : ''}`) : '', nF ? `${aImportar ? '' : 'Cargar '}${nF} ${nF === 1 ? 'ficha' : 'fichas'}${aImportar ? '' : ' de material'}` : '', nAcc ? `${aImportar || nF ? '' : 'Aplicar '}${nAcc} ${nAcc === 1 ? 'cambio' : 'cambios'} en faltantes` : ''].filter(Boolean).join(' y ');
+  return <Modal title={mode === 'rep' ? 'Importar repuestos' : 'Importar árbol de piezas'} onClose={onClose} wide foot={rows && <><button className="btn" onClick={() => setRows(null)}>Elegir otra planilla</button><span className="sp" />{RF && aImportar > 0 && RF.ok.length > 0 && <button className="btn" title="No agrega ninguna pieza al árbol: solo carga largo, sin material, etc. en las fichas" onClick={() => { up(st => RF.ok.reduce((x, f) => conFicha(x, f.k, f.patch), st)); ui.toast(`Fichas de material: ${RF.ok.length} ${RF.ok.length === 1 ? 'pieza' : 'piezas'} (el árbol no se tocó)`); onClose(); }}>Solo las fichas ({RF.ok.length})</button>}<button className="btn pri-b" disabled={!aImportar && !nF && !nAcc} onClick={pedir}>{lblBtn || 'Importar'}</button></>}>
     {!rows ? <div className="form">
       <label className="g2">Archivo de Excel (.xlsx)<input id="imp-file" type="file" accept=".xlsx,.xls,.csv" onChange={file} /></label>
       <label className="g2">O pegá acá las celdas copiadas desde Excel<textarea id="imp-txt" rows="6" value={txt} onChange={e => setTxt(e.target.value)} placeholder={campos.map(c => c[1]).join('\t')} /></label>
@@ -2298,11 +2316,20 @@ function Importer({ mode, proyId, onClose }) {
         {mode === 'rep' && <label>Fecha de carga de estas órdenes<input id="imp-fecha" type="date" value={fecha} max={E.today()} onChange={e => setFecha(e.target.value)} /></label>}
         <label className="chk g2"><input id="imp-head" type="checkbox" checked={head} onChange={e => setHead(e.target.checked)} /> La primera fila tiene los títulos</label>
         <label className="chk g2"><input id="imp-saltar" type="checkbox" checked={saltar} onChange={e => setSaltar(e.target.checked)} /> Saltear las filas que ya están cargadas{mode === 'rep' ? ' (misma OV/OC y misma pieza)' : ' (misma pieza bajo el mismo padre)'}</label></div>
-      <p className="note"><b className="c-ok">{cuenta.nueva} nuevas</b> · {cuenta.cargada} ya cargadas{cuenta.doble ? ` · ${cuenta.doble} repetidas dentro de la planilla` : ''}{mode === 'rep' && data.some(r => !val(r, 'orden')) ? ' · las filas sin OV/OC se toman siempre como nuevas' : ''}</p>
+      <p className="note"><b className="c-ok">{cuenta.nueva} nuevas</b> · {cuenta.cargada} ya cargadas{cuenta.doble ? ` · ${cuenta.doble} repetidas dentro de la planilla` : ''}{faltan.length ? <b> · {faltan.length} en la app y no en la planilla (ver abajo)</b> : null}{mode === 'rep' && data.some(r => !val(r, 'orden')) ? ' · las filas sin OV/OC se toman siempre como nuevas' : ''}</p>
       {RF && <div className="note impf"><label className="chk"><input type="checkbox" checked={conFichas} onChange={e => setConFichas(e.target.checked)} /> <b>Cargar también las fichas de material</b> (hoja Fichas del mismo archivo: largo del plano, sin material…)</label>
         <span className="mut">{RF.ok.length} {RF.ok.length === 1 ? 'pieza cambia' : 'piezas cambian'}{RF.iguales ? ` · ${RF.iguales} ya estaban iguales (no se tocan)` : ''}{RF.err.length ? ` · ${RF.err.length} con un ítem que no existe en StockApp (se saltean)` : ''}{RF.sinStock ? ` · ${RF.sinStock} traen ítem de StockApp pero no se puede leer StockApp con este usuario: se carga el resto y el ítem no` : ''}. Valen para la pieza en cualquier proyecto; las celdas vacías no tocan lo que ya tenía la ficha.</span></div>}
       <div className="scroll"><table className="tt"><thead><tr><th>Estado</th>{campos.map(c => <th key={c[0]}>{c[1]}</th>)}</tr></thead><tbody>{data.map((r, i) => ({ r, i })).sort((a, b) => !!repe[a.i] - !!repe[b.i]).slice(0, 8).map(({ r, i }) => <tr key={i} className={repe[i] && saltar ? 'done' : ''}><td>{repe[i] === 'cargada' ? <span className="tag">Ya cargada</span> : repe[i] === 'doble' ? <span className="tag warn">Repetida</span> : <span className="tag ok">Nueva</span>}</td>{campos.map(c => <td key={c[0]}>{val(r, c[0])}</td>)}</tr>)}</tbody></table></div>
-      {data.length > 8 && <p className="mut">…y {data.length - 8} filas más (primero se muestran las nuevas).</p>}</>}
+      {data.length > 8 && <p className="mut">…y {data.length - 8} filas más (primero se muestran las nuevas).</p>}
+      {faltan.length > 0 && <div className="note fren impf">
+        <b>⚠ {faltan.length} {faltan.length === 1 ? 'repuesto está' : 'repuestos están'} en la app sin finalizar pero no en la planilla</b>
+        <span className="mut">Puede que ya se hayan entregado, que se cancelaran o que cambiara la OV/OC o la descripción (en ese caso la pieza figura también como «Nueva» arriba). No se toca nada salvo lo que elijas. «Pasar a finalizada» la deja como finalizada sin día puntual, con las horas que llevaba.</span>
+        <div className="row"><span className="mut">Todos:</span><button className="btn sm" onClick={() => todas('dejar')}>Dejar como están</button><button className="btn sm" onClick={() => todas('fin')}>Pasar a finalizada</button><button className="btn sm danger" onClick={() => todas('borrar')}>Borrar</button></div>
+        <div className="scroll"><table className="tt"><thead><tr><th>Qué hacer</th><th>OV/OC</th><th>Pieza</th><th>Estado</th><th>Cliente</th></tr></thead><tbody>{faltan.map(t => { const r = V.D[t.id];
+          return <tr key={t.id}><td><select value={accF[t.id] || 'dejar'} onChange={e => setAccF({ ...accF, [t.id]: e.target.value })}><option value="dejar">Dejar como está</option><option value="fin">Pasar a finalizada</option><option value="borrar">Borrar</option></select></td><td>{t.orden}</td><td>{t.nombre}{ovNuevas.has(limpia(t.orden)) && <> <span className="tag warn" title="La planilla trae una fila nueva con la misma OV/OC: puede ser esta pieza con otra descripción">¿Cambió la descripción?</span></>}</td>
+            <td><span className={'est e-' + r.estado.replace(' ', '')}>{estTxt(r.estado)}{r.estado === 'en proceso' ? ` ${Math.round(r.avance)}%` : ''}</span>{t.pausada ? <span className="mut"> (pausada)</span> : null}</td><td>{t.cliente || ''}</td>
+</tr>; })}</tbody></table></div>
+      </div>}</>}
   </Modal>;
 }
 
