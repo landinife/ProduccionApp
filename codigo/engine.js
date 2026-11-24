@@ -606,6 +606,52 @@ export function partirEnDia(S, id, d, turno) {
     : S.tareas.map(x => x.id === id ? { ...x, partes: true, crono: null, pausada: false } : x).concat({ ...t, id: uid(), parentId: t.id, nombre: `${t.nombre} (parte 1)`, preds: [], partes: false, ...primera }, resto);
   return reflow({ ...S, tareas }, resto.id);
 }
+// ---- Corte de material (24/11): una parte más de la misma pieza, sin código nuevo ----
+// La pieza pasa a ser el resumen de sus partes (como al pausarla): lo que tenía queda como "(parte 1)" y se suma "(corte)",
+// con su operario, horas y cronómetro propios. No hay dependencia entre las partes: el torno puede arrancar antes de que termine el corte.
+// Las horas de la pieza (tiempo estándar y costo) son la suma de las partes; el corte se ve aparte como desglose.
+// Si la pieza ya está en partes, se suma una parte de corte más. Una parte elegida suma el corte a su pieza.
+// hecho: el corte ya se hizo (finalizado ese día con esas horas reales). restar: descuenta las horas del corte de lo planificado de la pieza.
+export const nomBase = n => (n || '').replace(/\s*\((?:parte \d+|corte)\)\s*$/i, '');
+export function puedeCorte(S, t) {
+  if (!t) return false; if (t.parte) t = S.tareas.find(x => x.id === t.parentId); if (!t || t.tercerizada) return false;
+  const ch = S.tareas.filter(x => x.parentId === t.id); return t.partes ? ch.length > 0 && ch.every(x => x.parte) : !ch.length;
+}
+// horas de corte sugeridas: promedio por unidad de los cortes finalizados de la misma pieza (por código) × cantidad
+export function corteSug(S, t) {
+  const k = claveCod(nomBase(t.nombre)); if (!k) return null;
+  const l = S.tareas.filter(x => x.corte && x.estado === 'terminada' && Number(x.hhReal) > 0 && claveCod(nomBase(x.nombre)) === k);
+  if (!l.length) return null;
+  const pu = l.reduce((a, x) => a + Number(x.hhReal) / Math.max(1, Number(x.cant) || 1), 0) / l.length;
+  return { n: l.length, porUnidad: pu, hh: r2(pu * Math.max(1, Number(t.cant) || 1)) };
+}
+export function agregarCorte(S, id, { ops = [], hh = 0, inicio = null, hecho = false, restar = false } = {}) {
+  let t = S.tareas.find(x => x.id === id); if (t && t.parte) t = S.tareas.find(x => x.id === t.parentId);
+  if (!puedeCorte(S, t)) return S;
+  const H = r2(Math.max(0, Number(hh) || 0)), turno = t.turno === 'ambos' ? 'normal' : (t.turno || 'normal'), n = Math.max(1, ops.length), cid = uid(), base = nomBase(t.nombre);
+  const c = { ...t, id: cid, parentId: t.id, nombre: `${base} (corte)`, ops, turno, hh: H, parte: true, corte: true, partes: false, agrupa: false, preds: [], empuje: null, pausada: false, frenada: null, frenoHist: null,
+    tercerizada: false, sinFecha: false, proximo: null, manual: false, realFin: false, opAuto: false, material: '', peso: null, avance: 0, hhReal: 0, finReal: null, crono: null, estado: 'pendiente', inicio: null };
+  if (hecho) {
+    const ini = ops.length && inicio ? normStart(S, inicio, turno, ops) : inicio || null;
+    Object.assign(c, { estado: 'terminada', avance: 100, hhReal: H, crono: { acum: H, desde: null }, inicio: ini, finReal: ini && ops.length ? addWork(S, ini, H / n, turno, ops).end : (ini || nowDT()) });
+  } else if (ops.length) {
+    if (inicio) c.inicio = normStart(S, inicio, turno, ops);
+    else { const pg = pegadoA(S, ops, turno, null, c); c.inicio = pg ? pg.ini : nextFree(S, ops[0], turno, ops, c); }
+  }
+  let tareas;
+  if (t.partes) {
+    tareas = S.tareas.concat(c);
+    if (restar && H > 0) {   // resta de la parte sin empezar con más horas (que no sea corte)
+      const ab = S.tareas.filter(x => x.parentId === t.id && !x.corte && x.estado !== 'terminada' && Number(x.hh) > H).sort((a, b) => b.hh - a.hh)[0];
+      if (ab) tareas = tareas.map(x => x.id === ab.id ? { ...x, hh: r2(Number(x.hh) - H) } : x);
+    }
+  } else {
+    const H0 = Number(t.hh) || 0, mec = { ...t, id: uid(), parentId: t.id, nombre: `${base} (parte 1)`, preds: [], partes: false, parte: true, ...(restar && t.estado !== 'terminada' && H0 > H ? { hh: r2(H0 - H) } : {}) };
+    tareas = S.tareas.map(x => x.id === t.id ? { ...x, partes: true, crono: null, pausada: false, frenada: null, empuje: null } : x).concat(mec, c);
+  }
+  const S2 = { ...S, tareas };
+  return c.inicio && c.estado !== 'terminada' ? reflow(S2, cid) : S2;
+}
 // En qué turno está trabajando ahora ese grupo de operarios (null si están fuera de horario)
 export function turnoAhora(S, ops, dt) {
   const [d, m] = split(dt || nowDT());
@@ -737,7 +783,7 @@ export function codOp(S, nombre) {
 }
 // clave para reconocer la misma pieza en otras órdenes: el código completo, o el nombre si no tiene código
 // también reconoce los códigos TPF-XXXX-0000 (TPF-AMCL, TPF-FP, TPF-PF…), que van a la sub-pestaña "Otros"
-export const claveCod = nombre => { const m = /TPF(?:[RD]|-[A-Z]{2,})[\w\-./]*/i.exec(nombre || ''); return m ? m[0].toUpperCase().replace(/\.SLDPRT$/, '').replace(/[-./]+$/, '') : (nombre || '').replace(/\s*\(parte \d+\)\s*$/i, '').trim().toLowerCase(); };
+export const claveCod = nombre => { const m = /TPF(?:[RD]|-[A-Z]{2,})[\w\-./]*/i.exec(nombre || ''); return m ? m[0].toUpperCase().replace(/\.SLDPRT$/, '').replace(/[-./]+$/, '') : (nombre || '').replace(/\s*\((?:parte \d+|corte)\)\s*$/i, '').trim().toLowerCase(); };
 // serie del código (TPFR, TPFD u Otros) y número único de pieza: los últimos dígitos de TPFR-111-222-333-4444
 export const serieCod = k => { const m = /^TPF([RD])/i.exec(k || ''); return m ? 'TPF' + m[1].toUpperCase() : /^TPF-/i.test(k || '') ? 'Otros' : ''; };
 // número correlativo único: el último grupo de números pegado al TPFR / TPFD (TPFR-111-222-3333 → 3333); lo que venga después (-B2, rev 3…) no cuenta
@@ -774,7 +820,8 @@ export function fabricaciones(S) {
       if (!ps.every(x => x.estado === 'terminada')) return;
       const hh = ps.reduce((a, x) => a + (Number(x.hhReal) || 0), 0); if (!(hh > 0)) return;
       const fin = ps.map(x => x.finReal || x.inicio || '').sort().pop();
-      c.push(regFab(t, hh, fin, [...new Set(ps.flatMap(x => x.ops || []))]));
+      const hc = ps.filter(x => x.corte).reduce((a, x) => a + (Number(x.hhReal) || 0), 0);   // de esas horas, las del corte de material (24/11)
+      c.push({ ...regFab(t, hh, fin, [...new Set(ps.flatMap(x => x.ops || []))]), ...(hc > 0 ? { hc } : {}) });
       return;
     }
     // ensamblaje (por ejemplo una pieza soldada): pieza con trabajo propio que tiene piezas hijas; su costo suma el de todas sus hijas

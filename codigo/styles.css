@@ -1496,3 +1496,5 @@ select.ci.est.e-proximo { background: transparent; }
 .oc-l .pl { font-style: italic; }
 .oc-k.oc-pl { border-color: var(--c); }
 .oc-st { margin: 12px 0 6px; font-size: 13px; color: var(--mut); text-transform: uppercase; letter-spacing: .04em; }
+/* Corte de material (24/11): horas de corte dentro de las HH de una fabricación */
+.tcor { display: block; font-size: .78em; }

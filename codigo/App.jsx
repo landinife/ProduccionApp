@@ -326,6 +326,36 @@ function FrenarDlg({ id, pausa, onClose }) {
       <p className="mut">Lo hecho hasta ahora queda cerrado con su tiempo. Lo que falta queda como una parte nueva de la misma pieza: la pieza suma las horas de todas sus partes para el promedio y el costo.</p></>}
   </Modal>, document.body);
 }
+// Corte de material (24/11): suma una parte "(corte)" a la misma pieza, sin código nuevo (E.agregarCorte)
+function CorteDlg({ id, onClose }) {
+  const { S, up, ui } = useApp();
+  const t0 = S.tareas.find(x => x.id === id), t = t0 && t0.parte ? S.tareas.find(x => x.id === t0.parentId) : t0;
+  const sug = t ? E.corteSug(S, t) : null;
+  const [ops, setOps] = useState([]); const [hh, setHh] = useState(() => sug ? sug.hh : 0.5);
+  const [hecho, setHecho] = useState(false); const [dia, setDia] = useState(E.today()); const [hora, setHora] = useState('');
+  const abierta = t && (t.partes ? S.tareas.some(x => x.parentId === t.id && !x.corte && x.estado !== 'terminada' && Number(x.hh) > hh) : t.estado !== 'terminada' && Number(t.hh) > hh);
+  const [restar, setRestar] = useState(true);
+  if (!t || !E.puedeCorte(S, t)) return null;
+  const base = E.nomBase(t.nombre), cant = Math.max(1, Number(t.cant) || 1);
+  const tog = o => setOps(p => p.includes(o) ? p.filter(x => x !== o) : [...p, o]);
+  const ok = () => {
+    if (!(hh > 0)) { ui.toast('Poné las horas del corte'); return; }
+    if (hecho && !ops.length) { ui.toast('Elegí quién hizo el corte'); return; }
+    if (hecho && !dia) { ui.toast('Elegí el día del corte'); return; }
+    const inicio = dia && (hecho || hora || dia !== E.today()) ? dia + 'T' + (hora || '00:00') : null;
+    let ini = null; up(s => { const s2 = E.agregarCorte(s, t.id, { ops, hh, inicio, hecho, restar: restar && !!abierta }); const c = s2.tareas.find(x => x.corte && x.parentId === t.id && !s.tareas.some(y => y.id === x.id)); ini = c && c.inicio; return s2; });
+    ui.toast(hecho ? `Corte cargado: ${fHM(hh)} de ${ops.map(o => opName(S, o)).join(', ')}` : ini ? `Corte agregado: empieza ${fDT(ini)}` : 'Corte agregado sin operario: queda en "Tareas para darle"'); onClose(); };
+  return createPortal(<Modal title={'✂ Agregar corte · ' + base} onClose={onClose} foot={<><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" onClick={ok}>✂ Agregar corte</button></>}>
+    <p className="mut">El corte queda como una parte más de esta pieza (mismo código, sin codificar nada nuevo), con su operario y su tiempo. Las horas de la pieza son la suma del corte y el resto del trabajo. No hace falta que el corte termine para que arranque el torno.</p>
+    <div className="fld"><span>¿Ya se hizo?</span><div className="seg"><button type="button" className={!hecho ? 'on' : ''} onClick={() => setHecho(false)}>Por hacer</button><button type="button" className={hecho ? 'on' : ''} onClick={() => setHecho(true)}>Ya se hizo</button></div></div>
+    <div className="fld"><span>¿Quién corta?{!hecho && <small className="mut"> (opcional)</small>}</span><div className="togs">{S.operarios.filter(o => o.activo || ops.includes(o.id)).map(o => <button key={o.id} type="button" className={'togb' + (ops.includes(o.id) ? ' on' : '')} onClick={() => tog(o.id)}>{o.nombre}</button>)}</div></div>
+    <div className="fld"><span>{hecho ? 'Horas reales del corte (horas-hombre)' : 'Horas planificadas del corte (horas-hombre)'}</span><HM value={hh} onChange={setHh} cant={cant} titulo="Horas del corte" />
+      <small className="hint">{sug ? `Promedio de ${sug.n} ${sug.n === 1 ? 'corte' : 'cortes'} anteriores de esta pieza: ${fHM(sug.porUnidad)} por unidad × ${fN(cant)} = ${fHM(sug.hh)}.` : `Para ${fN(cant)} ${cant === 1 ? 'unidad' : 'unidades'}. Todavía no hay cortes anteriores de esta pieza.`}</small></div>
+    {(hecho || ops.length > 0) && <label className="fld">{hecho ? 'Día del corte' : 'Desde (opcional)'}<span className="row"><input type="date" value={dia} max={hecho ? E.today() : undefined} onChange={e => setDia(e.target.value)} /><input type="time" value={hora} aria-label="Hora" onChange={e => setHora(e.target.value)} /></span>
+      <small className="hint">{hecho ? 'La hora es opcional: sin hora, desde que empieza la jornada.' : 'Si lo dejás en hoy y sin hora, se pega detrás de lo que el operario tiene abierto. Podés poner un día anterior para cortar antes de que arranque el torno.'}</small></label>}
+    {abierta && <label className="chk"><input type="checkbox" checked={restar} onChange={e => setRestar(e.target.checked)} /> Restar estas horas de lo planificado de la pieza (si su tiempo ya incluía el corte, como el tiempo estándar del historial)</label>}
+  </Modal>, document.body);
+}
 function RetomarDlg({ id, onClose }) {
   const { S, up, ui } = useApp(); const t = S.tareas.find(x => x.id === id);
   const [ops, setOps] = useState(t ? t.ops : []); const [desde, setDesde] = useState(() => t && t.frenada && t.frenada.hasta > E.today() ? t.frenada.hasta : E.today()); const [ya, setYa] = useState(false);
@@ -856,6 +886,7 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden, universo }) {
     e.preventDefault(); ir(k === 'ArrowLeft' ? td.previousElementSibling : td.nextElementSibling); };
   const marcas = (t, hasKids, r) => { const esp = !r.parent && espera(S, V, t); const late = !t.parentId && t.entrega && r.estado !== 'terminada' && r.fin && r.fin.slice(0, 10) > t.entrega; return <>
     {!r.parent && E.esProximo(t) && <span className="mk prox" title="Próximo a realizar">⏭</span>}
+    {t.corte && <span className="mk" title="Corte de material: parte de la misma pieza (suma sus horas)">✂</span>}
     {t.manual && r.estado !== 'terminada' && <button className="mk pin" title="Fecha fijada a mano: no se corre por etapas. Tocá para soltarla." onClick={() => set(t, { manual: false }, true)}>📌</button>}
     {r.estado === 'terminada' && !esTerc(t) && <span className={'mk ok' + (r.sin0 ? ' w0' : '')} title={r.sin0 ? aviso0(r) : t.finReal ? 'Finalizada el ' + fDT(t.finReal) : 'Finalizada'}>✓</span>}
     {sinF(t) && !esTerc(t) && <span className="mk warn" title={SINF_TXT}>!</span>}
@@ -872,6 +903,7 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden, universo }) {
       ...(!r.parent && E.esPend(t) ? [{ ic: '⏭', txt: prox ? 'Quitar de Próximo a realizar' : 'Marcar como Próximo a realizar', on: prox, fn: () => { up(s => E.setProximo(s, t.id, !prox)); ui.toast(!prox ? 'Marcada como Próximo a realizar' : 'Quitada de Próximo a realizar'); } }] : []),
       { ic: '＋', txt: 'Agregar hijo', fn: () => ui.modal({ k: 'task', draft: { ...E.blankTask(t.tipo, t.proyId), parentId: t.id, prioridad: t.prioridad } }) },
       { ic: '⧉', txt: 'Duplicar', fn: () => { up(s => E.dupTask(s, t.id)); ui.toast('Duplicada'); } },
+      ...(E.puedeCorte(S, t) ? [{ ic: '✂', txt: 'Agregar corte de material', fn: () => ui.modal({ k: 'corte', id: t.id }) }] : []),
       ...(t.nombre && !E.esGrupo(S, t) ? [{ ic: '▦', txt: 'Ficha de material', fn: () => ui.ficha({ key: E.claveCod(t.nombre.replace(/\s*\(parte \d+\)\s*$/i, '')), nombre: t.nombre }) }] : []),
       ...(orden && !so ? ['-', { ic: '▲', txt: 'Subir (orden manual)', queda: true, fn: () => mover(t, -1) }, { ic: '▼', txt: 'Bajar (orden manual)', queda: true, fn: () => mover(t, 1) }] : []),
       '-',
@@ -1578,7 +1610,7 @@ function TaskEditor({ id, draft, onClose }) {
   const togOp = o => set('ops', t.ops.includes(o) ? t.ops.filter(x => x !== o) : [...t.ops, o]);
   const togPred = p => set('preds', (t.preds || []).includes(p) ? t.preds.filter(x => x !== p) : [...(t.preds || []), p]);
   const scope = S.tareas.filter(x => x.id !== t.id && !V.D[x.id].parent && x.id !== t.parentId && (t.tipo === 'proy' ? x.proyId === t.proyId : x.tipo === 'rep' && V.rootOf(x).orden === V.rootOf(t).orden));
-  const cod = E.codOp(S, t.nombre), hist = !parent ? E.historial(S, t.nombre) : null, recs = !parent ? E.recomendar(S, { ...t, hh }) : [];
+  const cod = E.codOp(S, t.nombre), hist = !parent && !t.corte ? E.historial(S, t.nombre) : null, recs = !parent ? E.recomendar(S, { ...t, hh }) : [];
   const alSalirNombre = () => { if (parent) return; const a = E.autoCompletar(S, t, !hhTocado); if (Object.keys(a).length) setT(p => ({ ...p, ...a })); };
   const save = (conf, meter, aus) => {   // aus: { sin: [operarios a sacar] } o { ok: true } (respuesta al aviso de operario ausente); meter: true = pausar lo que estaba en curso a la hora de inicio, false = guardar sin pausar (sin dato: pregunta)
     if (!t.nombre.trim()) { ui.toast('Poné el nombre de la pieza'); return; }
@@ -1612,6 +1644,7 @@ function TaskEditor({ id, draft, onClose }) {
     {!isNew && <button className="btn danger" onClick={() => ui.confirmar({ titulo: '¿Borrar la tarea?', texto: 'Se borra esta tarea. Podés deshacerlo arriba.', si: 'Sí, borrar', peligro: true, onSi: () => { up(s => E.delTask(s, id)); onClose(); ui.toast('Borrada. Podés deshacerlo arriba.'); } })}>Borrar</button>}
     {!isNew && <button className="btn" onClick={() => { up(s => E.dupTask(s, id)); onClose(); ui.toast('Duplicada'); }}>Duplicar</button>}
     {!isNew && !parent && orig.estado !== 'terminada' && (orig.frenada ? <button className="btn pri-b" onClick={() => ui.modal({ k: 'retomar', id })}>Retomar</button> : <button className="btn warn-b" title="Para el trabajo por días: lo hecho queda cerrado y lo que falta queda frenado" onClick={() => ui.modal({ k: 'frenar', id })}>Frenar</button>)}
+    {!isNew && E.puedeCorte(S, orig) && <button className="btn" title="Suma el corte de material como una parte más de esta pieza (mismo código), con su operario y su tiempo" onClick={() => ui.modal({ k: 'corte', id })}>✂ Agregar corte</button>}
     {!isNew && !parent && orig.estado !== 'terminada' && <button className="btn terc-b" title="La pieza la hace un proveedor: queda finalizada y tercerizada, sin ocupar planta" onClick={() => ui.modal({ k: 'tercerizar', id })}>↗ Tercerizar</button>}
     {!isNew && !parent && orig.tercerizada && <button className="btn" title="Deshace la tercerización: la pieza vuelve a pendiente y se reprograma en planta" onClick={() => { up(s => E.volverAPlanta(s, id)); ui.toast('Volvió a planta: quedó pendiente y reprogramada'); onClose(); }}>↩ Volver a planta</button>}
     <span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" onClick={() => save()}>Guardar</button></>;
@@ -2895,6 +2928,7 @@ function Tiempos() {
             <div className="tg-res" onClick={() => tog(g.k)}>
               {g.n ? <span><b className="tg-prom">{fHM(g.prom)}</b> por unidad <span className="mut">· promedio de {g.n} {g.n === 1 ? 'vez' : 'veces'}</span></span> : <span className="mut">Sin fabricaciones todavía</span>}
               {g.n > 0 && g.n < 3 && <span className="tag warn" title="Con 1 o 2 veces el promedio todavía no es confiable">pocos datos</span>}
+              {(() => { const rc = g.regs.filter(r => r.hc > 0 && !r.fuera && !r.cot); return rc.length > 0 && <span className="mut" title={`Promedio del corte de material en las ${rc.length === 1 ? 'vez' : rc.length + ' veces'} que se cargó aparte (ya está incluido en el promedio de la pieza)`}>✂ corte ≈ {fHM(rc.reduce((a, r) => a + r.hc / Math.max(1, r.cant), 0) / rc.length)} por unidad</span>; })()}
               {cu != null && <span title={parcial ? `Costo parcial: falta ${fl.join(', ')}` : 'Material + mano de obra, con los precios y tarifas de hoy'}>≈ <b>{fPlata(cu)}</b>{parcial && '*'} <span className="mut">por unidad</span></span>}
               {g.n > 0 && parcial && <span className="tag warn" title="Completá la ficha de la pieza (abrila con ▸)">falta {fl.join(', ')}</span>}
               {g.n > 0 && cu == null && <span className="tag warn" title="Completá la ficha de la pieza (abrila con ▸)">sin costo: falta {fl.join(', ') || 'tarifa'}</span>}
@@ -2912,7 +2946,7 @@ function Tiempos() {
                 return <React.Fragment key={(r.cot ? 'q' : 't') + r.id}><tr className={(r.fuera ? 'fuera ' : '') + (r.cot ? 'cot' : '')}>
                   <td>{fFecha(r.fecha)}</td><td>{origen(r)}</td><td className="num">{fN(r.cant)}</td>
                   <td>{r.ops.length ? r.ops.map(o => opName(S, o)).join(', ') : r.opsTxt ? r.opsTxt : <span className="mut">—</span>}</td>
-                  <td className="num" title={r.det || undefined}>{fN(r.hh)}{d != null && Math.abs(d) >= 1 && <small className={'tdes ' + (d > 0 ? 'c-bad' : 'c-ok')} title={`Planificado: ${fN(r.plan)} HH`}>{d > 0 ? '+' : ''}{Math.round(d)}%</small>}</td>
+                  <td className="num" title={r.det || (r.hc ? `De estas, ${fN(r.hc)} HH de corte de material` : undefined)}>{fN(r.hh)}{r.hc > 0 && <small className="mut tcor">✂ {fN(r.hc)}</small>}{d != null && Math.abs(d) >= 1 && <small className={'tdes ' + (d > 0 ? 'c-bad' : 'c-ok')} title={`Planificado: ${fN(r.plan)} HH`}>{d > 0 ? '+' : ''}{Math.round(d)}%</small>}</td>
                   <td className="num"><b>{fHM(r.hu)}</b></td>
                   <td><select className="ci" aria-label="Material" value={r.material || ''} disabled={(r.cot || r.hist) && !pm.admin} onChange={e => setReg(r, { material: e.target.value })}><option value="">{c.deFicha.material && c.m ? `${c.m.nombre} (de la ficha)` : '—'}</option>{(S.materiales || []).map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}</select></td>
                   <td className="num"><EdIn className="num" type="number" min="0" step="0.1" value={r.peso ?? ''} placeholder={c.deFicha.peso ? fN(c.peso) : undefined} title={c.deFicha.peso ? 'Peso total tomado de la ficha (por unidad × cantidad)' : undefined} disabled={(r.cot || r.hist) && !pm.admin} onCommit={v => setReg(r, { peso: v === '' ? null : Number(v) })} /></td>
@@ -3262,6 +3296,7 @@ export function App({ db, ses, S0 }) {
       {modal && modal.k === 'frenar' && <FrenarDlg id={modal.id} pausa={false} onClose={close} />}
       {modal && modal.k === 'tercerizar' && <TercerizarDlg id={modal.id} ids={modal.ids} onClose={close} />}
       {modal && modal.k === 'retomar' && <RetomarDlg id={modal.id} onClose={close} />}
+      {modal && modal.k === 'corte' && <CorteDlg id={modal.id} onClose={close} />}
       {modal && modal.k === 'meter' && <MeterDlg {...modal} onClose={close} />}
       {modal && modal.k === 'extras' && <ExtrasAviso ids={modal.ids} onClose={close} />}
       {aviso && <ExtrasAviso ids={aviso} onClose={() => setAviso(null)} />}
