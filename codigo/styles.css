@@ -1511,6 +1511,11 @@ select.ci.est.e-proximo { background: transparent; }
 }
 :root .modal footer .btn.canc-b:not(.pri-b):not(.ghost) { color: var(--warn); border-color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, var(--panel2)); }
 :root .modal footer .btn.canc-b:not(.pri-b):not(.ghost):hover:not(:disabled) { background: color-mix(in srgb, var(--warn) 22%, var(--panel2)); border-color: var(--warn); }
+/* Frenar (warn-b) en amarillo: la regla general de .btn (y la del tema vidrio) lo pintaba gris (25/11) */
+:root .btn.warn-b:not(.pri-b):not(.danger):not(.ghost) { border-color: var(--warn); color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, var(--panel2)); }
+:root .btn.warn-b:not(.pri-b):not(.danger):not(.ghost):hover:not(:disabled) { background: color-mix(in srgb, var(--warn) 22%, var(--panel2)); border-color: var(--warn); }
+/* Restan (25/11): celda con lo que resta cargado */
+.ci.num.rest { color: var(--warn); font-weight: 600; }
 /* Familias de tiempo (24/11) */
 .tag.fam { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); }
 .tsel { margin: 0 6px 0 2px; width: 18px; height: 18px; accent-color: var(--accent); flex: none; }

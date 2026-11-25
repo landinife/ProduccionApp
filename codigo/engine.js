@@ -508,7 +508,7 @@ export const estaFrenada = t => !!(t && t.frenada && t.estado !== 'terminada');
 export const finTerc = t => (t && t.tercerizada && t.tercFecha) ? t.tercFecha + 'T00:00' : null;
 export function tercerizar(S, id, { proveedor, fecha, nota, cant } = {}) {
   const t = S.tareas.find(x => x.id === id); if (!t || t.estado === 'terminada' || !isLeaf(S, id)) return { S, n: 0 };
-  const total = Math.max(1, Number(t.cant) || 1), q = Math.floor(Number(cant) || total);
+  const cr = conRestan(t), total = cr ? Math.max(1, restanDe(t)) : Math.max(1, Number(t.cant) || 1), q = Math.floor(Number(cant) || total);   // con Restan: se terceriza parte de lo que resta
   const parcial = q >= 1 && q < total && !(Number(t.cantEnv) > 0);   // solo parte de la cantidad: la pieza se divide en dos
   const marca = { estado: 'terminada', avance: 100, proximo: null, hhReal: 0, finReal: nowDT(), realFin: false, crono: { acum: 0, desde: null }, pausada: false, empuje: null, tercerizada: true, proveedor: (proveedor || '').trim(), tercFecha: fecha || null, tercNota: (nota || '').trim() };
   const finPlan = t.inicio && t.ops.length ? finOf(S, t) : null;
@@ -519,13 +519,39 @@ export function tercerizar(S, id, { proveedor, fecha, nota, cant } = {}) {
   } else {
     const hh = Number(t.hh) || 0, mit = v => hh > 0 ? Math.max(0.5, Math.round(v * 2) / 2) : 0;
     const hhT = mit(hh * q / total), hhR = mit(hh * (total - q) / total); nid = uid();
-    const nueva = { ...t, ...marca, id: nid, cant: q, hh: hhT, frenada: null, ...(t.cantEnv !== undefined ? { cantEnv: 0, fechaEnvio: '', remito: '', remitoOk: false } : {}) };
-    const tareas = []; S.tareas.forEach(x => { if (x.id === id) { tareas.push({ ...x, cant: total - q, hh: hhR }, nueva); } else tareas.push((x.preds || []).includes(id) ? { ...x, preds: [...x.preds, nid] } : x); });   // lo que dependía de la pieza espera también a la parte tercerizada
+    const nueva = { ...t, ...marca, id: nid, cant: q, hh: hhT, frenada: null, restan: null, cantFab: null, ...(t.cantEnv !== undefined ? { cantEnv: 0, fechaEnvio: '', remito: '', remitoOk: false } : {}) };
+    const tareas = []; S.tareas.forEach(x => { if (x.id === id) { tareas.push({ ...x, ...(cr ? { restan: total - q } : { cant: total - q }), hh: hhR }, nueva); } else tareas.push((x.preds || []).includes(id) ? { ...x, preds: [...x.preds, nid] } : x); });   // lo que dependía de la pieza espera también a la parte tercerizada
     S1 = patchTask({ ...S, tareas }, id, {}, true);
     if (finPlan && (S.cfg || {}).adelantarCola !== false) t.ops.forEach(o => { const c = compactar(S1, o); S1 = c.S; n += c.n; });   // el tiempo que libera la parte tercerizada lo aprovecha lo que venía detrás
   }
   S1.tareas.filter(x => (x.preds || []).includes(nid) && x.inicio && x.estado !== 'terminada').forEach(x => { S1 = patchTask(S1, x.id, {}, true); });   // lo que depende de ella espera a la fecha de retorno
   return { S: S1, n };
+}
+// ---- Restan (25/11): lo que falta fabricar de un repuesto (entregas parciales) ----
+// restan vacío = resta toda la cantidad. Las horas, el material y el promedio por unidad siguen a lo que resta.
+const vacioR = v => v === '' || v == null;
+export const restanDe = t => vacioR(t.restan) ? Math.max(0, Number(t.cant) || 0) : Math.max(0, Number(t.restan) || 0);
+export const conRestan = t => !!t && t.tipo === 'rep' && !vacioR(t.restan);
+// unidades que se fabrican en la tarea: las que restaban al finalizarla (cantFab), lo que resta o la cantidad
+export const unidadesDe = t => { if (!t) return 1; if (Number(t.cantFab) > 0) return Number(t.cantFab); const r = t.tipo === 'rep' && !vacioR(t.restan) ? Number(t.restan) || 0 : 0; return r > 0 ? r : Math.max(1, Number(t.cant) || 1); };
+const mitH = v => Math.max(0.1, r2(v));   // en proporción, con 2 decimales (ida y vuelta no corre las horas)
+// Cambia lo que resta (y la cantidad, si viene). Sin empezar: la duración se ajusta en proporción.
+// Empezada y se entregó una parte: lo entregado queda como una pieza finalizada aparte (entParcial) con las horas ya hechas, y lo que resta sigue pendiente con las horas en proporción.
+export function ponerRestan(S, id, v, { cant } = {}) {
+  const t = S.tareas.find(x => x.id === id); if (!t) return { S, sep: 0 };
+  const c = cant != null && cant !== '' ? Math.max(0, Number(cant) || 0) : Math.max(0, Number(t.cant) || 0);
+  let r = vacioR(v) ? null : Math.max(0, Number(String(v).replace(',', '.')) || 0);
+  if (r != null && r >= c) r = null;   // resta todo (o más de lo pedido): queda vacío
+  const antes = restanDe(t), desp = r == null ? c : r, base = { cant: c, restan: r };
+  if (t.estado === 'terminada' || desp === antes || !isLeaf(S, id)) return { S: patchTask(S, id, base), sep: 0 };
+  const hh = Number(t.hh) || 0, hecho = llevado(S, t), empezada = hecho > 0 || t.estado === 'en proceso';
+  if (!empezada || desp > antes || antes <= 0) return { S: patchTask(S, id, { ...base, ...(hh > 0 && antes > 0 && desp > 0 ? { hh: mitH(hh * desp / antes) } : {}) }, true), sep: 0 };
+  if (desp === 0) return { S: patchTask(S, id, { ...base, cantFab: antes }), sep: 0 };   // empezada y no resta nada: queda para finalizarla; se recuerda cuántas se hicieron
+  const q = antes - desp, nid = uid(), now = nowDT(), h = r2(hecho), corre = corriendo(t);
+  const ent = { ...t, id: nid, cant: q, restan: null, cantFab: null, entParcial: true, hh: hh > 0 ? mitH(hh * q / antes) : 0, hhReal: h, estado: 'terminada', avance: 100, proximo: null, finReal: now, realFin: !!(t.inicio && t.inicio < now), crono: { acum: h, desde: null }, pausada: false, empuje: null, frenada: null, preds: [] };
+  const resto = { ...base, hh: hh > 0 ? mitH(hh * desp / antes) : hh, hhReal: 0, avance: 0, crono: corre ? { acum: 0, desde: now } : null, pausada: false, ...(t.inicio && t.inicio < now ? { inicio: now } : {}) };
+  const tareas = []; S.tareas.forEach(x => { tareas.push(x.id === id ? { ...x, ...resto } : x); if (x.id === id) tareas.push(ent); });
+  return { S: patchTask({ ...S, tareas }, id, {}, true), sep: q };
 }
 // Se arrepintieron: la pieza vuelve a planta como pendiente
 export function volverAPlanta(S, id) {
@@ -622,8 +648,8 @@ export function corteSug(S, t) {
   const k = claveCod(nomBase(t.nombre)); if (!k) return null;
   const l = S.tareas.filter(x => x.corte && x.estado === 'terminada' && Number(x.hhReal) > 0 && claveCod(nomBase(x.nombre)) === k);
   if (!l.length) return null;
-  const pu = l.reduce((a, x) => a + Number(x.hhReal) / Math.max(1, Number(x.cant) || 1), 0) / l.length;
-  return { n: l.length, porUnidad: pu, hh: r2(pu * Math.max(1, Number(t.cant) || 1)) };
+  const pu = l.reduce((a, x) => a + Number(x.hhReal) / unidadesDe(x), 0) / l.length;
+  return { n: l.length, porUnidad: pu, hh: r2(pu * unidadesDe(t)) };
 }
 export function agregarCorte(S, id, { ops = [], hh = 0, inicio = null, hecho = false, restar = false } = {}) {
   let t = S.tareas.find(x => x.id === id); if (t && t.parte) t = S.tareas.find(x => x.id === t.parentId);
@@ -846,7 +872,7 @@ export function fabricaciones(S) {
       ops: [], opsTxt: h.opsTxt || '', material: h.material || '', peso: h.peso, hhCat: h.hhCat || null, det: h.det || '', obs: h.obs || '', fuera: !!h.tiempoFuera }); });
   _fab.set(S.tareas, { h: S.historico, l: c }); return c;
 }
-const regFab = (t, hh, fecha, ops) => { const cant = Math.max(1, Number(t.cant) || 1);
+const regFab = (t, hh, fecha, ops) => { const cant = unidadesDe(t);
   return { id: t.id, k: claveCod(t.nombre), nombre: t.nombre.replace(/\s*\(parte \d+\)\s*$/i, ''), tipo: t.tipo, proyId: t.proyId, parentId: t.parentId, orden: t.orden, cliente: t.cliente,
     operacionId: t.operacionId, cant, hh, hu: hh / cant, plan: Number(t.hh) || 0, fecha: (fecha || '').slice(0, 10), ops, material: t.material || '', peso: t.peso, fuera: !!t.tiempoFuera }; };
 
@@ -1045,7 +1071,8 @@ export function necesidades(S, items) {
     if (ps.length) pend = ps.every(esPend);   // pieza hecha en partes: el material se retira una vez
     else { if ((t.agrupa || !t.parentId) && hs.length) return; pend = esPend(t); }   // grupo: solo resume a sus hijos
     if (!pend) { if (t.estado !== 'terminada') enCurso++; return; }
-    const k = claveCod(t.nombre), f = fichaDe(S, k), cant = Math.max(1, Number(t.cant) || 1), hoja = !hs.some(x => !x.parte);
+    const k = claveCod(t.nombre), f = fichaDe(S, k), cant = conRestan(t) ? restanDe(t) : Math.max(1, Number(t.cant) || 1), hoja = !hs.some(x => !x.parte);
+    if (!(cant > 0)) return;   // repuesto que ya no resta fabricar
     const p = { id: t.id, k, nombre: t.nombre.replace(/\s*\(parte \d+\)\s*$/i, ''), cant, tipo: t.tipo, proyId: t.proyId, estado: t.estado };
     if (f && f.chapa) { chapa.push(p); return; }
     if (f && f.noMat) { noMat++; return; }   // no consume material de stock (plegado, pulido, armado, un servicio…)
@@ -1094,7 +1121,7 @@ export function autoCompletar(S, t, conHoras) {
   if (c && c.operacionId && (!t.operacionId || t.opAuto)) { r.operacionId = c.operacionId; r.opAuto = true; }
   const h = historial(S, t.nombre);
   if (h) {
-    if (conHoras) r.hh = Math.max(0.5, Math.round(h.porUnidad * Math.max(1, Number(t.cant) || 1) * 2) / 2);
+    if (conHoras) r.hh = Math.max(0.5, Math.round(h.porUnidad * unidadesDe(t) * 2) / 2);
     if (!r.operacionId && !t.operacionId && h.operacionId) { r.operacionId = h.operacionId; r.opAuto = true; }
   }
   return r;
@@ -1167,7 +1194,7 @@ export function planificarGrupo(S, filtro, horas = {}, opts = {}) {
   pend.forEach(t => {
     let h = Number(horas[t.id]); origen[t.id] = 'cargada';
     if (!(h > 0)) { h = Number(t.hh) || 0; origen[t.id] = 'manual'; }
-    if (!(h > 0)) { const hi = historial(S, t.nombre); if (hi) { h = Math.max(0.5, Math.round(hi.porUnidad * Math.max(1, Number(t.cant) || 1) * 2) / 2); origen[t.id] = 'promedio'; } }
+    if (!(h > 0)) { const hi = historial(S, t.nombre); if (hi) { h = Math.max(0.5, Math.round(hi.porUnidad * unidadesDe(t) * 2) / 2); origen[t.id] = 'promedio'; } }
     if (!(h > 0)) { faltan.push({ id: t.id, nombre: t.nombre, cant: t.cant || 1 }); return; }
     hhDe[t.id] = h;
     const op = t.operacionId || autoCompletar(S, t, false).operacionId || '';

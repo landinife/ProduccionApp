@@ -106,7 +106,7 @@ function ConfirmarDlg({ titulo, texto, si = 'Sí', peligro, fecha, onSi, no, onN
     <div className="modal conf" role="alertdialog" aria-label={titulo}>
       <header><h2>{titulo}</h2></header>
       <div className="modal-b"><p>{texto}</p>{fecha !== undefined && <label className="fld">¿Qué día terminó?<input type="date" value={f} max={E.today()} onChange={e => setF(e.target.value)} /></label>}</div>
-      <footer><button className="btn" autoFocus={!!peligro} onClick={onClose}>Cancelar</button>{no && <button className="btn" onClick={() => { onClose(); onNo(); }}>{no}</button>}<button className={'btn ' + (peligro ? 'danger' : 'ok-b')} autoFocus={!peligro} onClick={() => { onClose(); onSi(fecha !== undefined ? (f || E.today()) : undefined); }}>{si}</button></footer>
+      <footer><button className="btn canc-b" autoFocus={!!peligro} onClick={onClose}>Cancelar</button>{no && <button className="btn" onClick={() => { onClose(); onNo(); }}>{no}</button>}<button className={'btn ' + (peligro ? 'danger' : 'ok-b')} autoFocus={!peligro} onClick={() => { onClose(); onSi(fecha !== undefined ? (f || E.today()) : undefined); }}>{si}</button></footer>
     </div>
   </div>;
 }
@@ -152,7 +152,7 @@ function Calculadora({ cant, titulo, onUse, onClose }) {
       <div className="calc-u"><span className="mut">La cuenta da</span><div className="seg"><button className={un === 'h' ? 'on' : ''} onClick={() => cambiarU('h')}>horas</button><button className={un === 'min' ? 'on' : ''} onClick={() => cambiarU('min')}>minutos</button></div></div>
       {cant > 1 && <button className="btn sm calc-cant" onClick={() => setEx(e => { const b = e && !'+−×÷('.includes(e.slice(-1)) ? e : e.replace(/[+−×÷]$/, ''); return b ? (/[+−]/.test(b) ? '(' + b + ')' : b) + '×' + cant : e; })} disabled={!ex}>× cantidad de la pieza ({cant})</button>}
       <div className="calc-k">{teclas.map(k => <button key={k} className={'ck' + ('÷×−+'.includes(k) ? ' op' : k === '=' ? ' eq' : k === 'C' || k === '⌫' ? ' fn' : '')} onClick={() => tecla(k)}>{k}</button>)}</div>
-      <div className="calc-f"><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={horas === null} onClick={usar}>Usar {horas === null ? '' : fHM(horas)}</button></div>
+      <div className="calc-f"><button className="btn canc-b" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={horas === null} onClick={usar}>Usar {horas === null ? '' : fHM(horas)}</button></div>
       <small className="mut calc-tip">Podés usar el teclado: números, + − * /, Enter para usar el resultado, Esc para cerrar.</small>
     </div></div>, document.body);
 }
@@ -180,7 +180,7 @@ function permiso(p, n, pm) {
   if (proyProg && !pm.rep && !pm.proy) return 'Este usuario es solo de consulta.';
   return null;
 }
-const CAMPOS = { nombre: 'pieza', cant: 'cantidad', material: 'material', peso: 'peso', tiempoFuera: 'descartada del promedio', prioridad: 'prioridad', estado: 'estado', operacionId: 'operación', ops: 'operarios', turno: 'turno', inicio: 'inicio', hh: 'duración', hhReal: 'horas reales', avance: 'avance', entrega: 'entrega', orden: 'OV/OC', cliente: 'cliente', creada: 'fecha de carga', frenada: 'freno', origen: 'origen', motivo: 'motivo', cantEnv: 'cantidad enviada', fechaEnvio: 'fecha de envío', remito: 'N° de remito', destinatario: 'destinatario', remitoOk: 'remito verificado' };
+const CAMPOS = { nombre: 'pieza', cant: 'cantidad', restan: 'lo que resta', material: 'material', peso: 'peso', tiempoFuera: 'descartada del promedio', prioridad: 'prioridad', estado: 'estado', operacionId: 'operación', ops: 'operarios', turno: 'turno', inicio: 'inicio', hh: 'duración', hhReal: 'horas reales', avance: 'avance', entrega: 'entrega', orden: 'OV/OC', cliente: 'cliente', creada: 'fecha de carga', frenada: 'freno', origen: 'origen', motivo: 'motivo', cantEnv: 'cantidad enviada', fechaEnvio: 'fecha de envío', remito: 'N° de remito', destinatario: 'destinatario', remitoOk: 'remito verificado' };
 const FER2026 = [['01-01', 'Año Nuevo'], ['02-16', 'Carnaval'], ['02-17', 'Carnaval'], ['03-24', 'Día de la Memoria'], ['04-02', 'Veteranos y Caídos en Malvinas'], ['04-03', 'Viernes Santo'], ['05-01', 'Día del Trabajador'], ['05-25', 'Revolución de Mayo'], ['06-15', 'Paso a la Inmortalidad de Güemes'], ['06-20', 'Paso a la Inmortalidad de Belgrano'], ['07-09', 'Día de la Independencia'], ['08-17', 'Paso a la Inmortalidad de San Martín'], ['10-12', 'Respeto a la Diversidad Cultural'], ['11-23', 'Soberanía Nacional'], ['12-08', 'Inmaculada Concepción'], ['12-25', 'Navidad']];
 const NOLAB2026 = [['03-23', 'Día no laborable'], ['07-10', 'Día no laborable'], ['12-07', 'Día no laborable']];
 function describir(p, n) {
@@ -224,7 +224,7 @@ function TercerizarDlg({ id, ids, onClose }) {
   const total = Math.max(1, Number(t.cant) || 1), elige = !multi && total > 1 && !(Number(t.cantEnv) > 0), c = elige ? Math.min(total, Math.max(1, Math.floor(Number(q)) || total)) : total;
   const ok = () => { let n = 0; up(s => { let S2 = s; lista.forEach(i => { const r = E.tercerizar(S2, i, { proveedor: prov, fecha, nota, cant: multi ? undefined : c }); S2 = r.S; n += r.n; }); return S2; });
     ui.toast((multi ? `${lista.length} piezas tercerizadas` : c < total ? `${c} de ${total} unidades tercerizadas` : 'Tercerizada') + (prov.trim() ? ' en ' + prov.trim() : '') + (fecha ? ` · vuelve el ${fD(fecha)}` : '') + (n ? `. ${n === 1 ? 'La tarea que venía detrás se adelantó' : n + ' tareas que venían detrás se adelantaron'}.` : '.')); onClose(); };
-  return createPortal(<Modal title={multi ? `Tercerizar · ${lista.length} piezas` : 'Tercerizar · ' + t.nombre} onClose={onClose} foot={<><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn terc-b" onClick={ok}>↗ Tercerizar{multi ? ` (${lista.length})` : ''}</button></>}>
+  return createPortal(<Modal title={multi ? `Tercerizar · ${lista.length} piezas` : 'Tercerizar · ' + t.nombre} onClose={onClose} foot={<><span className="sp" /><button className="btn canc-b" onClick={onClose}>Cancelar</button><button className="btn terc-b" onClick={ok}>↗ Tercerizar{multi ? ` (${lista.length})` : ''}</button></>}>
     {multi && <p className="mut">{lista.map(i => S.tareas.find(x => x.id === i).nombre).join(' · ')}</p>}
     {elige && <label className="fld">Cantidad a tercerizar (de {total})<input type="number" min="1" max={total} step="1" value={q} onChange={e => setQ(e.target.value)} />{c < total && <small className="hint">Se divide la pieza: {c} {c === 1 ? 'unidad queda' : 'unidades quedan'} tercerizadas y {total - c} siguen en planta (con las horas repartidas en proporción).</small>}</label>}
     <label className="fld">Proveedor (opcional)<input type="text" value={prov} placeholder="Ej.: Plegados Rossi" onChange={e => setProv(e.target.value)} /></label>
@@ -281,7 +281,7 @@ function MeterDlg({ id, op, d, turno, from, onClose }) {
       return E.patchTask(s1, id, patch, true); });
     ui.toast(lst.length ? `"${t.nombre}" entra a las ${hora}; ${lst.map(x => `"${x.nombre}"`).join(' y ')} quedó pausada a esa hora` : `"${t.nombre}" entra a las ${hora}`); onClose();
   };
-  return <Modal title="¿Meterla en medio?" onClose={onClose} foot={<><button className="btn" onClick={onClose}>Cancelar</button><button className="btn" onClick={alFinal}>Ponerla al final del día</button><span className="sp" /><button className="btn pri-b" disabled={!ini || futuro} onClick={meter}>{lst.length ? `Pausar y meterla a las ${hora}` : `Meterla a las ${hora || '—'}`}</button></>}>
+  return <Modal title="¿Meterla en medio?" onClose={onClose} foot={<><button className="btn canc-b" onClick={onClose}>Cancelar</button><button className="btn" onClick={alFinal}>Ponerla al final del día</button><span className="sp" /><button className="btn pri-b" disabled={!ini || futuro} onClick={meter}>{lst.length ? `Pausar y meterla a las ${hora}` : `Meterla a las ${hora || '—'}`}</button></>}>
     <p><b>{opName(S, op)}</b> tenía en curso {enc.map(x => <span key={x.id}><b>{x.nombre}</b> (desde {fDT(x.crono.desde)}) </span>)}el {fDia(d)}.</p>
     <label className="fld">¿A qué hora empezó "{t.nombre}"?<input type="time" value={hora} onChange={e => setHora(e.target.value)} /></label>
     {futuro ? <small className="hint bad">Para pausar lo que está en curso, la hora tiene que ser ahora o antes.</small>
@@ -316,7 +316,7 @@ function FrenarDlg({ id, pausa, onClose }) {
   const ok = () => { if (!motivo) { ui.toast('Elegí el motivo'); return; } if (!valida()) return; const h = modo === 'fecha' ? hasta : null; let n = 0;
     up(s => { const r = E.frenar(s, id, { motivo, nota, hasta: h, desde: cuando, horaHasta: h ? horaH : '' }); n = r.n; return r.S; });
     ui.toast((h ? `Frenada hasta el ${fD(h)}${horaH ? ' ' + horaH : ''}` : 'Frenada sin fecha: no ocupa el calendario') + (n ? `. ${n === 1 ? 'La tarea que venía detrás se adelantó' : n + ' tareas que venían detrás se adelantaron'}.` : '.')); onClose(); };
-  return createPortal(<Modal title={(pausa ? 'Pausar · ' : 'Frenar · ') + t.nombre} onClose={onClose} foot={modo ? <><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn warn-b" onClick={ok}>Frenar</button></> : null}>
+  return createPortal(<Modal title={(pausa ? 'Pausar · ' : 'Frenar · ') + t.nombre} onClose={onClose} foot={modo ? <><span className="sp" /><button className="btn canc-b" onClick={onClose}>Cancelar</button><button className="btn warn-b" onClick={ok}>Frenar</button></> : null}>
     <div className="fld"><span>Último día y hora trabajados</span><div className="row">
       <input type="date" value={ultDia} max={hoyD} onChange={e => elegirDia(e.target.value)} />
       <input type="time" value={hora} max={ultDia === hoyD ? ahoraDT.slice(11, 16) : undefined} aria-label="Hora" onChange={e => setHora(e.target.value)} />
@@ -354,7 +354,7 @@ function CorteDlg({ id, onClose }) {
     const inicio = dia && (hecho || hora || dia !== E.today()) ? dia + 'T' + (hora || '00:00') : null;
     let ini = null; up(s => { const s2 = E.agregarCorte(s, t.id, { ops, hh, inicio, hecho, restar: restar && !!abierta }); const c = s2.tareas.find(x => x.corte && x.parentId === t.id && !s.tareas.some(y => y.id === x.id)); ini = c && c.inicio; return s2; });
     ui.toast(hecho ? `Corte cargado: ${fHM(hh)} de ${ops.map(o => opName(S, o)).join(', ')}` : ini ? `Corte agregado: empieza ${fDT(ini)}` : 'Corte agregado sin operario: queda en "Tareas para darle"'); onClose(); };
-  return createPortal(<Modal title={'✂ Agregar corte · ' + base} onClose={onClose} foot={<><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" onClick={ok}>✂ Agregar corte</button></>}>
+  return createPortal(<Modal title={'✂ Agregar corte · ' + base} onClose={onClose} foot={<><span className="sp" /><button className="btn canc-b" onClick={onClose}>Cancelar</button><button className="btn pri-b" onClick={ok}>✂ Agregar corte</button></>}>
     <p className="mut">El corte queda como una parte más de esta pieza (mismo código, sin codificar nada nuevo), con su operario y su tiempo. Las horas de la pieza son la suma del corte y el resto del trabajo. No hace falta que el corte termine para que arranque el torno.</p>
     <div className="fld"><span>¿Ya se hizo?</span><div className="seg"><button type="button" className={!hecho ? 'on' : ''} onClick={() => setHecho(false)}>Por hacer</button><button type="button" className={hecho ? 'on' : ''} onClick={() => setHecho(true)}>Ya se hizo</button></div></div>
     <div className="fld"><span>¿Quién corta?{!hecho && <small className="mut"> (opcional)</small>}</span><div className="togs">{S.operarios.filter(o => o.activo || ops.includes(o.id)).map(o => <button key={o.id} type="button" className={'togb' + (ops.includes(o.id) ? ' on' : '')} onClick={() => tog(o.id)}>{o.nombre}</button>)}</div></div>
@@ -388,7 +388,7 @@ function RetomarDlg({ id, onClose }) {
     if (pisa) { up(s => E.iniciar(E.retomar(s, id, { ops }), id)); ui.toast(`Retomada y en curso. ${otras.length === 1 ? 'Se pausó' : 'Se pausaron'} ${cuales}: lo que falta sigue en la cola`); onClose(); return; }
     let ini = null; up(s => { const s2 = E.retomar(s, id, { ops, desde, ya, hora }); ini = (s2.tareas.find(x => x.id === id) || {}).inicio; return s2; });
     ui.toast(ini ? `Retomada: empieza ${fDT(ini)}` : 'Retomada sin operario: queda en "Tareas para darle"'); onClose(); };
-  return createPortal(<Modal title={'Retomar · ' + t.nombre} onClose={onClose} foot={<><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" onClick={ok}>{yaRetomo ? 'Retomar desde esa hora' : pisa ? 'Pausar y retomar ahora' : 'Retomar'}</button></>}>
+  return createPortal(<Modal title={'Retomar · ' + t.nombre} onClose={onClose} foot={<><span className="sp" /><button className="btn canc-b" onClick={onClose}>Cancelar</button><button className="btn pri-b" onClick={ok}>{yaRetomo ? 'Retomar desde esa hora' : pisa ? 'Pausar y retomar ahora' : 'Retomar'}</button></>}>
     {t.frenada && <p className="note">⏸ {txtFreno(t)}{t.frenada.nota ? ` · ${t.frenada.nota}` : ''}</p>}
     <p className="mut">Faltan {fHM(t.hh)} (horas-hombre).</p>
     <div className="fld"><span>¿Quiénes la retoman?</span><div className="togs">{S.operarios.filter(o => o.activo || ops.includes(o.id)).map(o => <button key={o.id} type="button" className={'togb' + (ops.includes(o.id) ? ' on' : '')} onClick={() => tog(o.id)}>{o.nombre}</button>)}</div></div>
@@ -557,7 +557,7 @@ function Proximas({ filtro, donde }) {
       : <div className="proxl">{l.map((t, i) => <div key={t.id} className="proxi">
         <b className="proxn">{i + 1}</b>
         <div className="proxd"><span className="drow"><Chip t={t} small /><button className="tlink" title="Abrir" onClick={() => ui.modal({ k: 'task', id: t.id })}>{etiqueta(V, t)}</button><Pri p={t.prioridad} />{E.estaFrenada(t) && <span className="mk warn" title={txtFreno(t)}>⏸ frenada</span>}</span>
-          <span className="mut">{operName(S, t.operacionId)} · cant. {t.cant} · {fH(t.hh)} · {t.ops.length ? t.ops.map(o => opName(S, o)).join(', ') + (t.inicio ? ' · ' + fDT(t.inicio) : '') : 'sin operario'}</span></div>
+          <span className="mut">{operName(S, t.operacionId)} · cant. {cantTxt(t)} · {fH(t.hh)} · {t.ops.length ? t.ops.map(o => opName(S, o)).join(', ') + (t.inicio ? ' · ' + fDT(t.inicio) : '') : 'sin operario'}</span></div>
         <button className="btn sm" title="Sacarla de Próximo a realizar" onClick={() => { up(s => E.setProximo(s, t.id, false)); ui.toast('Quitada de Próximo a realizar'); }}>Quitar</button>
       </div>)}</div>}
   </section>;
@@ -722,7 +722,7 @@ function useFiltros(k) {
   const set = fn => { FSTORE[k] = fn(leerF(k)); try { localStorage.setItem(k, JSON.stringify(FSTORE[k])); } catch (e) { } FLIS.forEach(l => l()); };
   return [leerF(k), set];
 }
-const FILTRABLES = new Set(['orden', 'cliente', 'nombre', 'cant', 'prioridad', 'estado', 'operacion', 'ops', 'turno', 'inicio', 'fin', 'real', 'avance']);
+const FILTRABLES = new Set(['orden', 'cliente', 'nombre', 'cant', 'restan', 'prioridad', 'estado', 'operacion', 'ops', 'turno', 'inicio', 'fin', 'real', 'avance']);
 const TURNOS = { normal: 'Normal', extra: 'Extra', ambos: 'Normal + extra' };
 // Valores de una fila para el filtro (texto que se ve en la lista). Operarios devuelve uno por operario.
 const valF = (S, V, k, t) => { const r = V.D[t.id] || {}; const rt = V.rootOf(t) || t;
@@ -731,6 +731,7 @@ const valF = (S, V, k, t) => { const r = V.D[t.id] || {}; const rt = V.rootOf(t)
     case 'cliente': return [rt.cliente || VACIO];
     case 'nombre': return [t.nombre || VACIO];
     case 'cant': return [t.cant === '' || t.cant == null ? VACIO : String(t.cant)];
+    case 'restan': return [String(restanVis(t))];
     case 'prioridad': return [t.prioridad || VACIO];
     case 'estado': return [esTerc(t) ? 'tercerizada' : sinF(t) ? 'finalizada, sin fecha' : estTxt(r.parent ? r.estado : estDe(t))];
     case 'operacion': return [r.parent ? VACIO : t.operacionId ? operName(S, t.operacionId) : VACIO];
@@ -746,6 +747,7 @@ const valF = (S, V, k, t) => { const r = V.D[t.id] || {}; const rt = V.rootOf(t)
 const ordV = (S, V, k, t) => { const r = V.D[t.id] || {};
   switch (k) {
     case 'cant': return Number(t.cant) || 0;
+    case 'restan': return restanVis(t);
     case 'real': return r.hhReal || 0;
     case 'avance': return r.avance || 0;
     case 'prioridad': return PRI[t.prioridad] ?? 9;
@@ -774,7 +776,7 @@ function FiltroPop({ titulo, k, valores, elegidos, orden, pos, onOk, onOrden, on
   // Como en Excel: si hay texto en el buscador, "Aceptar" deja solo lo que coincide y está tildado
   const aceptar = () => { const elig = (ql ? vis.filter(v => m.has(v.v)) : valores.filter(v => m.has(v.v))).map(v => v.v);
     onOk(elig.length === valores.length ? null : elig); };
-  const az = k === 'cant' || k === 'real' || k === 'avance' ? ['Ordenar de menor a mayor', 'Ordenar de mayor a menor'] : k === 'inicio' || k === 'fin' ? ['Ordenar de más antigua a más nueva', 'Ordenar de más nueva a más antigua'] : k === 'prioridad' ? ['Ordenar de alta a baja', 'Ordenar de baja a alta'] : ['Ordenar de A a Z', 'Ordenar de Z a A'];
+  const az = k === 'cant' || k === 'restan' || k === 'real' || k === 'avance' ? ['Ordenar de menor a mayor', 'Ordenar de mayor a menor'] : k === 'inicio' || k === 'fin' ? ['Ordenar de más antigua a más nueva', 'Ordenar de más nueva a más antigua'] : k === 'prioridad' ? ['Ordenar de alta a baja', 'Ordenar de baja a alta'] : ['Ordenar de A a Z', 'Ordenar de Z a A'];
   const H = Math.min(450, window.innerHeight - 16), x = Math.max(8, Math.min(pos.x, window.innerWidth - 290)), y = Math.max(8, Math.min(pos.y, window.innerHeight - H - 8));   // que entre siempre en la pantalla
   return createPortal(<div className="fpop" ref={ref} style={{ left: x, top: y, maxHeight: H }} role="dialog" aria-label={'Filtro de ' + titulo}>
     <div className="fpop-t">{titulo}</div>
@@ -811,8 +813,21 @@ function FilaMenu({ pos, items, onClose }) {
   </div>, document.body);
 }
 
-const colsDe = tipo => [...(tipo === 'rep' ? [['orden', 'OV/OC', 148], ['cliente', 'Cliente', 160]] : []), ['nombre', 'Pieza', 300], ['cant', 'Cant.', 66], ['prioridad', 'Prioridad', 108], ['estado', 'Estado', 118], ['operacion', 'Operación', 130], ['ops', 'Operarios', 150], ['turno', 'Turno', 92], ['hh', 'Duración', 132], ['inicio', 'Inicio', 190], ['fin', 'Fin', 190], ['real', 'HH real', 80], ['tot', 'Hijos plan / real', 160], ['avance', 'Avance %', 86]];
+const colsDe = tipo => [...(tipo === 'rep' ? [['orden', 'OV/OC', 148], ['cliente', 'Cliente', 160]] : []), ['nombre', 'Pieza', 300], ['cant', 'Cant.', 66], ...(tipo === 'rep' ? [['restan', 'Restan', 84]] : []), ['prioridad', 'Prioridad', 108], ['estado', 'Estado', 118], ['operacion', 'Operación', 130], ['ops', 'Operarios', 150], ['turno', 'Turno', 92], ['hh', 'Duración', 132], ['inicio', 'Inicio', 190], ['fin', 'Fin', 190], ['real', 'HH real', 80], ['tot', 'Hijos plan / real', 160], ['avance', 'Avance %', 86]];
 // Suma de los hijos de un padre (plan y real de todo lo que tiene adentro), sin el trabajo propio del padre
+// ---- Restan (25/11): lo que falta fabricar de un repuesto (entregas parciales) ----
+const conRest = t => E.conRestan(t);
+const restanVis = t => t.estado === 'terminada' ? 0 : E.restanDe(t);
+const cantTxt = t => E.conRestan(t) && t.estado !== 'terminada' ? `${E.restanDe(t)} de ${t.cant}` : t.cant;
+// No resta nada: con horas hechas se finaliza ahora; sin horas, como finalizada sin día puntual (se entregó de otro lado)
+const finRestan = (s, id) => { const x = s.tareas.find(y => y.id === id); if (!x || x.estado === 'terminada') return s; const h = E.llevado(s, x); return h > 0 ? E.finalizar(s, id, h, true) : E.setEstado(s, id, 'sinfecha'); };
+function aplicarRestan(S, up, ui, id, v, op = {}) {
+  const t = S.tareas.find(x => x.id === id); if (!t) return;
+  let sep = 0; up(s => { const r = E.ponerRestan(s, id, v, op); sep = r.sep; return r.S; });
+  const n = v === '' || v == null ? null : Number(String(v).replace(',', '.'));
+  if (sep) ui.toast(`Entrega parcial: ${sep} ${sep === 1 ? 'unidad quedó finalizada' : 'unidades quedaron finalizadas'} con las horas hechas y ${n === 1 ? 'resta 1' : 'restan ' + n}. Podés deshacerlo arriba.`);
+  if (n === 0 && t.estado !== 'terminada') ui.confirmar({ titulo: '¿Pasarla a finalizada?', texto: `No resta nada por fabricar de "${t.nombre}". ${E.llevado(S, t) > 0 ? 'Se finaliza ahora con las horas que lleva.' : 'Queda como finalizada sin día puntual, sin horas.'} Podés deshacerlo arriba.`, si: 'Sí, finalizar', onSi: () => { up(s => finRestan(s, id)); ui.toast('Finalizada'); } });
+}
 const hijosDe = (V, id) => (V.kids[id] || []).reduce((a, c) => { const x = V.SUB[c.id] || V.D[c.id]; return { hh: a.hh + (x.hh || 0), hhReal: a.hhReal + (x.hhReal || 0) }; }, { hh: 0, hhReal: 0 });
 function TaskTable({ roots, tipo, vis, collapsed, toggle, orden, universo }) {
   const { S, V, up, ui } = useApp(); const own = useSet();
@@ -897,6 +912,7 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden, universo }) {
     {!r.parent && E.esProximo(t) && <span className="mk prox" title="Próximo a realizar">⏭</span>}
     {t.corte && <span className="mk" title="Corte de material: parte de la misma pieza (suma sus horas)">✂</span>}
     {t.manual && r.estado !== 'terminada' && <button className="mk pin" title="Fecha fijada a mano: no se corre por etapas. Tocá para soltarla." onClick={() => set(t, { manual: false }, true)}>📌</button>}
+    {t.entParcial && <span className="mk" title="Parte de este repuesto que ya se entregó: se separó al bajar Restan, con las horas que llevaba">entrega parcial</span>}
     {r.estado === 'terminada' && !esTerc(t) && <span className={'mk ok' + (r.sin0 ? ' w0' : '')} title={r.sin0 ? aviso0(r) : t.finReal ? 'Finalizada el ' + fDT(t.finReal) : 'Finalizada'}>✓</span>}
     {sinF(t) && !esTerc(t) && <span className="mk warn" title={SINF_TXT}>!</span>}
     {esTerc(t) && <span className="mk terc" title={tercTxt(t) + (t.tercNota ? ' · ' + t.tercNota : '')}>↗ Tercerizada{t.tercFecha ? ' · vuelve ' + fD(t.tercFecha) : ''}</span>}
@@ -923,16 +939,17 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden, universo }) {
       case 'orden': return !t.parentId ? <EdIn value={t.orden} placeholder="OV-0000" onCommit={v => set(t, { orden: v.trim() })} /> : null;
       case 'cliente': return !t.parentId ? <EdIn value={t.cliente} onCommit={v => set(t, { cliente: v.trim() })} /> : null;
       case 'nombre': return <div className="tname" style={{ paddingLeft: depth * 14 }}>{hasKids ? <button className="tog" onClick={() => tog(t.id)} aria-label="Desplegar">{col.has(t.id) ? '▸' : '▾'}</button> : <span className="tog" />}<EdIn value={t.nombre} placeholder="(sin nombre)" onCommit={v => set(t, { nombre: v, ...(r.parent ? {} : E.autoCompletar(S, { ...t, nombre: v }, false)) })} /></div>;
-      case 'cant': return <EdIn className="num" type="number" min="0" value={t.cant} onCommit={v => set(t, { cant: num(v) })} />;
+      case 'cant': return <EdIn className="num" type="number" min="0" value={t.cant} onCommit={v => conRest(t) ? aplicarRestan(S, up, ui, t.id, t.restan, { cant: num(v) }) : set(t, { cant: num(v) })} />;
+      case 'restan': return r.parent ? <span className="ro num mut" title="Lo que resta se carga en cada pieza hija">—</span> : r.estado === 'terminada' ? <span className="ro num mut" title="Finalizada: no resta nada">0</span> : <EdIn className={'num' + (conRest(t) ? ' rest' : '')} type="number" min="0" value={conRest(t) ? t.restan : ''} placeholder={String(Number(t.cant) || 0)} title="Lo que falta fabricar (entregas parciales). Vacío = toda la cantidad." onCommit={v => aplicarRestan(S, up, ui, t.id, v)} />;
       case 'prioridad': return <select className={'ci p-' + t.prioridad} value={t.prioridad} onChange={e => set(t, { prioridad: e.target.value })} aria-label="Prioridad"><option>alta</option><option>media</option><option>baja</option></select>;
       case 'estado': return r.parent ? <span className={'est e-' + r.estado.replace(' ', '') + (r.estado === 'terminada' && r.sin0 ? ' w0' : '')} title={r.estado === 'terminada' && r.sin0 ? aviso0(r) : undefined}>{estTxt(r.estado)}{r.estado === 'terminada' && r.sin0 ? ' ⚠' : ''}</span> : esTerc(t) ? <span className="est e-terc" title={tercTxt(t) + (t.tercNota ? ' · ' + t.tercNota : '')}>↗ tercerizada</span> : <select className={'ci est e-' + estDe(t).replace(' ', '')} value={sinF(t) ? 'sinfecha' : estDe(t)} onChange={e => setEstado(t, e.target.value)} aria-label="Estado"><option>pendiente</option><option value="proximo">próximo a realizar</option><option>en proceso</option><option value="terminada">finalizada</option><option value="sinfecha">finalizada, sin fecha</option></select>;
       case 'operacion': return r.parent ? null : <select className={'ci' + (t.opAuto ? ' auto' : '')} title={t.opAuto ? 'Asignada automáticamente por el código o por las veces anteriores' : undefined} value={t.operacionId} onChange={e => set(t, { operacionId: e.target.value, opAuto: false })} aria-label="Operación"><option value="">—</option>{S.operaciones.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select>;
       case 'ops': return r.parent ? <span className="ro">{r.ops.map(o => opName(S, o)).join(', ')}</span> : <OpsCell t={t} />;
       case 'turno': return r.parent ? null : <select className="ci" value={t.turno} onChange={e => { const v = e.target.value; if ((E.llevado(S, t) > 0 || Number(t.avance) > 0) && t.estado !== 'terminada') { up(s => E.pasarTurno(s, t.id, v)); ui.toast(`Lo hecho quedó en ${t.turno === 'extra' ? 'horas extra' : 'turno normal'}; lo que falta sigue en ${v === 'extra' ? 'horas extra' : 'turno normal'}`); } else set(t, { turno: v }, true); }} aria-label="Turno"><option value="normal">Normal</option><option value="extra">Extra</option><option value="ambos">Normal + extra</option></select>;
-      case 'hh': return r.parent ? <span className="ro num">{fN(r.hh)}</span> : <div className="hhc"><EdIn className="num" type="number" min="0" step="0.5" value={t.hh} onCommit={v => set(t, { hh: num(v) }, true)} /><CalcBtn className="tcalc" cant={Number(t.cant) || 0} titulo={t.nombre + ' · duración'} onUse={v => set(t, { hh: Math.round(v * 100) / 100 }, true)} />{t.ops.length > 1 && <small title="Duración en calendario: horas-hombre dividido la cantidad de operarios">÷{t.ops.length} = {fN(r.durCal)}</small>}</div>;
+      case 'hh': return r.parent ? <span className="ro num">{fN(r.hh)}</span> : <div className="hhc"><EdIn className="num" type="number" min="0" step="0.5" value={t.hh} onCommit={v => set(t, { hh: num(v) }, true)} /><CalcBtn className="tcalc" cant={E.unidadesDe(t)} titulo={t.nombre + ' · duración'} onUse={v => set(t, { hh: Math.round(v * 100) / 100 }, true)} />{t.ops.length > 1 && <small title="Duración en calendario: horas-hombre dividido la cantidad de operarios">÷{t.ops.length} = {fN(r.durCal)}</small>}</div>;
       case 'inicio': return r.parent ? <span className="ro">{fDT(r.inicio)}</span> : <EdIn type="datetime-local" value={t.inicio || ''} onCommit={v => { set(t, { inicio: v || null }, true); const p = v ? E.pisadasDe(S, { ...t, inicio: v }) : []; if (p.length) ui.toast(`Ojo: ${opName(S, p[0].op)} está ocupado con "${p[0].tarea.nombre}" hasta ${fDT(p[0].fin)}. Abrí la tarea para que empiece cuando se libere.`); }} />;
       case 'fin': return r.parent ? <span className="ro">{fDT(r.fin)}</span> : <EdIn type="datetime-local" value={r.fin || ''} disabled={!t.inicio} onCommit={v => setFin(t, v)} />;
-      case 'real': { if (r.parent) return <span className="ro num">{r.hhReal > 0 ? fN(r.hhReal) : '—'}</span>; const dif = r.hhReal > 0 ? r.hhReal - (r.estado === 'terminada' ? r.hh : r.hh * r.avance / 100) : 0; return <div className="hhc"><EdIn className={'num ' + (dif > 0.05 ? 'c-bad' : dif < -0.05 ? 'c-ok' : '')} type="number" min="0" step="0.5" value={t.hhReal || ''} placeholder="—" onCommit={v => set(t, { hhReal: num(v) })} /><CalcBtn className="tcalc" cant={Number(t.cant) || 0} titulo={t.nombre + ' · horas reales'} onUse={v => set(t, { hhReal: Math.round(v * 100) / 100 })} /></div>; }
+      case 'real': { if (r.parent) return <span className="ro num">{r.hhReal > 0 ? fN(r.hhReal) : '—'}</span>; const dif = r.hhReal > 0 ? r.hhReal - (r.estado === 'terminada' ? r.hh : r.hh * r.avance / 100) : 0; return <div className="hhc"><EdIn className={'num ' + (dif > 0.05 ? 'c-bad' : dif < -0.05 ? 'c-ok' : '')} type="number" min="0" step="0.5" value={t.hhReal || ''} placeholder="—" onCommit={v => set(t, { hhReal: num(v) })} /><CalcBtn className="tcalc" cant={E.unidadesDe(t)} titulo={t.nombre + ' · horas reales'} onUse={v => set(t, { hhReal: Math.round(v * 100) / 100 })} /></div>; }
       case 'tot': { if (!hasKids) return null; const hj = hijosDe(V, t.id);   // padres: suma de sus hijos (el tiempo propio del padre queda en Duración y HH real)
         return <span className="ro num tot" title={`Suma de sus hijos: ${fN(hj.hh)} HH planificadas · ${hj.hhReal > 0 ? fN(hj.hhReal) : '0'} HH reales`}><b>{fN(hj.hh)}</b> / {hj.hhReal > 0 ? fN(hj.hhReal) : '—'}</span>; }
       case 'avance': return r.parent ? <span className="ro num">{Math.round(r.avance)}</span> : <EdIn className="num" type="number" min="0" max="100" step="5" value={Math.round(r.avance)} disabled={t.estado === 'terminada'} onCommit={v => { const a = Math.min(100, num(v)); if (a >= 100) { cerrarTarea(up, ui, t.id, undefined, false, 'Finalizada: pasó a la lista de finalizadas'); return; } set(t, { avance: a, estado: a > 0 && E.esPend(t) ? 'en proceso' : t.estado }); }} />;
@@ -1148,7 +1165,7 @@ function HorasReales({ t }) {
   const enter = e => { if (e.key === 'Enter') { e.preventDefault(); guardar(); } };
   return <span className="hreal"><input className="num" type="number" min="0" step="0.5" placeholder="h" aria-label="Horas" value={h} onChange={e => setH(e.target.value)} onKeyDown={enter} /><span>h</span>
     <input className="num" type="number" min="0" max="59" step="5" placeholder="min" aria-label="Minutos" value={m} onChange={e => setM(e.target.value)} onKeyDown={enter} />
-    <CalcBtn cant={Number(t.cant) || 0} titulo={t.nombre} onUse={x => { const tm = Math.round(x * 60); setH(String(Math.floor(tm / 60))); setM(String(tm % 60)); }} />
+    <CalcBtn cant={E.unidadesDe(t)} titulo={t.nombre} onUse={x => { const tm = Math.round(x * 60); setH(String(Math.floor(tm / 60))); setM(String(tm % 60)); }} />
     <button className="btn sm pri-b" onClick={() => guardar()}>Guardar</button>{t.hh > 0 && <button className="btn sm" title="Cargar como reales las horas planificadas" onClick={() => guardar(Number(t.hh))}>= plan ({fN(t.hh)} h)</button>}</span>;
 }
 function Desglose({ roots, ts, vista, hhv, setHhv, color, prev = 0, cerrar }) {
@@ -1278,7 +1295,7 @@ function TablaMovil({ roots, vis, orden }) {
         <b className="tmf-p">{Math.round(r.avance || 0)}%</b>
       </div>
       {on && <div className="tmf-d">
-        <div className="tmf-g">{dato('Cantidad', t.cant)}{dato('Prioridad', t.prioridad)}{!r.parent && dato('Operación', t.operacionId ? operName(S, t.operacionId) : '')}{dato('Operarios', ops)}{!r.parent && dato('Turno', turnoTxt(t))}
+        <div className="tmf-g">{dato('Cantidad', cantTxt(t))}{dato('Prioridad', t.prioridad)}{!r.parent && dato('Operación', t.operacionId ? operName(S, t.operacionId) : '')}{dato('Operarios', ops)}{!r.parent && dato('Turno', turnoTxt(t))}
           {dato(r.conHijos ? 'Duración propia' : 'Duración', fN(r.hh) + ' HH')}{dato('Inicio', fDT(r.inicio))}{dato('Fin', fDT(r.fin))}{dato(r.conHijos ? 'HH real propia' : 'HH real', r.hhReal > 0 ? fN(r.hhReal) : '')}{dato('Avance', Math.round(r.avance || 0) + '%')}
           {hasKids && (() => { const hj = hijosDe(V, t.id); return <>{dato('Hijos · plan', fN(hj.hh) + ' HH')}{dato('Hijos · real', hj.hhReal > 0 ? fN(hj.hhReal) + ' HH' : '')}</>; })()}</div>
         {fren && <FrenoTag t={t} />}
@@ -1341,7 +1358,7 @@ function TableroProc({ roots, vis }) {
     <span className="tabp-r"><Chip t={t} small /><Pri p={t.prioridad} /></span>
     <span className="tabp-e"><i>{c === 'curso' ? '● ' : c === 'proximo' ? '⏭ ' : ''}{LBL[c]}</i></span>
     <b>{t.nombre}</b>
-    <span className="mut">{ens && ens.id !== r.id && !ens.partes ? ens.nombre + ' · ' : ''}{r.orden || r.nombre} · cant. {t.cant} · {fH(t.hh)}</span>
+    <span className="mut">{ens && ens.id !== r.id && !ens.partes ? ens.nombre + ' · ' : ''}{r.orden || r.nombre} · cant. {cantTxt(t)} · {fH(t.hh)}</span>
     <span className="mut">{t.ops.length ? t.ops.map(o => opName(S, o)).join(', ') : 'sin operario'}</span>
   </button>; };
   return <TableroCols tareas={hojasActivas(V, roots, vis)} card={card} vacio={<Vacio ic="ok" chico t="No hay piezas pendientes ni en proceso" />} />;
@@ -1625,7 +1642,11 @@ function TaskEditor({ id, draft, onClose }) {
     if (!t.nombre.trim()) { ui.toast('Poné el nombre de la pieza'); return; }
     const pisa = t.estado === 'en proceso' && (isNew || orig.estado !== 'en proceso') && !t.frenada && t.ops.length ? E.enCurso(S, t.ops, t.id, t) : [];   // arranca ahora: avisa si el operario ya tiene otra en curso (las solapables de otra operación no cuentan)
     if (pisa.length && conf !== true) { avisarOcupado(S, ui, pisa, t.ops, t.nombre.trim(), () => save(true, meter, aus)); return; }
-    const x = { ...t, hh, cant: Number(t.cant) || 0, avance: Math.min(100, Math.max(0, Number(t.avance) || 0)), hhReal: Number(t.hhReal) || 0 };
+    // Restan (25/11): si cambió (y no se tocaron las horas a mano), se aplica después con la regla de entregas parciales
+    const rOrig = orig.restan ?? null, rNuevo = t.restan === '' || t.restan == null ? null : Number(t.restan);
+    const cambiaR = t.tipo === 'rep' && (rNuevo !== (rOrig == null ? null : Number(rOrig)) || (rNuevo != null && Number(t.cant) !== Number(orig.cant)));
+    const viaR = cambiaR && !isNew && !parent && hh === (Number(orig.hh) || 0);
+    const x = { ...t, hh, cant: Number(t.cant) || 0, restan: rNuevo != null && rNuevo < (Number(t.cant) || 0) ? rNuevo : null, ...(viaR ? { cant: orig.cant, restan: orig.restan ?? null } : {}), avance: Math.min(100, Math.max(0, Number(t.avance) || 0)), hhReal: Number(t.hhReal) || 0 };
     if (x.estado !== 'terminada') { x.tercerizada = false; x.sinFecha = false; }   // si deja de estar finalizada, deja de ser tercerizada
     if (!E.esPend(x)) x.proximo = null; else if (x.estado === 'proximo') x.proximo = x.proximo || E.nowDT(); else x.proximo = null;   // al iniciarla o finalizarla deja de estar en Próximo a realizar
     if (x.estado === 'terminada') { x.avance = 100; if (!x.finReal && !x.sinFecha) x.finReal = E.nowDT(); if (x.sinFecha) { x.finReal = null; x.realFin = false; } if (x.realFin && !(x.inicio && x.finReal > x.inicio)) x.realFin = false; } else { x.finReal = null; x.realFin = false; }
@@ -1648,6 +1669,7 @@ function TaskEditor({ id, draft, onClose }) {
     let r = null;
     up(s => { const s0 = pisa.length ? E.pausarEnCurso(s, x.ops, x.id) : corta.length && meter ? E.interrumpir(s, x, x.inicio, retoma) : s; const s2 = E.patchTask(isNew ? { ...s0, tareas: [...s0.tareas, x] } : s0, x.id, x, mover); if (!cierra) return s2; r = E.trasCerrar(s2, s, x.id, finPlan); return r.S; });
     const a = avisoCadena(r); if (a) ui.toast(a); onClose();
+    if (viaR && x.estado !== 'terminada') aplicarRestan({ ...S, tareas: S.tareas.map(y => y.id === x.id ? x : y) }, up, ui, x.id, rNuevo, { cant: Number(t.cant) || 0 });
   };
   const foot = <>
     {!isNew && <button className="btn danger" onClick={() => ui.confirmar({ titulo: '¿Borrar la tarea?', texto: 'Se borra esta tarea. Podés deshacerlo arriba.', si: 'Sí, borrar', peligro: true, onSi: () => { up(s => E.delTask(s, id)); onClose(); ui.toast('Borrada. Podés deshacerlo arriba.'); } })}>Borrar</button>}
@@ -1664,6 +1686,7 @@ function TaskEditor({ id, draft, onClose }) {
     <div className="form">
       <label className="g2">Pieza<input id="te-nom" value={t.nombre} onChange={e => set('nombre', e.target.value)} onBlur={alSalirNombre} autoFocus /></label>
       <label>Cantidad<input id="te-cant" type="number" min="0" value={t.cant} onChange={e => set('cant', e.target.value)} onBlur={alSalirNombre} /></label>
+      {t.tipo === 'rep' && <label title="Lo que falta fabricar (entregas parciales). Vacío = toda la cantidad.">Restan<input id="te-rest" type="number" min="0" value={t.restan ?? ''} placeholder={String(Number(t.cant) || 0)} onChange={e => set('restan', e.target.value === '' ? null : e.target.value)} /></label>}
       {t.tipo === 'rep' && root && <><label>N° de OV/OC<input id="te-ord" value={t.orden} placeholder="OV-0000" onChange={e => set('orden', e.target.value)} /></label>
         <label>Cliente<input id="te-cli" value={t.cliente} onChange={e => set('cliente', e.target.value)} /></label>
         <label>Entrega comprometida<input id="te-ent" type="date" value={t.entrega || ''} onChange={e => set('entrega', e.target.value)} /></label>
@@ -1693,7 +1716,7 @@ function TaskEditor({ id, draft, onClose }) {
             const hueco = E.primerHueco(S, tt);
             return <div className="pisa"><span>⚠ {p.slice(0, 2).map(x => <span key={x.tarea.id + x.op}><b>{opName(S, x.op)}</b> está ocupado con <b>{x.tarea.nombre}</b> hasta {fDT(x.fin)}. </span>)}{p.length > 2 && <span className="mut">y {p.length - 2} más. </span>}</span>
               <button type="button" className="btn sm pri-b" onClick={() => set('inicio', hueco)}>Empezar cuando se libere: {fDT(hueco)}</button></div>; })()}</label>
-        <label className="hh-ch">Horas-hombre (trabajo total)<span className="incalc"><input id="te-hh" type="number" min="0" step="0.5" value={t.hh} onChange={e => { setHhTocado(true); set('hh', e.target.value); }} /><CalcBtn cant={Number(t.cant) || 0} titulo={(t.nombre || 'Pieza') + ' · duración'} onUse={v => { setHhTocado(true); set('hh', Math.round(v * 100) / 100); }} /></span>
+        <label className="hh-ch">Horas-hombre (trabajo total)<span className="incalc"><input id="te-hh" type="number" min="0" step="0.5" value={t.hh} onChange={e => { setHhTocado(true); set('hh', e.target.value); }} /><CalcBtn cant={E.unidadesDe(t)} titulo={(t.nombre || 'Pieza') + ' · duración'} onUse={v => { setHhTocado(true); set('hh', Math.round(v * 100) / 100); }} /></span>
           {!hist && !parent && !t.corte && <SugFam k={E.claveCod(t.nombre)} nombre={t.nombre} />}
           {hist && <small className="hint">{hist.n ? <>Se hizo {hist.n} {hist.n === 1 ? 'vez' : 'veces'}</> : 'Base medida, sin fabricaciones todavía'}{hist.fam ? <> <span className="tag fam">familia {hist.fam.nombre}</span>{hist.nPiezas > 1 ? ` (${hist.nPiezas} piezas)` : ''}</> : ''}: {fHM(hist.porUnidad)} reales por unidad{unTxt(hist)}{(() => { const sug = Math.max(0.5, Math.round(hist.porUnidad * Math.max(1, Number(t.cant) || 1) * 2) / 2); return Math.abs(sug - hh) > 0.01 ? <> → <button type="button" className="lnk sm" onClick={() => { setHhTocado(true); set('hh', sug); }}>usar {fN(sug)} h</button></> : ' (ya aplicado)'; })()}</small>}</label></div>
         <label>{t.estado === 'terminada' ? 'Fin planificado' : 'Fin'}<input id="te-fin" type="datetime-local" value={w ? w.end : ''} disabled={!t.inicio} onChange={e => setFin(e.target.value)} /></label>
@@ -1707,7 +1730,7 @@ function TaskEditor({ id, draft, onClose }) {
             {malo ? <small className="hint bad">Tiene que ser después del inicio ({fDT(t.inicio)}).</small>
               : t.realFin ? <small className="hint ok">Del {fDT(t.inicio)} al {fDT(t.finReal)}: {fN(h / n)} h trabajables{n > 1 ? ` × ${n} operarios` : ''} = {fN(h)} HH. El Gantt y el calendario muestran esto.{Math.abs(h - (Number(t.hhReal) || 0)) > 0.01 && <> <button type="button" className="lnk sm" onClick={() => set('hhReal', h)}>usar {fN(h)} h</button></>} <button type="button" className="lnk sm" onClick={() => setFinReal('')}>volver a lo planificado</button></small>
               : <small className="hint">Cargá cuándo terminó: te calculo las horas reales y el Gantt y el calendario pasan a mostrar lo que duró (hoy muestran lo planificado).</small>}</label>; })()}
-        <label>Horas-hombre reales<span className="incalc"><input id="te-real" type="number" min="0" step="0.5" value={t.hhReal} onChange={e => set('hhReal', e.target.value)} /><CalcBtn cant={Number(t.cant) || 0} titulo={(t.nombre || 'Pieza') + ' · horas reales'} onUse={v => set('hhReal', Math.round(v * 100) / 100)} /></span></label>
+        <label>Horas-hombre reales<span className="incalc"><input id="te-real" type="number" min="0" step="0.5" value={t.hhReal} onChange={e => set('hhReal', e.target.value)} /><CalcBtn cant={E.unidadesDe(t)} titulo={(t.nombre || 'Pieza') + ' · horas reales'} onUse={v => set('hhReal', Math.round(v * 100) / 100)} /></span></label>
         <label>Material<select id="te-mat" value={t.material || ''} onChange={e => set('material', e.target.value)}><option value="">—</option>{(S.materiales || []).map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}</select>
           {!(S.materiales || []).length && <small className="hint">Los materiales se cargan en Configuración → Materiales.</small>}</label>
         <label>Peso total (kg)<input id="te-peso" type="number" min="0" step="0.1" value={t.peso ?? ''} placeholder="de toda la cantidad" onChange={e => set('peso', e.target.value === '' ? null : Number(e.target.value))} /></label>
@@ -1749,7 +1772,7 @@ function OpTask({ t, op }) {
     {fre ? <div className="row"><button className="btn pri-b" onClick={() => setDlg('retomar')}>Retomar</button><button className="btn" title="Arranca ahora con los mismos operarios" onClick={() => iniciarConAviso(S, up, ui, t.id)}>Retomar ya</button><button className="btn" onClick={() => up(s => E.unassign(s, t.id, op))}>Quitar</button></div> : <>
     {t.estado === 'en proceso' && <div className="row crono"><Bar v={t.hh ? llev / t.hh * 100 : 0} color={llev > t.hh + 0.01 ? 'var(--bad)' : undefined} /><span>Llevado <b>{fHM(llev)}</b> de {fHM(t.hh)} proyectadas{t.ops.length > 1 ? ' (suma de los operarios)' : ''}</span></div>}
     {fin ? <div className="finbox">
-      <div className="row"><span className="mut">Tiempo real (horas-hombre)</span><HM value={real} onChange={setReal} cant={Number(t.cant) || 0} titulo={t.nombre} /></div>
+      <div className="row"><span className="mut">Tiempo real (horas-hombre)</span><HM value={real} onChange={setReal} cant={E.unidadesDe(t)} titulo={t.nombre} /></div>
       <div className="row"><span className="mut">Proyectado {fHM(t.hh)} ·</span><Desvio real={real} plan={t.hh} /></div>
       <div className="row"><button className="btn pri-b" onClick={() => cerrarTarea(up, ui, t.id, real, true)}>Confirmar</button><button className="btn" onClick={() => setFin(false)}>Cancelar</button></div></div>
       : <div className="row">
@@ -1766,7 +1789,7 @@ function DoneRow({ t }) {
   const { V, up } = useApp(); const [ed, setEd] = useState(false); const [real, setReal] = useState(t.hhReal || 0);
   return <div className="optask done">
     <div className="row"><Chip t={t} small /><b>{etiqueta(V, t)}</b><span className="mut">finalizada {(t.finReal || '').slice(11, 16)}</span></div>
-    {ed ? <div className="row"><HM value={real} onChange={setReal} cant={Number(t.cant) || 0} titulo={t.nombre} /><button className="btn sm pri-b" onClick={() => { up(s => E.patchTask(s, t.id, { hhReal: Math.round(real * 100) / 100, crono: { acum: real, desde: null } })); setEd(false); }}>Guardar</button><button className="btn sm" onClick={() => setEd(false)}>Cancelar</button></div>
+    {ed ? <div className="row"><HM value={real} onChange={setReal} cant={E.unidadesDe(t)} titulo={t.nombre} /><button className="btn sm pri-b" onClick={() => { up(s => E.patchTask(s, t.id, { hhReal: Math.round(real * 100) / 100, crono: { acum: real, desde: null } })); setEd(false); }}>Guardar</button><button className="btn sm" onClick={() => setEd(false)}>Cancelar</button></div>
       : <div className="row"><span>Real <b>{fHM(t.hhReal)}</b> · proyectado {fHM(t.hh)} ·</span><Desvio real={t.hhReal} plan={t.hh} /><button className="btn sm" onClick={() => { setReal(t.hhReal || 0); setEd(true); }}>Corregir</button></div>}
   </div>;
 }
@@ -1830,7 +1853,7 @@ function DarTareas({ op, grande }) {
             <input type="checkbox" checked={sel.has(t.id)} onChange={() => tog(t.id)} aria-label={'Elegir ' + nomP(V, t)} />
             <div className="dn"><span className="drow"><Chip t={t} small /><b>{nomP(V, t)}</b><Pri p={t.prioridad} />{E.esProximo(t) && <span className="mk prox" title="Próximo a realizar">⏭</span>}
               {vista === 'origen' && rep[k] > 1 && <button className="tag rep" title="Ver todas juntas" onClick={() => { setVista('pieza'); setQ(t.codigo || t.nombre); }}>se repite ×{rep[k]}</button>}</span>
-              <span className="mut">{mia ? <b className="suya">★ {operName(S, t.operacionId)}</b> : operName(S, t.operacionId)} · cant. {t.cant} · {fH(t.hh)}{t.entrega ? ` · entrega ${fD(t.entrega)}` : ''}</span></div>
+              <span className="mut">{mia ? <b className="suya">★ {operName(S, t.operacionId)}</b> : operName(S, t.operacionId)} · cant. {cantTxt(t)} · {fH(t.hh)}{t.entrega ? ` · entrega ${fD(t.entrega)}` : ''}</span></div>
             <span className="row dbt"><button className="btn sm" onClick={() => dar([t.id], 'normal')}>Normal</button><button className="btn sm" onClick={() => dar([t.id], 'extra')}>Extra</button><button className="btn sm" title="Usa el turno normal y también las horas extra de cada día" onClick={() => dar([t.id], 'ambos')}>N + E</button></span>
           </div>; })}</div>}
       </div>; })}
@@ -1870,7 +1893,7 @@ function LoteEditor({ ids, titulo, onClose }) {
       }); return s; });
     ui.toast(`${ts.length} piezas actualizadas en lote`); onClose(); };
   const ops = S.operarios.filter(o => o.activo);
-  return <Modal title={'Editar en lote' + (titulo ? ' · ' + titulo : '')} onClose={onClose} wide foot={<><span className="mut">{ts.length} piezas · {fN(cantT)} unidades en total</span><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!cambia} onClick={aplicar}>Aplicar a las {ts.length}</button></>}>
+  return <Modal title={'Editar en lote' + (titulo ? ' · ' + titulo : '')} onClose={onClose} wide foot={<><span className="mut">{ts.length} piezas · {fN(cantT)} unidades en total</span><span className="sp" /><button className="btn canc-b" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!cambia} onClick={aplicar}>Aplicar a las {ts.length}</button></>}>
     <p className="mut">Lo que dejes vacío no se cambia. Las horas totales se reparten entre las piezas según la cantidad que usa cada ensamblaje, así cada equipo lleva el tiempo que le corresponde.</p>
     <div className="form lote">
       <label>Horas-hombre totales (plan)<span className="incalc"><input type="number" min="0" step="0.5" placeholder={'hoy suman ' + fN(hhAct)} value={f.hh} onChange={e => set('hh', e.target.value)} /><CalcBtn cant={cantT} titulo="Horas-hombre totales del lote" onUse={v => set('hh', String(Math.round(v * 100) / 100))} /></span></label>
@@ -2012,14 +2035,14 @@ function TallerTask({ t }) {
     {dlg === 'frenar' && <FrenarDlg id={t.id} pausa={run} onClose={() => setDlg(null)} />}{dlg === 'retomar' && <RetomarDlg id={t.id} onClose={() => setDlg(null)} />}
     <div className="row"><Chip t={t} /><Pri p={t.prioridad} /><span className={'est e-' + (fre ? 'fren' : pausa ? 'pausa' : run ? 'enproceso' : estDe(t).replace(' ', ''))}>{fre ? 'frenada' : run ? 'en curso' : pausa ? 'en pausa' : estTxt(estDe(t))}</span></div>
     <b className="tnom">{E.esProximo(t) && <span className="mk prox" title="Próximo a realizar">⏭</span>} {etiqueta(V, t)}</b>
-    <span className="mut">{operName(S, t.operacionId)} · cantidad {t.cant} · {fHM(t.hh)} proyectadas{t.ops.length > 1 ? ` · con ${t.ops.length - 1} más` : ''}{t.turno === 'extra' ? ' · en horas extra' : t.turno === 'ambos' ? ' · en turno normal + extras' : ''}</span>
+    <span className="mut">{operName(S, t.operacionId)} · cantidad {cantTxt(t)} · {fHM(t.hh)} proyectadas{t.ops.length > 1 ? ` · con ${t.ops.length - 1} más` : ''}{t.turno === 'extra' ? ' · en horas extra' : t.turno === 'ambos' ? ' · en turno normal + extras' : ''}</span>
     <span className="mut">{fDT(t.inicio)} → {fDT(r.fin)}</span>
     {esp && <span className="tag">⧖ Espera a {esp.nombre}{esp.fin ? ` (termina ${fDT(esp.fin)})` : ''}</span>}
     <FrenoTag t={t} />
     {fre ? <div className="tbtns"><button className="btn big t-ini" title="Arranca ahora con los mismos operarios" onClick={() => iniciarConAviso(S, up, ui, t.id)}><svg className="bi" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>Retomar ya</button><button className="btn big" onClick={() => setDlg('retomar')}>Retomar con cambios</button></div> : <>
     {(run || llev > 0) && <div className="tcrono"><b>{fHM(llev)}</b><span className="mut">de {fHM(t.hh)}</span><Bar v={t.hh ? llev / t.hh * 100 : 0} color={llev > t.hh + 0.01 ? 'var(--bad)' : undefined} /></div>}
     {fin ? <div className="finbox">
-      <div className="row"><span className="mut">Tiempo real</span><HM value={real} onChange={setReal} cant={Number(t.cant) || 0} titulo={t.nombre} /></div>
+      <div className="row"><span className="mut">Tiempo real</span><HM value={real} onChange={setReal} cant={E.unidadesDe(t)} titulo={t.nombre} /></div>
       <div className="row"><span className="mut">Proyectado {fHM(t.hh)} ·</span><Desvio real={real} plan={t.hh} /></div>
       <div className="tbtns"><button className="btn big t-fin" onClick={() => cerrarTarea(up, ui, t.id, real, true)}>Confirmar</button><button className="btn big" onClick={() => setFin(false)}>Cancelar</button></div></div>
       : <div className="tbtns">
@@ -2174,7 +2197,7 @@ function AsigDlg({ id, opId, desde, hasta, onClose }) {
     up(s => ({ ...s, asignaciones: prev ? (s.asignaciones || []).map(x => x.id === a.id ? a : x) : [...(s.asignaciones || []), a] })); ui.toast(prev ? 'Carga global actualizada' : `Cargadas ${fN(a.horas)} h a ${opName(S, a.opId)} en ${E.destinoNom(S, a.destino)}`); onClose(); };
   const borrar = () => ui.confirmar({ titulo: '¿Borrar la carga global?', texto: `Se borran las ${fN(Number(prev.horas) || 0)} h de ${opName(S, prev.opId)} en ${E.destinoNom(S, prev.destino)} (${fD(prev.desde)} → ${fD(prev.hasta)}). Podés deshacerlo arriba.`, si: 'Sí, borrar', peligro: true, onSi: () => { up(s => ({ ...s, asignaciones: (s.asignaciones || []).filter(x => x.id !== prev.id) })); ui.toast('Carga global borrada'); onClose(); } });
   const grupo = (cl, tit) => { const l = S.proyectos.filter(p => E.claseP(p) === cl).sort((a, b) => (!!a.terminado - !!b.terminado) || a.nombre.localeCompare(b.nombre, 'es')); return l.length ? <optgroup label={tit}>{l.map(p => <option key={p.id} value={'p:' + p.id}>{p.nombre}{p.terminado ? ' (terminado)' : ''}</option>)}</optgroup> : null; };
-  return <Modal title={prev ? 'Editar carga global' : 'Carga global de horas'} onClose={onClose} foot={<>{prev && <button className="btn danger" onClick={borrar}>Borrar</button>}<span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!ok} onClick={guardar}>Guardar</button></>}>
+  return <Modal title={prev ? 'Editar carga global' : 'Carga global de horas'} onClose={onClose} foot={<>{prev && <button className="btn danger" onClick={borrar}>Borrar</button>}<span className="sp" /><button className="btn canc-b" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!ok} onClick={guardar}>Guardar</button></>}>
     <p className="mut">Para cuando no se cargaron las tareas puntuales (viajes, vacaciones): indicás a qué se dedicó el operario en esas fechas y cuántas horas. Suma en Estadísticas y en el calendario del operario. No crea tareas ni cambia el Gantt ni Tiempos.</p>
     <div className="form">
       <label>Operario<select value={f.opId} onChange={e => set('opId', e.target.value)}><option value="">Elegí…</option>{S.operarios.slice().sort(porApellido).map(x => <option key={x.id} value={x.id}>{x.nombre}{x.activo === false ? ' (inactivo)' : ''}</option>)}</select></label>
@@ -2216,7 +2239,7 @@ function SalidaDlg({ id, proyId, opId, onClose }) {
     ui.toast(`${opName(S, a.opId)}: ${fN(horas)} h a ${E.destinoNom(S, a.destino)}${yaSalio && pausa ? ' · pausó lo que tenía en curso' : ''}`); onClose(); };
   const borrar = () => ui.confirmar({ titulo: '¿Borrar la salida?', texto: `${opName(S, prev.opId)} deja de figurar en Post Venta del ${fD(prev.desde)} al ${fD(prev.hasta)}. Sus tareas vuelven a avanzar esos días. Podés deshacerlo arriba.`, si: 'Sí, borrar', peligro: true, onSi: () => { up(s => E.setAusencias(s, s.ausencias.filter(x => x.id !== prev.id))); ui.toast('Salida borrada'); onClose(); } });
   const casos = S.proyectos.filter(p => E.claseP(p) === 'pv').sort((x, y) => (!!x.terminado - !!y.terminado) || x.nombre.localeCompare(y.nombre, 'es'));
-  return <Modal title={prev ? 'Editar salida a Post Venta' : 'Salida de operario a Post Venta'} onClose={onClose} foot={<>{prev && <button className="btn danger" onClick={borrar}>Borrar</button>}<span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!ok} onClick={guardar}>Guardar</button></>}>
+  return <Modal title={prev ? 'Editar salida a Post Venta' : 'Salida de operario a Post Venta'} onClose={onClose} foot={<>{prev && <button className="btn danger" onClick={borrar}>Borrar</button>}<span className="sp" /><button className="btn canc-b" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!ok} onClick={guardar}>Guardar</button></>}>
     <p className="mut">Mientras el operario está afuera sus tareas no avanzan (se corren) y el tiempo fuera cuenta como horas suyas en Post Venta, sin seguimiento fino. Si no ponés hora, se toman días enteros. Al volver, retomá su tarea con Retomar y la hora de regreso.</p>
     <div className="form">
       <label>Operario<select value={f.opId} onChange={e => set('opId', e.target.value)}><option value="">Elegí…</option>{S.operarios.filter(o => o.activo !== false || o.id === f.opId).slice().sort(porApellido).map(x => <option key={x.id} value={x.id}>{nomApe(x)}</option>)}</select></label>
@@ -2251,13 +2274,13 @@ function SalidasPV({ p }) {
 /* ================= IMPORTADOR ================= */
 function Importer({ mode, proyId, onClose }) {
   const { S, V, up, ui } = useApp();
-  const campos = mode === 'rep' ? [['orden', 'OV/OC'], ['codigo', 'Código (opcional)'], ['nombre', 'Descripción'], ['cant', 'Cantidad'], ['cliente', 'Cliente']] : [['n', 'N° (1, 1.1, 1.2…)'], ['codigo', 'Código'], ['cant', 'Cantidad'], ['nombre', 'Descripción (opcional)']];
+  const campos = mode === 'rep' ? [['orden', 'OV/OC'], ['codigo', 'Código (opcional)'], ['nombre', 'Descripción'], ['cant', 'Cantidad'], ['restan', 'Restan (opcional)'], ['cliente', 'Cliente']] : [['n', 'N° (1, 1.1, 1.2…)'], ['codigo', 'Código'], ['cant', 'Cantidad'], ['nombre', 'Descripción (opcional)']];
   const { stock } = useApp(); const [fichasH, setFichasH] = useState(null); const [conFichas, setConFichas] = useState(true);   // hoja Fichas del mismo archivo (la arma la skill de importación)
   const [rows, setRows] = useState(null); const [fecha, setFecha] = useState(E.today()); const [head, setHead] = useState(true); const [map, setMap] = useState({}); const [txt, setTxt] = useState('');
   const cargar = rs => { rs = rs.filter(r => r && r.some(c => String(c == null ? '' : c).trim() !== '')); if (!rs.length) { ui.toast('La planilla está vacía'); return; }
     const h = rs[0].map(c => String(c == null ? '' : c).toLowerCase()); const m = {};
-    const pista = { orden: ['ov', 'oc', 'orden'], nombre: ['prod', 'desc', 'nombre'], cant: ['cant'], cliente: ['client'], codigo: ['cod', 'cód'], n: ['n°', 'nº', 'nro', 'item', 'ítem', 'n'] };
-    campos.forEach(([k], i) => { const j = h.findIndex(c => pista[k].some(p => k === 'n' && p === 'n' ? c.trim() === 'n' : c.includes(p))); m[k] = j >= 0 ? j : (i < rs[0].length && !k.match(/codigo/) ? i : ''); });
+    const pista = { orden: ['ov', 'oc', 'orden'], nombre: ['prod', 'desc', 'nombre'], cant: ['cant'], restan: ['rest', 'pend', 'falt'], cliente: ['client'], codigo: ['cod', 'cód'], n: ['n°', 'nº', 'nro', 'item', 'ítem', 'n'] };
+    campos.forEach(([k], i) => { const j = h.findIndex(c => pista[k].some(p => k === 'n' && p === 'n' ? c.trim() === 'n' : c.includes(p))); m[k] = j >= 0 ? j : (i < rs[0].length && !k.match(/codigo|restan/) ? i : ''); });
     setRows(rs); setMap(m); };
   const file = e => { const f = e.target.files[0]; if (!f) return; if (!window.XLSX) { ui.toast('No se pudo cargar el lector de Excel. Probá pegando las celdas.'); return; }
     const fr = new FileReader(); fr.onload = () => { try { const wb = window.XLSX.read(fr.result, { type: 'array' }); const hf = mode !== 'rep' && wb.SheetNames.find(n => n.trim().toLowerCase() === 'fichas'); setFichasH(hf ? window.XLSX.utils.sheet_to_json(wb.Sheets[hf], { defval: '' }) : null); cargar(window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' })); } catch (err) { ui.toast('No se pudo leer el archivo. Tiene que ser .xlsx, .xls o .csv'); } }; fr.readAsArrayBuffer(f); };
@@ -2278,8 +2301,24 @@ function Importer({ mode, proyId, onClose }) {
   const repe = (() => { const nomPorN = {}; if (mode !== 'rep') data.forEach(r => { const n = val(r, 'n'); if (n) nomPorN[n] = nomFila(r); });
     const vis = new Set(); return data.map(r => { if (!limpia(nomFila(r)) || (mode === 'rep' && !val(r, 'orden'))) return '';
       const k = clave(ctxFila(r, nomPorN), nomFila(r)); const e = yaEstan.has(k) ? 'cargada' : vis.has(k) ? 'doble' : ''; vis.add(k); return e; }); })();
-  const cuenta = { nueva: data.filter((r, i) => nomFila(r) && !repe[i]).length, cargada: repe.filter(e => e === 'cargada').length, doble: repe.filter(e => e === 'doble').length };
-  const aImportar = data.filter((r, i) => nomFila(r) && !(saltar && repe[i])).length;
+  const cuenta = { nueva: data.filter((r, i) => nomFila(r) && !repe[i] && !(mode === 'rep' && map.restan !== '' && map.restan != null && val(r, 'restan') !== '' && Number(val(r, 'restan').replace(',', '.')) === 0)).length, cargada: repe.filter(e => e === 'cargada').length, doble: repe.filter(e => e === 'doble').length };
+  /* Restan (25/11): columna opcional con lo que falta fabricar. Filas nuevas con Restan 0 no se importan (no queda nada por hacer).
+     Las ya cargadas sin finalizar actualizan Cant. y Restan (con la regla de entregas parciales); si restan 0 pasan a finalizada. */
+  const conR = mode === 'rep' && map.restan !== '' && map.restan != null;
+  const restF = r => { if (!conR) return null; const x = val(r, 'restan'); if (x === '') return null; const n = Number(x.replace(',', '.')); return isFinite(n) ? Math.max(0, n) : null; };
+  const cantF = r => Number(String(val(r, 'cant')).replace(',', '.')) || 1;
+  const cero = (r, i) => !repe[i] && restF(r) === 0;
+  const [actR, setActR] = useState(true);
+  const cambiosR = useMemo(() => { if (!conR || !rows) return [];
+    const pend = new Map(); S.tareas.forEach(t => { if (t.tipo !== 'rep' || !limpia(t.orden) || t.entParcial || !V.D[t.id] || V.D[t.id].parent || t.estado === 'terminada') return; const k = clave(t.orden, t.nombre); if (!pend.has(k)) pend.set(k, t); });
+    const vis = new Set(), out = [];
+    data.forEach(r => { if (!val(r, 'orden') || !nomFila(r)) return; const k = clave(val(r, 'orden'), nomFila(r)), t = pend.get(k); if (!t || vis.has(k)) return; vis.add(k);
+      const rN = restF(r), c = map.cant === '' || map.cant == null ? Number(t.cant) || 0 : cantF(r), rq = rN == null || rN >= c ? c : rN;
+      if (c !== (Number(t.cant) || 0) || rq !== E.restanDe(t)) out.push({ id: t.id, orden: t.orden, nombre: t.nombre, cant0: Number(t.cant) || 0, rest0: E.restanDe(t), cant: c, restan: rN == null ? null : rN }); });
+    return out; }, [conR, rows, head, map, S.tareas, V]);
+  const nCR = actR ? cambiosR.length : 0;
+  const aplicarCR = st => !nCR ? st : cambiosR.reduce((a, x) => { if (!a.tareas.some(y => y.id === x.id)) return a; const r = E.ponerRestan(a, x.id, x.restan, { cant: x.cant }).S; return x.restan === 0 ? finRestan(r, x.id) : r; }, st);
+  const aImportar = data.filter((r, i) => nomFila(r) && !(saltar && repe[i]) && !cero(r, i)).length;
   /* Repuestos que están en la app sin finalizar pero no en la planilla (24/11). La planilla trae todos los pendientes de entrega
      y los finalizados se sacan de ella: puede que ya se entregaran, que se cancelaran o que cambiara la OV/OC o la descripción.
      Solo se avisa; no se toca nada salvo lo que se elija para cada uno (dejar, pasar a finalizada sin día puntual o borrar). */
@@ -2300,7 +2339,7 @@ function Importer({ mode, proyId, onClose }) {
   const ponFichas = st => nF ? RF.ok.reduce((a, x) => conFicha(a, x.k, x.patch), st) : st;
   const importar = () => {
     let nuevos;
-    if (mode === 'rep') nuevos = data.filter((r, i) => !(saltar && repe[i])).map(r => ({ ...E.blankTask('rep'), orden: val(r, 'orden'), nombre: nomFila(r), cant: Number(val(r, 'cant')) || 1, cliente: val(r, 'cliente'), creada: fecha || E.today() })).filter(t => t.nombre);
+    if (mode === 'rep') nuevos = data.filter((r, i) => !(saltar && repe[i]) && !cero(r, i)).map(r => { const c = Number(val(r, 'cant')) || 1, rN = restF(r); return { ...E.blankTask('rep'), orden: val(r, 'orden'), nombre: nomFila(r), cant: c, restan: rN != null && rN < c ? rN : null, cliente: val(r, 'cliente'), creada: fecha || E.today() }; }).filter(t => t.nombre);
     else { const ids = {}, nomPorN = {}; data.forEach(r => { const n = val(r, 'n'); if (n) nomPorN[n] = nomFila(r); });
       const porClave = new Map(yaEstan);
       nuevos = data.map((r, i) => { const n = val(r, 'n'), k = clave(ctxFila(r, nomPorN), nomFila(r));
@@ -2308,14 +2347,14 @@ function Importer({ mode, proyId, onClose }) {
         const t = { ...E.blankTask('proy', proyId), nombre: nomFila(r), cant: Number(val(r, 'cant')) || 1, _n: n }; if (n) ids[n] = t.id; if (!porClave.has(k)) porClave.set(k, t.id); return t; }).filter(t => t && t.nombre);
       nuevos = nuevos.map(({ _n, ...t }) => { const i = _n.lastIndexOf('.'); return { ...t, parentId: i > 0 && ids[_n.slice(0, i)] ? ids[_n.slice(0, i)] : null }; }); }
     nuevos = nuevos.map(t => ({ ...t, ...E.autoCompletar(S, t, true) }));
-    const txF = nF ? ` · fichas de material: ${nF} ${nF === 1 ? 'pieza' : 'piezas'}` : '';
-    if (!nuevos.length) { if (nF || nAcc) { up(s => aplicarFaltan(ponFichas(s))); ui.toast((mode === 'rep' ? 'No había filas nuevas' : 'El árbol ya estaba cargado: no se repitió nada') + txF + txA); onClose(); return; }
+    const txF = (nF ? ` · fichas de material: ${nF} ${nF === 1 ? 'pieza' : 'piezas'}` : '') + (nCR ? ` · ${nCR} con Cant./Restan ${nCR === 1 ? 'actualizado' : 'actualizados'}` : '');
+    if (!nuevos.length) { if (nF || nAcc || nCR) { up(s => aplicarCR(aplicarFaltan(ponFichas(s)))); ui.toast((mode === 'rep' ? 'No había filas nuevas' : 'El árbol ya estaba cargado: no se repitió nada') + txF + txA); onClose(); return; }
       ui.toast(saltar && cuenta.cargada ? 'Todas las filas ya estaban cargadas. No hay nada nuevo.' : 'No encontré filas para importar. Revisá las columnas elegidas.'); return; }
-    up(s => aplicarFaltan(ponFichas({ ...s, tareas: [...s.tareas, ...nuevos] }))); ui.toast((nuevos.length === 1 ? "1 fila importada" : `${nuevos.length} filas importadas`) + txF + txA); onClose();
+    up(s => aplicarCR(aplicarFaltan(ponFichas({ ...s, tareas: [...s.tareas, ...nuevos] })))); ui.toast((nuevos.length === 1 ? "1 fila importada" : `${nuevos.length} filas importadas`) + txF + txA); onClose();
   };
   const pedir = () => !nAcc ? importar() : ui.confirmar({ titulo: '¿Aplicar los cambios a los repuestos que no están en la planilla?', texto: [nFin && `Pasan a finalizada (sin día puntual, con las horas que llevaban): ${nFin}.`, nBor && `Se borran: ${nBor}.`].filter(Boolean).join(' ') + ' Podés deshacerlo arriba.', si: 'Sí, aplicar', peligro: nBor > 0, onSi: importar });
-  const lblBtn = [aImportar ? (aImportar === 1 ? 'Importar 1 fila nueva' : `Importar ${aImportar} filas${saltar ? ' nuevas' : ''}`) : '', nF ? `${aImportar ? '' : 'Cargar '}${nF} ${nF === 1 ? 'ficha' : 'fichas'}${aImportar ? '' : ' de material'}` : '', nAcc ? `${aImportar || nF ? '' : 'Aplicar '}${nAcc} ${nAcc === 1 ? 'cambio' : 'cambios'} en faltantes` : ''].filter(Boolean).join(' y ');
-  return <Modal title={mode === 'rep' ? 'Importar repuestos' : 'Importar árbol de piezas'} onClose={onClose} wide foot={rows && <><button className="btn" onClick={() => setRows(null)}>Elegir otra planilla</button><span className="sp" />{RF && aImportar > 0 && RF.ok.length > 0 && <button className="btn" title="No agrega ninguna pieza al árbol: solo carga largo, sin material, etc. en las fichas" onClick={() => { up(st => RF.ok.reduce((x, f) => conFicha(x, f.k, f.patch), st)); ui.toast(`Fichas de material: ${RF.ok.length} ${RF.ok.length === 1 ? 'pieza' : 'piezas'} (el árbol no se tocó)`); onClose(); }}>Solo las fichas ({RF.ok.length})</button>}<button className="btn pri-b" disabled={!aImportar && !nF && !nAcc} onClick={pedir}>{lblBtn || 'Importar'}</button></>}>
+  const lblBtn = [aImportar ? (aImportar === 1 ? 'Importar 1 fila nueva' : `Importar ${aImportar} filas${saltar ? ' nuevas' : ''}`) : '', nF ? `${aImportar ? '' : 'Cargar '}${nF} ${nF === 1 ? 'ficha' : 'fichas'}${aImportar ? '' : ' de material'}` : '', nAcc ? `${aImportar || nF ? '' : 'Aplicar '}${nAcc} ${nAcc === 1 ? 'cambio' : 'cambios'} en faltantes` : '', nCR ? `${aImportar || nF || nAcc ? '' : 'Actualizar '}Restan de ${nCR} ${nCR === 1 ? 'pieza' : 'piezas'}` : ''].filter(Boolean).join(' y ');
+  return <Modal title={mode === 'rep' ? 'Importar repuestos' : 'Importar árbol de piezas'} onClose={onClose} wide foot={rows && <><button className="btn" onClick={() => setRows(null)}>Elegir otra planilla</button><span className="sp" />{RF && aImportar > 0 && RF.ok.length > 0 && <button className="btn" title="No agrega ninguna pieza al árbol: solo carga largo, sin material, etc. en las fichas" onClick={() => { up(st => RF.ok.reduce((x, f) => conFicha(x, f.k, f.patch), st)); ui.toast(`Fichas de material: ${RF.ok.length} ${RF.ok.length === 1 ? 'pieza' : 'piezas'} (el árbol no se tocó)`); onClose(); }}>Solo las fichas ({RF.ok.length})</button>}<button className="btn pri-b" disabled={!aImportar && !nF && !nAcc && !nCR} onClick={pedir}>{lblBtn || 'Importar'}</button></>}>
     {!rows ? <div className="form">
       <label className="g2">Archivo de Excel (.xlsx)<input id="imp-file" type="file" accept=".xlsx,.xls,.csv" onChange={file} /></label>
       <label className="g2">O pegá acá las celdas copiadas desde Excel<textarea id="imp-txt" rows="6" value={txt} onChange={e => setTxt(e.target.value)} placeholder={campos.map(c => c[1]).join('\t')} /></label>
@@ -2331,6 +2370,12 @@ function Importer({ mode, proyId, onClose }) {
         <span className="mut">{RF.ok.length} {RF.ok.length === 1 ? 'pieza cambia' : 'piezas cambian'}{RF.iguales ? ` · ${RF.iguales} ya estaban iguales (no se tocan)` : ''}{RF.err.length ? ` · ${RF.err.length} con un ítem que no existe en StockApp (se saltean)` : ''}{RF.sinStock ? ` · ${RF.sinStock} traen ítem de StockApp pero no se puede leer StockApp con este usuario: se carga el resto y el ítem no` : ''}. Valen para la pieza en cualquier proyecto; las celdas vacías no tocan lo que ya tenía la ficha.</span></div>}
       <div className="scroll"><table className="tt"><thead><tr><th>Estado</th>{campos.map(c => <th key={c[0]}>{c[1]}</th>)}</tr></thead><tbody>{data.map((r, i) => ({ r, i })).sort((a, b) => !!repe[a.i] - !!repe[b.i]).slice(0, 8).map(({ r, i }) => <tr key={i} className={repe[i] && saltar ? 'done' : ''}><td>{repe[i] === 'cargada' ? <span className="tag">Ya cargada</span> : repe[i] === 'doble' ? <span className="tag warn">Repetida</span> : <span className="tag ok">Nueva</span>}</td>{campos.map(c => <td key={c[0]}>{val(r, c[0])}</td>)}</tr>)}</tbody></table></div>
       {data.length > 8 && <p className="mut">…y {data.length - 8} filas más (primero se muestran las nuevas).</p>}
+      {conR && data.some((r, i) => cero(r, i)) && <p className="mut">{(n => n === 1 ? '1 fila nueva con Restan 0 no se importa' : n + ' filas nuevas con Restan 0 no se importan')(data.filter((r, i) => cero(r, i)).length)}: no queda nada por fabricar.</p>}
+      {cambiosR.length > 0 && <div className="note impf">
+        <label className="chk"><input type="checkbox" checked={actR} onChange={e => setActR(e.target.checked)} /> <b>Actualizar Cant. y Restan de {cambiosR.length} {cambiosR.length === 1 ? 'repuesto ya cargado' : 'repuestos ya cargados'}</b></label>
+        <span className="mut">Si la pieza ya se empezó y bajó lo que resta, lo entregado queda como finalizado aparte con las horas hechas; si no, la duración se ajusta en proporción. Las que quedan en 0 pasan a finalizada.</span>
+        <div className="scroll"><table className="tt"><thead><tr><th>OV/OC</th><th>Pieza</th><th className="num">Cant.</th><th className="num">Restan</th></tr></thead><tbody>{cambiosR.slice(0, 12).map(x => { const rq = x.restan == null || x.restan >= x.cant ? x.cant : x.restan; return <tr key={x.id}><td>{x.orden}</td><td>{x.nombre}{rq === 0 && <> <span className="tag ok">pasa a finalizada</span></>}</td><td className="num">{x.cant0 !== x.cant ? `${x.cant0} → ${x.cant}` : x.cant}</td><td className="num">{x.rest0 !== rq ? `${x.rest0} → ${rq}` : rq}</td></tr>; })}</tbody></table></div>
+        {cambiosR.length > 12 && <span className="mut">…y {cambiosR.length - 12} más.</span>}</div>}
       {faltan.length > 0 && <div className="note fren impf">
         <b>⚠ {faltan.length} {faltan.length === 1 ? 'repuesto está' : 'repuestos están'} en la app sin finalizar pero no en la planilla</b>
         <span className="mut">Puede que ya se hayan entregado, que se cancelaran o que cambiara la OV/OC o la descripción (en ese caso la pieza figura también como «Nueva» arriba). No se toca nada salvo lo que elijas. «Pasar a finalizada» la deja como finalizada sin día puntual, con las horas que llevaba.</span>
@@ -2495,7 +2540,7 @@ function Config() {
   const setH = (t, k, v) => up(s => ({ ...s, cfg: { ...s.cfg, horarios: { ...s.cfg.horarios, [t]: { ...s.cfg.horarios[t], [k]: v } } } }));
   const cambiar = () => { up(s => ({ ...s, cfg: { ...s.cfg, temporadas: [...s.cfg.temporadas.filter(x => x.desde !== E.today()), { desde: E.today(), t: otra }] } })); ui.toast(`Horario de ${otra} activo desde hoy`); };
   const fila = t => { const r = V.D[t.id], root = V.rootOf(t); const p = S.proyectos.find(x => x.id === t.proyId);
-    return { Tipo: t.tipo === 'rep' ? 'Repuesto' : ({ pv: 'Post Venta', tl: 'Taller' })[E.claseP(p)] || 'Proyecto', Proyecto: p ? p.nombre : '', 'OV/OC': t.tipo === 'rep' ? root.orden : '', Cliente: t.tipo === 'rep' ? root.cliente : '', Pieza: t.nombre, 'Depende de': t.parentId ? V.byId[t.parentId].nombre : '', Cantidad: Number(t.cant) || 0, Prioridad: t.prioridad, Operación: r.parent ? '' : operName(S, t.operacionId), Operarios: r.ops.map(o => opName(S, o)).join(', '), Turno: r.parent ? '' : t.turno, Inicio: r.inicio ? r.inicio.replace('T', ' ') : '', Fin: r.fin ? r.fin.replace('T', ' ') : '', 'Horas-hombre': r.hh, 'Duración calendario (h)': r.parent ? '' : r.durCal, Estado: esTerc(t) ? 'tercerizada' : estTxt(r.estado), Proveedor: esTerc(t) ? (t.proveedor || '') : '', Vuelve: esTerc(t) && t.tercFecha ? t.tercFecha : '', 'Avance %': Math.round(r.avance), 'HH reales': r.hhReal }; };
+    return { Tipo: t.tipo === 'rep' ? 'Repuesto' : ({ pv: 'Post Venta', tl: 'Taller' })[E.claseP(p)] || 'Proyecto', Proyecto: p ? p.nombre : '', 'OV/OC': t.tipo === 'rep' ? root.orden : '', Cliente: t.tipo === 'rep' ? root.cliente : '', Pieza: t.nombre, 'Depende de': t.parentId ? V.byId[t.parentId].nombre : '', Cantidad: Number(t.cant) || 0, ...(t.tipo === 'rep' ? { Restan: t.estado === 'terminada' ? 0 : E.restanDe(t) } : {}), Prioridad: t.prioridad, Operación: r.parent ? '' : operName(S, t.operacionId), Operarios: r.ops.map(o => opName(S, o)).join(', '), Turno: r.parent ? '' : t.turno, Inicio: r.inicio ? r.inicio.replace('T', ' ') : '', Fin: r.fin ? r.fin.replace('T', ' ') : '', 'Horas-hombre': r.hh, 'Duración calendario (h)': r.parent ? '' : r.durCal, Estado: esTerc(t) ? 'tercerizada' : estTxt(r.estado), Proveedor: esTerc(t) ? (t.proveedor || '') : '', Vuelve: esTerc(t) && t.tercFecha ? t.tercFecha : '', 'Avance %': Math.round(r.avance), 'HH reales': r.hhReal }; };
   const exportar = () => { if (!window.XLSX) { ui.toast('No se pudo cargar el generador de Excel'); return; } const X = window.XLSX, wb = X.utils.book_new();
     const claseT = t => E.claseP(S.proyectos.find(x => x.id === t.proyId));
     const orden = (tipo, pv) => { const out = []; const go = t => { out.push(pv === true ? { ...fila(t), Origen: t.origen === 'reventa' ? 'Reventa' : 'Fabricada', Motivo: t.motivo || '', 'Cant. enviada': Number(t.cantEnv) || 0, 'Fecha de envío': t.fechaEnvio || '', Remito: t.remito || '', Destinatario: t.destinatario || '', 'Remito verificado': t.remitoOk ? 'Sí' : 'No', Avisos: pvAvisos(t).join(' / ') } : fila(t)); (V.kids[t.id] || []).forEach(go); }; S.tareas.filter(t => t.tipo === tipo && !t.parentId && (tipo !== 'proy' || claseT(t) === (pv === true ? 'pv' : pv || 'proy'))).forEach(go); return out; };
@@ -2717,7 +2762,7 @@ function ImportHist({ d, onClose }) {
   const { S, up, ui } = useApp(); const { info } = useMemo(() => aplicarHist(S, d), [S, d]);
   const ok = () => { up(s => aplicarHist(s, d).S); ui.toast(`Historial importado: ${info.n} fabricaciones. Lo ves en la pestaña Tiempos y Costos.`); onClose(); };
   const L = (t, l) => l.length > 0 && <p><b>{t}:</b> {l.join(', ')}</p>;
-  return <Modal title="Importar historial de tiempos" onClose={onClose} foot={<><span className="mut">{d.archivo}</span><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!info.n} onClick={ok}>Importar</button></>}>
+  return <Modal title="Importar historial de tiempos" onClose={onClose} foot={<><span className="mut">{d.archivo}</span><span className="sp" /><button className="btn canc-b" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!info.n} onClick={ok}>Importar</button></>}>
     <div className="imph">
       <div className="cotres"><div><span className="mut">Fabricaciones</span><b>{info.n}</b><small className="mut">filas con Estado = Importar</small></div>
         <div><span className="mut">Piezas</span><b>{info.piezas}</b><small className="mut">códigos distintos</small></div>
@@ -2876,7 +2921,7 @@ function ImportFichas({ d, onClose }) {
   const { S, up, ui, stock } = useApp();
   const R = useMemo(() => leerFichas(S, d.rows, stock && stock.items), [d, stock, S.fichas]);
   const aplicar = () => { up(s => R.ok.reduce((a, x) => conFicha(a, x.k, x.patch), s)); ui.toast(`Fichas actualizadas: ${R.ok.length} ${R.ok.length === 1 ? 'pieza' : 'piezas'}`); onClose(); };
-  return <Modal title="Importar fichas de material" onClose={onClose} foot={<><span className="mut">{d.archivo}</span><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!R.ok.length} onClick={aplicar}>Aplicar a {R.ok.length} {R.ok.length === 1 ? 'pieza' : 'piezas'}</button></>}>
+  return <Modal title="Importar fichas de material" onClose={onClose} foot={<><span className="mut">{d.archivo}</span><span className="sp" /><button className="btn canc-b" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!R.ok.length} onClick={aplicar}>Aplicar a {R.ok.length} {R.ok.length === 1 ? 'pieza' : 'piezas'}</button></>}>
     <p><b>{R.ok.length}</b> {R.ok.length === 1 ? 'pieza cambia' : 'piezas cambian'}{R.ok.filter(x => x.ya).length ? ` (${R.ok.filter(x => x.ya).length} ya tenían datos: se actualizan)` : ''}{R.iguales ? ` · ${R.iguales} ya estaban iguales (no se tocan)` : ''}. Solo se cambian ítem, largo, corte, chapa y sin material; el material y el peso para el costo quedan como estaban. Se deshace con Ctrl+Z.</p>
     {R.err.length > 0 && <div className="note bad">{R.err.slice(0, 15).map(e => <div key={e}>{e}</div>)}{R.err.length > 15 && <div>y {R.err.length - 15} más</div>}</div>}
     <div className="scroll"><table className="tt"><thead><tr><th>Código</th><th>Ítem</th><th className="num">Largo mm</th><th className="num">Corte mm</th><th>Chapa</th><th>Sin material</th></tr></thead>
@@ -2919,7 +2964,7 @@ function FichaDlg({ k, nombre, onClose }) {
       else if (aFam) a = { ...a, familias: (a.familias || []).map(x => x.id === id ? { ...x, ficha: fichaFam(propio) } : x) };
       return conFicha(a, k, { ...propio, ...(aFam ? { stockId: '', chapa: false, noMat: false, material: '' } : {}), familia: id || '' }); });
     ui.toast(famId === '+' ? `Ficha guardada · familia ${famNueva.trim()} creada` : 'Ficha guardada'); onClose(); };
-  return <Modal arriba title={'Ficha de ' + nombre} onClose={onClose} foot={<><span className="mut">Vale para todas las veces que se fabrica.</span><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!pm.admin} onClick={guardar}>Guardar</button></>}>
+  return <Modal arriba title={'Ficha de ' + nombre} onClose={onClose} foot={<><span className="mut">Vale para todas las veces que se fabrica.</span><span className="sp" /><button className="btn canc-b" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!pm.admin} onClick={guardar}>Guardar</button></>}>
     <div className="fichad">
       <div className="fichad-fam">
         <label>Familia de tiempo <small className="mut">piezas que se fabrican igual y llevan el mismo tiempo</small>
@@ -3152,7 +3197,7 @@ function FichasHist({ onClose }) {
   const aplicar = () => { const ok = L.filter(vale); if (!ok.length) return;
     up(s => { const fs = { ...(s.fichas || {}) }; ok.forEach(x => { fs[x.k] = { ...(fs[x.k] || {}), material: x.material || (fs[x.k] || {}).material || '', pesoU: x.pesoU > 0 ? x.pesoU : (fs[x.k] || {}).pesoU ?? null }; }); return { ...s, fichas: fs }; });
     ui.toast(`Fichas completadas: ${ok.length} ${ok.length === 1 ? 'pieza' : 'piezas'}. Se deshace con Ctrl+Z.`); onClose(); };
-  return <Modal title="Completar fichas desde el historial" wide onClose={onClose} foot={<><span className="mut">{nN} nuevas{pisar ? ` · ${nC} se reemplazan` : ''}{nV ? ` · ${nV} con pesos que varían` : ''}</span><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!(nN + nC)} onClick={aplicar}>Aplicar a {nN + nC} {nN + nC === 1 ? 'pieza' : 'piezas'}</button></>}>
+  return <Modal title="Completar fichas desde el historial" wide onClose={onClose} foot={<><span className="mut">{nN} nuevas{pisar ? ` · ${nC} se reemplazan` : ''}{nV ? ` · ${nV} con pesos que varían` : ''}</span><span className="sp" /><button className="btn canc-b" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!(nN + nC)} onClick={aplicar}>Aplicar a {nN + nC} {nN + nC === 1 ? 'pieza' : 'piezas'}</button></>}>
     <p className="mut">Sale de las fabricaciones ya cargadas (historial del Costeador y tareas de la app): el material más usado y la mediana de kg ÷ cantidad como peso por unidad. Las descartadas no cuentan. Destildá las piezas que no quieras tomar; después se corrigen a mano en cada ficha.</p>
     <div className="row fhbar"><input type="search" placeholder="Buscar código o pieza" value={q} onChange={e => setQ(e.target.value)} />
       <label className="chk"><input type="checkbox" checked={pisar} onChange={e => setPisar(e.target.checked)} /> Reemplazar también las fichas ya cargadas ({L.filter(cambia).length} distintas)</label></div>
@@ -3176,7 +3221,7 @@ function CotEditor({ r, onClose }) {
     const d = { nombre: c.nombre.trim(), cant: Number(c.cant) || 1, operacionId: op, material: c.material, peso: c.peso === '' ? null : Number(c.peso), hh: Number(c.hh) || 0 };
     up(s => ({ ...s, cotizaciones: nueva ? [...(s.cotizaciones || []), { id: E.uid(), fecha: E.today(), ...d }] : (s.cotizaciones || []).map(x => x.id === r.id ? { ...x, ...d } : x) }));
     ui.toast(nueva ? 'Cotización guardada en Tiempos y Costos' : 'Cotización actualizada'); onClose(); };
-  return <Modal title={nueva ? 'Cotizar' : 'Editar cotización'} onClose={onClose} foot={<><span className="mut">No entra en el promedio de tiempos.</span><span className="sp" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" onClick={guardar}>Guardar</button></>}>
+  return <Modal title={nueva ? 'Cotizar' : 'Editar cotización'} onClose={onClose} foot={<><span className="mut">No entra en el promedio de tiempos.</span><span className="sp" /><button className="btn canc-b" onClick={onClose}>Cancelar</button><button className="btn pri-b" onClick={guardar}>Guardar</button></>}>
     <div className="form">
       <label className="g2">Ítem (código - descripción)<input id="co-nom" autoFocus value={c.nombre} placeholder="TPFR-200-040 Buje de bronce Ø40" onChange={e => set('nombre', e.target.value)} />
         {cod && <small className={cod.operacionId ? 'hint ok' : 'hint'}>Código {cod.num} → {cod.operacionId ? operName(S, cod.operacionId) : 'sin operación asignada'}</small>}</label>
@@ -3215,7 +3260,7 @@ function PlanificarDlg({ proyId, alcance, onClose }) {
   const aplicar = () => { let n = 0; up(s => { const x = run(s, horas); n = x.plan.length; return n ? x.S : s; }); ui.toast(n ? `Plan aplicado: ${n} ${n === 1 ? 'pieza' : 'piezas'} en el Gantt. Podés deshacerlo.` : 'No había nada para planificar'); onClose(); };
   const lista = x => S.operarios.filter(o => o.activo).map(o => ({ o, n: o.op1 === x.opId ? 1 : o.op2 === x.opId ? 2 : 3 })).sort((a, b) => a.n - b.n || a.o.nombre.localeCompare(b.o.nombre));
   const orig = { cargada: 'cargada ahora', manual: 'cargada', promedio: 'promedio' };
-  return <Modal title={alcance === 'rep' ? 'Planificar repuestos' : alcance === 'pv' ? 'Planificar todos los casos de Post Venta' : alcance === 'tl' ? 'Planificar todos los trabajos de Taller' : 'Planificar proyecto' + (p ? ' · ' + p.nombre : '')} onClose={onClose} wide foot={<><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!r.plan.length || r.faltan.length > 0} onClick={aplicar}>Aplicar plan</button></>}>
+  return <Modal title={alcance === 'rep' ? 'Planificar repuestos' : alcance === 'pv' ? 'Planificar todos los casos de Post Venta' : alcance === 'tl' ? 'Planificar todos los trabajos de Taller' : 'Planificar proyecto' + (p ? ' · ' + p.nombre : '')} onClose={onClose} wide foot={<><button className="btn canc-b" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!r.plan.length || r.faltan.length > 0} onClick={aplicar}>Aplicar plan</button></>}>
     <label className="row">Operación<select value={op} onChange={e => setOp(e.target.value)} aria-label="Operación a planificar"><option value="">Todas las operaciones</option>{S.operaciones.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select></label>
     <label className="row"><input type="checkbox" checked={todas} onChange={e => setTodas(e.target.checked)} /> Volver a planificar también las piezas que ya tienen día y operario</label>
     {r.avisos && r.avisos.length > 0 && <div className="aviso-b"><b>Ojo con las dependencias</b>{r.avisos.map((x, i) => <p key={i} className="mut">• {x.nombre} depende de «{x.pred}», que todavía no está planificada: el plan no la espera.</p>)}</div>}
