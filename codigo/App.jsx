@@ -604,13 +604,14 @@ function Resumen() {
     const cn = E.capN(S, o.id, d), ce = E.extraDe(S, o.id, d);
     const ln = (V.load[`${o.id}|${d}|normal`] || {}).h || 0, le = (V.load[`${o.id}|${d}|extra`] || {}).h || 0;
     const fer = E.feriadoDe(S, d), aus = E.ausenciaDe(S, o.id, d), wd = E.isWork(S, d);
-    const motivo = aus ? aus.motivo : fer ? 'Feriado' : !wd ? '' : null;
+    const motivo = aus ? aus.motivo : fer ? 'Feriado' : !wd ? '' : null, par = !aus && wd ? ausParcial(S, o.id, d) : null;
     return <td key={d} className={d === hoy ? 'hoy' : ''}>
-      <div className={`half sem-${semOf(ln, cn)}${motivo !== null ? ' blk' : ''}${aus ? ' aus' : ''}`} style={E.ausStyle(S, aus)} {...dnd(o.id, d, 'normal')}>
+      <div className={`half sem-${semOf(ln, cn)}${motivo !== null ? ' blk' : ''}${aus ? ' aus' : ''}`} style={par ? { ...E.ausStyle(S, par.a), ...PARC_ST } : E.ausStyle(S, aus)} title={par ? `${par.txt} (${fN(par.h)} h fuera)` : undefined} {...dnd(o.id, d, 'normal')}>
         <div className="half-h"><span className="tn">N</span>
           {motivo !== null ? <span className="ld">{motivo}</span> : <span className="ld">{fN(ln)}/{fN(cn)} h</span>}
           {motivo === null && <button className="mini" aria-label="Asignar tarea" onClick={() => ui.modal({ k: 'pick', op: o.id, d, turno: 'normal' })}>+</button>}
         </div>
+        {par && <small style={PARC_TX}>{par.txt}</small>}
         {chips(o.id, d, 'normal')}
       </div>
       {ce > 0 || le > 0 ? <div className={`half ex sem-${semOf(le, ce)}`} {...dnd(o.id, d, 'extra')}>
@@ -2182,11 +2183,12 @@ function CalOperarios({ cab }) {
   const asigs = (S.asignaciones || []).filter(a => a.opId === o.id && a.desde <= dUlt && (a.hasta || a.desde) >= d1).sort((a, b) => a.desde < b.desde ? -1 : 1);
   const xs = sel && dias.find(x => x.d === sel);
   const nuevaAsig = () => ui.modal({ k: 'asig', opId: o.id, desde: sel || (d1 <= hoy ? d1 : hoy), hasta: sel || (dUlt < hoy ? dUlt : hoy) });
-  const celda = x => { const ancho = Math.max(x.dp, x.c.total + x.p.total, 0.0001), vac = x.dp <= 0 && x.c.total <= 0 && x.p.total <= 0;
+  const celda = x => { const ancho = Math.max(x.dp, x.c.total + x.p.total, 0.0001), vac = x.dp <= 0 && x.c.total <= 0 && x.p.total <= 0; const par = !x.aus && !x.finde ? ausParcial(S, o.id, x.d) : null;
     return <button key={x.d} className={'oc-d' + (x.alerta ? ' ' + x.alerta : '') + (x.fut ? ' fut' : '') + (vac ? ' vac' : '') + (x.d === hoy ? ' hoy' : '') + (x.d === sel ? ' sel' : '') + (x.c.glob > 0 ? ' glob' : '') + (x.aus && E.colorAus(S, x.aus.motivo) ? ' aus-c' : '')} style={E.ausStyle(S, x.aus)} onClick={() => setSel(x.d === sel ? null : x.d)}
       aria-label={`${E.fDia(x.d)}: ${fN(x.c.total)} h cargadas${x.p.total > 0.05 ? ` y ${fN(x.p.total)} h planificadas` : ''} de ${fN(x.dp)} disponibles`}>
       <span className="oc-h"><b>{Number(x.d.slice(8))}</b><span className="oc-dn">{E.fDia(x.d).slice(0, 3)}</span>{x.dp > 0 && <small>{fN(x.dp)} h</small>}</span>
-      {(x.aus || x.fer) && <small className="oc-mot">{x.aus ? x.aus.motivo : x.fer.nombre}</small>}
+      {((x.aus && x.aus.auto) || (!x.aus && x.fer)) && <small className="oc-mot">{x.aus ? x.aus.motivo : x.fer.nombre}</small>}
+      {((x.aus && !x.aus.auto) || par) && <span className="oc-l"><span style={AUS_BOX} title={par ? `${par.txt} (${fN(par.h)} h fuera)` : `Ausente todo el día: ${x.aus.motivo}`}><i style={{ background: 'var(--bad)' }} />{par ? par.txt : x.aus.motivo}<b style={{ color: 'var(--bad)' }}>{par ? fN(par.h) : 'día'}</b></span></span>}
       {!vac && <span className="oc-bar" title={`${fN(x.c.total)} h cargadas de ${fN(x.dp)} disponibles`}>{TIPOS.map(k => x.c[k] > 0 && <i key={k} style={{ width: x.c[k] / ancho * 100 + '%', background: COL_EST[k] }} />)}{TIPOS.map(k => x.p[k] > 0 && <i key={'p' + k} className="oc-pl" style={{ width: x.p[k] / ancho * 100 + '%', '--c': COL_EST[k] }} />)}{x.sin > 0 && <i className="oc-sin" style={{ width: x.sin / ancho * 100 + '%' }} />}</span>}
       {!vac && <span className="oc-l">{TIPOS.map(k => x.c[k] > 0.05 && <span key={k}><i style={{ background: COL_EST[k] }} />{ABR_EST[k]} <b>{fN(x.c[k])}</b></span>)}
         {TIPOS.map(k => x.p[k] > 0.05 && <span key={'p' + k} className="pl"><i className="oc-pl" style={{ '--c': COL_EST[k] }} />{ABR_EST[k]} plan. <b>{fN(x.p[k])}</b></span>)}
@@ -2219,7 +2221,7 @@ function CalOperarios({ cab }) {
 function DiaOpDet({ x, o, cerrar }) {
   const { S, V, ui, pm } = useApp(); const s0 = E.schedAt(S, x.d), jor = E.capN(S, o.id, x.d), ext = x.aus ? 0 : E.extraDe(S, o.id, x.d);
   return <div className="calg-det oc-det"><div className="sec-h"><h3>{E.fDia(x.d)} · {o.nombre}</h3><button className="btn sm" onClick={cerrar}>Cerrar</button></div>
-    <p className="mut">{x.aus ? `Ausente: ${x.aus.motivo}. ` : x.fer ? `Feriado: ${x.fer.nombre}. ` : x.finde && !ext ? 'Fin de semana. ' : ''}Disponible {fN(x.dp)} h{x.dp > 0 ? ` (jornada ${fN(jor)} h${ext ? ` + ${fN(ext)} h extra` : ''})` : ''} · cargadas {fN(x.c.total)} h{x.p.total > 0.05 ? ` · planificadas ${fN(x.p.total)} h` : ''}{x.fut ? '' : ` · sin asignar ${fN(x.sin)} h`}{x.exc > 0.05 ? ` · ${fN(x.exc)} h de más` : ''}</p>
+    <p className="mut">{x.aus ? `Ausente: ${x.aus.motivo}. ` : ausParcial(S, o.id, x.d) ? `${ausParcial(S, o.id, x.d).txt} (${fN(ausParcial(S, o.id, x.d).h)} h fuera). ` : x.fer ? `Feriado: ${x.fer.nombre}. ` : x.finde && !ext ? 'Fin de semana. ' : ''}Disponible {fN(x.dp)} h{x.dp > 0 ? ` (jornada ${fN(jor)} h${ext ? ` + ${fN(ext)} h extra` : ''})` : ''} · cargadas {fN(x.c.total)} h{x.p.total > 0.05 ? ` · planificadas ${fN(x.p.total)} h` : ''}{x.fut ? '' : ` · sin asignar ${fN(x.sin)} h`}{x.exc > 0.05 ? ` · ${fN(x.exc)} h de más` : ''}</p>
     {x.alerta === 'over' && <p className="note bad">Se cargaron más horas de las que tenía disponibles. Revisá las horas reales de las piezas de abajo, si las extras están habilitadas ese día, o si una pieza quedó con un inicio o un fin equivocado (sus horas se reparten entre todos los días que duró).</p>}
     {x.c.solapado > 0.05 && <p className="note">Este día el operario llevó a la vez piezas de dos operaciones que se pueden solapar: se le cuentan {fN(x.c.solapado)} h menos (la operación que más horas llevó cuenta completa). Cada pieza conserva sus horas reales completas.</p>}
     {x.alerta === 'falta' && <p className="note">Quedaron {fN(x.sin)} h sin asignar. Puede faltar cargar una tarea o sus horas reales, o una ausencia.</p>}
@@ -2277,6 +2279,13 @@ const horasFuera = (S, a, d) => {
   const jv = s.bm > 0 && s.bi > s.in && s.bi + s.bm < s.out ? [[s.in, s.bi], [s.bi + s.bm, s.out]] : [[s.in, s.out - s.bm]];
   return jv.reduce((t, [x, y]) => t + Math.max(0, Math.min(y, f) - Math.max(x, i)), 0) / 60;
 };
+// Ausencia de parte del día d (retiro antes, salida parcial, llegada tarde) de un operario: { a, h, txt } o null. No cuenta salidas a Post Venta.
+const ausParcial = (S, op, d) => { const a = (S.ausencias || []).find(x => x.opId === op && x.desde <= d && d <= x.hasta && !x.destino && (horasFuera(S, x, d) || 0) > 0); if (!a) return null;
+  const sale = d === a.desde && a.desdeHora, vuelve = d === a.hasta && a.hastaHora;
+  return { a, h: horasFuera(S, a, d), txt: `${a.motivo} · ${sale && vuelve ? sale + ' a ' + vuelve : sale ? 'sale ' + sale : 'llega ' + vuelve}` }; };
+const PARC_ST = { outline: '2px dashed var(--aus, var(--warn))', outlineOffset: -2 };   // borde punteado = falta solo unas horas ese día
+const AUS_BOX = { border: '1px solid var(--bad)', borderRadius: 4, padding: '1px 4px', color: 'var(--bad)', fontWeight: 600, overflow: 'hidden' };   // ausencia en el calendario mensual: recuadro rojo como las otras actividades
+const PARC_TX = { color: 'var(--aus, var(--warn))', fontWeight: 600, fontSize: 12, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 // Motivos de las ausencias por horas (se suman a la lista de motivos la primera vez que se usan, si quien guarda es administrador)
 const TIPOS_RET = [
   { k: 'antes', l: 'Se retira antes (Leaves early)', motivo: 'Retiro anticipado', color: '#EF9F27' },
