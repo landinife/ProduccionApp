@@ -2106,7 +2106,7 @@ function TallerTask({ t }) {
   </div>;
 }
 function Taller({ cab }) {
-  const { S, V } = useApp(); useReloj();
+  const { S, V, ui, pm } = useApp(); useReloj();
   const [oid, setOid] = useState(() => { try { return localStorage.getItem(KEY + '-taller') || ''; } catch (e) { return ''; } });
   const ops = S.operarios.filter(o => o.activo), o = ops.find(x => x.id === oid), hoy = E.today();
   const elegir = id => { setOid(id); try { localStorage.setItem(KEY + '-taller', id); } catch (e) { } };
@@ -2121,8 +2121,8 @@ function Taller({ cab }) {
   const { mine, frenadas: fren, hechas, aus } = colaOperario(S, V, o.id, hoy);
   const { en, pau, sig: sigL } = seccionesCola(mine), sig = sigL.sort((a, b) => E.esProximo(b) - E.esProximo(a));   // las marcadas como próximo a realizar van primero
   return <div className="view taller">{cab}{tira}<section>
-    <div className="sec-h"><div className="row"><Av o={o} i={S.operarios.indexOf(o)} /><h2>{o.nombre}</h2></div></div>
-    <p className="mut">{fDia(hoy)}{aus ? ` · hoy figura ausente (${aus.motivo})` : ` · ${fN(((V.load[`${o.id}|${hoy}|normal`] || {}).h || 0) + ((V.load[`${o.id}|${hoy}|extra`] || {}).h || 0))} h programadas hoy`}</p>
+    <div className="sec-h"><div className="row"><Av o={o} i={S.operarios.indexOf(o)} /><h2>{o.nombre}</h2></div>{(pm.admin || pm.rep) && <button className="btn sm" title="Retiro antes, salida parcial o llegada tarde" onClick={() => ui.modal({ k: 'retiro', opId: o.id })}>Se retira antes (Leaves early)</button>}</div>
+    <p className="mut">{fDia(hoy)}{aus ? ` · hoy figura ausente (${aus.motivo})` : ` · ${fN(((V.load[`${o.id}|${hoy}|normal`] || {}).h || 0) + ((V.load[`${o.id}|${hoy}|extra`] || {}).h || 0))} h programadas hoy`}{!aus && (S.ausencias || []).filter(x => x.opId === o.id && x.desde <= hoy && hoy <= x.hasta && !x.destino).map(x => ` · ${x.motivo}: ${x.desde === hoy && x.desdeHora ? 'sale ' + x.desdeHora : ''}${x.desde === hoy && x.desdeHora && x.hasta === hoy && x.hastaHora ? ', ' : ''}${x.hasta === hoy && x.hastaHora ? 'vuelve ' + x.hastaHora : ''}`).join('')}</p>
     <h3>Ahora</h3>
     {en.length === 0 && <Vacio ic="reloj" t="No hay ninguna tarea en curso">Iniciá una de la lista de abajo.</Vacio>}
     {en.map(t => <TallerTask key={t.id} t={t} />)}
@@ -2267,6 +2267,60 @@ function AsigDlg({ id, opId, desde, hasta, onClose }) {
       {ay.libre > 0.05 && <> <button className="lnk sm" onClick={() => set('horas', String(Math.round(ay.libre * 10) / 10))}>Usar las {fN(ay.libre)} h libres</button></>}
       <span className="hint">Las horas se reparten en partes iguales entre los días con horas disponibles del rango.</span></div>}
     {ay && h > 0 && h > ay.libre + 0.05 && <p className="note bad">Supera las horas libres de esas fechas en {fN(h - ay.libre)} h. Se puede guardar igual, pero esos días van a quedar marcados en rojo en el calendario.</p>}
+  </Modal>;
+}
+
+// Horas de jornada normal (sin el almuerzo) que una ausencia deja fuera en el día d (null si ese día lo cubre entero o no tiene hora)
+const horasFuera = (S, a, d) => {
+  if (!E.isWork(S, d)) return 0;
+  const s = E.schedAt(S, d), [i, f] = E.tramoAus(a, d); if (i <= s.in && f >= s.out) return null;
+  const jv = s.bm > 0 && s.bi > s.in && s.bi + s.bm < s.out ? [[s.in, s.bi], [s.bi + s.bm, s.out]] : [[s.in, s.out - s.bm]];
+  return jv.reduce((t, [x, y]) => t + Math.max(0, Math.min(y, f) - Math.max(x, i)), 0) / 60;
+};
+// Motivos de las ausencias por horas (se suman a la lista de motivos la primera vez que se usan, si quien guarda es administrador)
+const TIPOS_RET = [
+  { k: 'antes', l: 'Se retira antes (Leaves early)', motivo: 'Retiro anticipado', color: '#EF9F27' },
+  { k: 'parcial', l: 'Sale y vuelve (Leaves and returns)', motivo: 'Salida parcial', color: '#D4537E' },
+  { k: 'tarde', l: 'Llega tarde (Arrives late)', motivo: 'Llegada tarde', color: '#BA7517' },
+];
+const conMotivo = (s, nombre, color) => { const l = E.motivosAus(s), k = nombre.trim().toLowerCase(); return l.some(m => String(m.nombre || '').trim().toLowerCase() === k) ? s : { ...s, motivosAus: [...l, { id: E.uid(), nombre, color }] }; };
+// Retiro antes, salida parcial o llegada tarde de un operario en un día: ausencia de un solo día con hora de salida y/o de regreso.
+// El motor ya descuenta solo esas horas: sus tareas se corren lo justo y ese rato no suma horas.
+function RetiroDlg({ opId, onClose }) {
+  const { S, up, ui, pm } = useApp(); const hoy = E.today();
+  const [f, setF] = useState(() => ({ tipo: 'antes', opId: opId || '', d: hoy, sale: '', vuelve: '', motivo: '', nota: '' }));
+  const [pausa, setPausa] = useState(true);
+  const set = (k, v) => setF(x => ({ ...x, [k]: v }));
+  const tp = TIPOS_RET.find(x => x.k === f.tipo), motivo = f.motivo || tp.motivo;
+  const usaSale = f.tipo !== 'tarde', usaVuelve = f.tipo !== 'antes';
+  const a = { id: E.uid(), opId: f.opId, desde: f.d, hasta: f.d, motivo, ...(usaSale && f.sale ? { desdeHora: f.sale } : {}), ...(usaVuelve && f.vuelve ? { hastaHora: f.vuelve } : {}), ...(f.nota.trim() ? { nota: f.nota.trim() } : {}) };
+  const horasOk = (!usaSale || f.sale) && (!usaVuelve || f.vuelve) && !(usaSale && usaVuelve && f.vuelve <= f.sale);
+  const h = f.d && horasOk ? horasFuera(S, a, f.d) : 0;
+  const s = f.d ? E.schedAt(S, f.d) : null, jor = s ? `${E.pad(Math.floor(s.in / 60))}:${E.pad(s.in % 60)} a ${E.pad(Math.floor(s.out / 60))}:${E.pad(s.out % 60)}` : '';
+  const ok = !!(f.opId && f.d && horasOk && E.isWork(S, f.d) && h !== 0);
+  const choca = !!(f.opId && f.d && (S.ausencias || []).some(x => x.opId === f.opId && x.desde <= f.d && f.d <= x.hasta));
+  const corte = ok && usaSale ? f.d + 'T' + f.sale : '';
+  const enc = ok && usaSale ? E.enCurso(S, [f.opId]) : [], yaSalio = enc.length > 0 && corte <= E.nowDT();
+  const guardar = () => { if (!ok) return;
+    up(s0 => { let s1 = yaSalio && pausa ? E.pausarEnCurso(s0, [a.opId], null, corte) : s0; if (pm.admin) s1 = conMotivo(s1, motivo, tp.color); return E.setAusencias(s1, [...s1.ausencias, a]); });
+    ui.toast(`${opName(S, a.opId)}: ${h === null ? 'todo el día' : fN(h) + ' h'} fuera el ${fD(a.desde)}${yaSalio && pausa ? ' · pausó lo que tenía en curso' : ''}`); onClose(); };
+  return <Modal title="Retiro antes o salida parcial" onClose={onClose} foot={<><span className="sp" /><button className="btn canc-b" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!ok} onClick={guardar}>Guardar</button></>}>
+    <div className="seg">{TIPOS_RET.map(x => <button key={x.k} className={f.tipo === x.k ? 'on' : ''} onClick={() => set('tipo', x.k)}>{x.l}</button>)}</div>
+    <div className="form">
+      <label>Operario<select value={f.opId} onChange={e => set('opId', e.target.value)}><option value="">Elegí…</option>{S.operarios.filter(o => o.activo !== false || o.id === f.opId).slice().sort(porApellido).map(x => <option key={x.id} value={x.id}>{nomApe(x)}</option>)}</select></label>
+      <label>Día<input type="date" value={f.d} onChange={e => set('d', e.target.value)} /></label>
+      {usaSale && <label>Sale a las<input type="time" value={f.sale} onChange={e => set('sale', e.target.value)} /></label>}
+      {usaVuelve && <label>{f.tipo === 'tarde' ? 'Llega a las' : 'Vuelve a las'}<input type="time" value={f.vuelve} onChange={e => set('vuelve', e.target.value)} /></label>}
+      <label>Motivo<select value={motivo} onChange={e => set('motivo', e.target.value)}>{!E.motivosAus(S).some(m => m.nombre === motivo) && <option value={motivo}>{motivo}</option>}{E.motivosAus(S).map(m => <option key={m.id} value={m.nombre}>{m.nombre}</option>)}</select></label>
+      <label>Nota (opcional)<input value={f.nota} onChange={e => set('nota', e.target.value)} placeholder="por ejemplo: turno médico" /></label>
+    </div>
+    {f.d && !E.isWork(S, f.d) && <p className="note bad">Ese día no es laborable.</p>}
+    {usaSale && usaVuelve && f.sale && f.vuelve && f.vuelve <= f.sale && <p className="note bad">La hora de regreso tiene que ser posterior a la de salida.</p>}
+    {horasOk && h === 0 && E.isWork(S, f.d) && <p className="note bad">Ese horario queda fuera de la jornada ({jor}): no descuenta nada.</p>}
+    {choca && <p className="note bad">Este operario ya tiene otra ausencia ese día. Revisá Configuración → Ausencias.</p>}
+    {ok && <div className="note">{opName(S, f.opId)} queda fuera <b>{h === null ? 'toda la jornada' : fN(h) + ' h'}</b> (jornada de {jor}, sin el almuerzo). Ese rato sus tareas no avanzan: se corren lo justo.</div>}
+    {yaSalio && <label className="chk"><input type="checkbox" checked={pausa} onChange={e => setPausa(e.target.checked)} /> Pausar a las {f.sale} lo que tenía en curso: {enc.map(t => t.nombre).join(', ')}</label>}
+    {ok && f.tipo === 'parcial' && enc.length > 0 && <p className="note">Al volver, retomá su tarea con Retomar (Resume) y la hora de regreso.</p>}
   </Modal>;
 }
 
@@ -2527,10 +2581,11 @@ function AusResumen({ S }) {
     <div className="ausr"><table><thead><tr><th className="nm" />{Array.from({ length: n }, (_, k) => { const mm = mesMas(desde, k); return <th key={mm} colSpan={dias.filter(d => d.startsWith(mm)).length} className="mh">{MES_L[+mm.slice(5) - 1]} {mm.slice(0, 4)}</th>; })}</tr>
       <tr><th className="nm" />{dias.map(d => <th key={d} className={cls(d)}><span className="dn">{'DLMMJVS'[E.dow(d)]}</span>{d.slice(8)}</th>)}</tr></thead>
       <tbody><tr className="cnt"><th className="nm">Ausentes por día</th>{dias.map(d => { const c = cuenta(d); return <td key={d} className={(c > 1 ? 'multi ' : '') + cls(d)}>{c || ''}</td>; })}</tr>
-        {ops.map(o => <tr key={o.id}><th className="nm">{nomApe(o)}</th>{dias.map(d => { const a = E.ausenciaReal(S, o.id, d); return <td key={d} style={E.ausStyle(S, a)} className={(a ? 'aus ' : '') + cls(d)} title={a ? `${nomApe(o)}: ${a.motivo} (${fDM(a.desde)} al ${fDM(a.hasta)})` : ''}>{a ? (a.motivo || '?')[0].toUpperCase() : ''}</td>; })}</tr>)}
+        {ops.map(o => <tr key={o.id}><th className="nm">{nomApe(o)}</th>{dias.map(d => { const a = E.ausenciaReal(S, o.id, d), hp = a ? horasFuera(S, a, d) : null, st = E.ausStyle(S, a);   // hp: horas si ese día falta solo un rato (medio casillero rayado)
+          return <td key={d} style={hp > 0 && st ? { ...st, background: `repeating-linear-gradient(135deg, ${st['--aus']} 0 4px, transparent 4px 8px)` } : st} className={(a ? 'aus ' : '') + cls(d)} title={a ? `${nomApe(o)}: ${a.motivo} (${fDM(a.desde)}${a.desdeHora ? ' ' + a.desdeHora : ''} al ${fDM(a.hasta)}${a.hastaHora ? ' ' + a.hastaHora : ''})${hp > 0 ? ' · ' + fN(hp) + ' h fuera' : ''}` : ''}>{a ? (a.motivo || '?')[0].toUpperCase() : ''}</td>; })}</tr>)}
         {ops.length === 0 && <tr><td className="mut">No hay operarios activos.</td></tr>}</tbody></table></div>
     <div className="ausr-lg">{E.motivosAus(S).map(m => <span key={m.id}><i style={{ background: m.color }} />{m.nombre}</span>)}</div>
-    <p className="mut">Cada letra es la inicial del motivo. Pasá el cursor sobre un casillero para ver el detalle. Si un día aparece un número mayor a 1 en rojo, faltan varios operarios ese día.</p>
+    <p className="mut">Cada letra es la inicial del motivo; el casillero rayado es un día en que falta solo unas horas. Pasá el cursor sobre un casillero para ver el detalle. Si un día aparece un número mayor a 1 en rojo, faltan varios operarios ese día.</p>
   </div>;
 }
 // Configuración → Corte de serrucho: lo que se lleva el corte, sumado al largo del plano de cada pieza (por defecto y por rangos de medida)
@@ -2578,6 +2633,7 @@ function Config() {
   const setDisp = (o, patch) => up(s => E.setDispOp(s, o.id, patch));   // activo desde / ocasional / días que viene: corre las tareas del operario
   const addAus = a => up(s => E.setAusencias(s, [...s.ausencias, a]));
   const setAus = (id, patch) => up(s => E.setAusencias(s, s.ausencias.map(x => x.id === id ? { ...x, ...patch } : x)));   // corre las tareas de los operarios afectados
+  const setAusH = (id, k, v) => up(s => E.setAusencias(s, s.ausencias.map(x => { if (x.id !== id) return x; const n = { ...x }; if (v) n[k] = v; else delete n[k]; return n; })));   // hora de salida o de regreso; vacía = día entero
   // Resumen de una ausencia: días hábiles que cubre y aviso si incluye hoy
   const incluyeHoy = a => { const hoyD = E.today(); return !!a.opId && a.desde <= hoyD && hoyD <= a.hasta; };
   const resumenAus = a => {
@@ -2586,6 +2642,7 @@ function Config() {
     const n = Math.round((new Date(a.hasta) - new Date(a.desde)) / 864e5) + 1;
     let txt = `${n} días corridos: revisá las fechas`;
     if (n <= 400) { let h = 0, d = a.desde; for (let i = 0; i < n; i++, d = E.addDays(d, 1)) if (E.isWork(S, d)) h++; txt = `${h} ${h === 1 ? 'día hábil' : 'días hábiles'}`; }
+    if (n === 1 && (a.desdeHora || a.hastaHora)) { const hf = horasFuera(S, a, a.desde); if (hf !== null) txt = `${fN(hf)} h fuera`; }   // ausencia por horas en un solo día
     return <span className={incl ? 'c-bad' : 'mut'}>{incl ? '⚠ incluye hoy · ' : ''}{txt}</span>;
   };
   const act = E.seasonNow(S); const otra = act === 'invierno' ? 'verano' : 'invierno';
@@ -2618,10 +2675,11 @@ function Config() {
       onDel={a => up(s => E.setAusencias(s, s.ausencias.filter(x => x.id !== a.id)))}
       render={a => <><select aria-label="Operario" value={a.opId} onChange={e => setAus(a.id, { opId: e.target.value })}><option value="">Elegí el operario</option>{S.operarios.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select>
         <input aria-label="Desde" type="date" value={a.desde} onChange={e => e.target.value && setAus(a.id, { desde: e.target.value, hasta: e.target.value > a.hasta ? e.target.value : a.hasta })} /><input aria-label="Hasta" type="date" value={a.hasta} min={a.desde} onChange={e => e.target.value && setAus(a.id, { hasta: e.target.value })} />
+        <label className="inl" title="Opcional: hora en que se va el primer día (vacío = día entero)">Sale a las<input aria-label="Sale a las" type="time" value={a.desdeHora || ''} onChange={e => setAusH(a.id, 'desdeHora', e.target.value)} /></label><label className="inl" title="Opcional: hora en que llega o vuelve el último día (vacío = día entero)">Vuelve a las<input aria-label="Vuelve a las" type="time" value={a.hastaHora || ''} onChange={e => setAusH(a.id, 'hastaHora', e.target.value)} /></label>
         <select aria-label="Motivo" value={a.motivo} onChange={e => setL('ausencias', a.id, { motivo: e.target.value })}>{!E.motivosAus(S).some(m => m.nombre === a.motivo) && <option value={a.motivo}>{a.motivo}</option>}{E.motivosAus(S).map(m => <option key={m.id} value={m.nombre}>{m.nombre}</option>)}</select><span className="mot-sw" style={E.ausStyle(S, a)} />
         {resumenAus(a)}</>}
       rowClass={a => incluyeHoy(a) ? ' aus-hoy' : ''}
-      nota="Los días de ausencia, las tareas de ese operario no avanzan: terminan más tarde y ese día no suma horas (tampoco en el cronómetro ni en Tiempos)." />
+      nota="Los días de ausencia, las tareas de ese operario no avanzan: terminan más tarde y ese día no suma horas (tampoco en el cronómetro ni en Tiempos). Con «Sale a las» (el primer día) o «Vuelve a las» (el último día) se descuentan solo esas horas: sirve para un retiro antes, una salida parcial o una llegada tarde." />
     <ListEdit title="Operaciones" items={S.operaciones} addLabel="+ Operación" onAdd={() => up(s => ({ ...s, operaciones: [...s.operaciones, { id: E.uid(), nombre: 'Nueva operación' }] }))}
       onDel={o => up(s => ({ ...s, operaciones: s.operaciones.filter(x => x.id !== o.id) }))}
       render={(o, i) => <><label className="inl" title="Orden de fabricación: las de etapa menor se hacen primero. 0 = en paralelo: no espera a otras etapas ni las frena (las piezas que la necesitan igual esperan a sus hijas).">Etapa<input className="w4" type="number" min="0" aria-label="Etapa" value={E.etapaOp(o)} onChange={e => setL('operaciones', o.id, { etapa: e.target.value === '' ? null : Number(e.target.value) })} /></label><input aria-label="Nombre" value={o.nombre} onChange={e => setL('operaciones', o.id, { nombre: e.target.value })} />
@@ -3573,6 +3631,7 @@ export function App({ db, ses, S0 }) {
       {modal && modal.k === 'imp' && <Importer mode={modal.mode} proyId={modal.proyId} onClose={close} />}
       {modal && modal.k === 'asig' && <AsigDlg {...modal} onClose={close} />}
       {modal && modal.k === 'salida' && <SalidaDlg key={modal.id || 'nueva'} {...modal} onClose={close} />}
+      {modal && modal.k === 'retiro' && <RetiroDlg opId={modal.opId} onClose={close} />}
       {modal && modal.k === 'material' && <MaterialDlg onClose={close} />}
       {modal && modal.k === 'plan' && <PlanificarDlg proyId={modal.proyId} alcance={modal.alcance} onClose={close} />}
       {fichaAb && <FichaDlg k={fichaAb.key} nombre={fichaAb.nombre} onClose={() => setFichaAb(null)} />}
