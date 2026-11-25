@@ -796,7 +796,7 @@ export function historial(S, nombre) {
   if (porUnion(fam)) {   // familia por unión (25/11): estándar = horas por unión de la familia × uniones de esta pieza
     const fu = famUnion(S, fam), un = unionesDe(S, k); if (!fu || !(un > 0)) return null;
     const lp = fu.l.filter(f => f.k === k);
-    return { n: fu.n, porUnidad: fu.porUnion * un, porUnion: fu.porUnion, uniones: un, sinUn: fu.sinUn, operacionId: fu.operacionId, fam, nPiezas: fu.nPiezas, nPropio: lp.length,
+    return { n: fu.n, porUnidad: fu.porUnion * un, porUnion: fu.porUnion, uniones: un, base: fu.base, basePeso: fu.basePeso, sinUn: fu.sinUn, operacionId: fu.operacionId, fam, nPiezas: fu.nPiezas, nPropio: lp.length,
       propio: lp.length ? lp.reduce((a, f) => a + f.hu, 0) / lp.length : null };
   }
   const l = fabricaciones(S).filter(f => ks.has(f.k) && !f.fuera);
@@ -876,13 +876,17 @@ export const matPropio = f => !!(f && (f.stockId || f.chapa || f.noMat));
 // las horas son el trabajo propio del padre (el soldado); el corte de las barras queda en las hijas. Las piezas sin uniones cargadas no cuentan.
 export const porUnion = fam => !!(fam && fam.tipo === 'union');
 export const unionesDe = (S, k) => Number((fichaPropia(S, k) || {}).uniones) || 0;
+export const baseUn = fam => Number(fam && fam.base) > 0 ? Number(fam.base) : 0;
+export const basePesoDe = fam => Number(fam && fam.basePeso) > 0 ? Number(fam.basePeso) : 3;
 export function famUnion(S, fam) {
   if (!porUnion(fam)) return null; const ks = new Set(codsFamilia(S, fam.id));
   const todas = fabricaciones(S).filter(f => ks.has(f.k) && !f.fuera), l = todas.filter(f => unionesDe(S, f.k) > 0);
   const sinK = [...ks].filter(k => !(unionesDe(S, k) > 0));
-  if (!l.length) return { n: 0, porUnion: null, l, sinUn: todas.length, sinK, nPiezas: 0 };
+  // base medida (25/11): h por unión que cargás en la familia; cuenta como `basePeso` fabricaciones (3 si no se carga) y lo medido la va corrigiendo
+  const b = baseUn(fam), w = b ? basePesoDe(fam) : 0, sum = l.reduce((a, f) => a + f.hu / unionesDe(S, f.k), 0), med = l.length ? sum / l.length : null;
+  if (!l.length && !b) return { n: 0, porUnion: null, l, sinUn: todas.length, sinK, nPiezas: 0 };
   const cnt = {}; l.forEach(f => { if (f.operacionId) cnt[f.operacionId] = (cnt[f.operacionId] || 0) + 1; });
-  return { n: l.length, porUnion: l.reduce((a, f) => a + f.hu / unionesDe(S, f.k), 0) / l.length, l, sinUn: todas.length - l.length, sinK,
+  return { n: l.length, porUnion: (b * w + sum) / (w + l.length), medido: med, base: b || null, basePeso: w, l, sinUn: todas.length - l.length, sinK,
     nPiezas: new Set(l.map(f => f.k)).size, operacionId: Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0] || null };
 }
 export function fichaDe(S, k) {

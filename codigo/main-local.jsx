@@ -23,11 +23,12 @@ const conMaterial = S => {
   const fichas = { ...(S.fichas || {}) }; Object.entries(FICHAS).forEach(([k, f]) => { if (!fichas[k] || !fichas[k].stockId && !fichas[k].chapa) fichas[k] = { ...(fichas[k] || {}), ...f }; });
   const historico = [...(S.historico || [])], familias = [...(S.familias || [])];
   if (!historico.some(h => h.id === 'hb1501')) { historico.push(...BAST);
-    if (!familias.some(f => f.id === 'famb')) familias.push({ id: 'famb', nombre: 'Bastidor caño 40×40', tipo: 'union' });
+    if (!familias.some(f => f.id === 'famb')) familias.push({ id: 'famb', nombre: 'Bastidor caño 40×40', tipo: 'union', base: 0.83, basePeso: 3 });
     fichas['TPFD-009-001-1501'] = { ...(fichas['TPFD-009-001-1501'] || {}), familia: 'famb', uniones: 4 };
     fichas['TPFD-009-001-1502'] = { ...(fichas['TPFD-009-001-1502'] || {}), familia: 'famb', uniones: 6 };
     fichas['TPFD-009-001-1503'] = { ...(fichas['TPFD-009-001-1503'] || {}), familia: 'famb' }; }
-  return { ...S, fichas, historico, familias, cfg: { ...S.cfg, corte: S.cfg.corte || { def: 3, rangos: [{ hasta: 50, mm: 3 }, { hasta: 200, mm: 5 }] } } };
+  const fams = familias.map(f => f.id === 'famb' && f.base == null ? { ...f, base: 0.83, basePeso: 3 } : f);
+  return { ...S, fichas, historico, familias: fams, cfg: { ...S.cfg, corte: S.cfg.corte || { def: 3, rangos: [{ hasta: 50, mm: 3 }, { hasta: 200, mm: 5 }] } } };
 };
 const db = { inicial: () => conMaterial(loadState()), escribir: (p, n) => { try { localStorage.setItem(KEY, JSON.stringify(n)); } catch (e) { } }, stock: cb => { cb({ items: STOCK, dolar: 1200, ts: Date.now() }); return () => { }; } };
 createRoot(document.getElementById('root')).render(<App db={db} />);
