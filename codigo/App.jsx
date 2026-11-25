@@ -41,22 +41,30 @@ const ORD_CLASE = { curso: 0, pausa: 1, proximo: 2, pendiente: 3 };
 // Piezas con trabajo propio (hojas) y sin finalizar de un conjunto de raíces, respetando el filtro vis
 function hojasActivas(V, roots, vis) { const h = []; const junta = t => { if (!vis || vis(t)) { if (!V.D[t.id].parent && t.estado !== 'terminada') h.push(t); (V.kids[t.id] || []).forEach(junta); } }; roots.forEach(junta); return h; }
 // Plegado de los grupos de estado; se recuerda en este equipo con la clave de cada pestaña
-function usePlegados(clave, inicial = {}) { const [plg, setPlg] = useState(() => prefG(clave, inicial)); const tog = k => { const n = { ...plg, [k]: !plg[k] }; setPlg(n); guardaG(clave, n); }; return [plg, tog]; }
+function usePlegados(clave, inicial = {}) { const [plg, setPlg] = useState(() => prefG(clave, inicial)); const tog = k => { const n = { ...plg, [k]: !plg[k] }; setPlg(n); guardaG(clave, n); }; return [plg, tog, n => { setPlg(n); guardaG(clave, n); }]; }
 // Un grupo plegable de estado (En proceso, En pausa, Próximo a realizar, Pendientes...)
 function GrupoEstado({ k, l, c, n, plg, tog, nota, children }) {
   return <div className={'repg' + (plg[k] ? '' : ' on')} style={{ '--c': c }}>
     <button className="dgrp-t repg-t" onClick={() => tog(k)}><span className="car">{plg[k] ? '▸' : '▾'}</span><b>{l}</b><span className="cnt">{n}</span>{nota}</button>
     {!plg[k] && children}</div>;
 }
-// Tablero por proceso: una columna por operación (más "Sin operación"); cada pestaña dibuja su propia tarjeta con card
-function TableroCols({ tareas, card, vacio, desempate }) {
-  const { S } = useApp(); const g = {};
-  tareas.forEach(t => { const k = t.operacionId && S.operaciones.some(o => o.id === t.operacionId) ? t.operacionId : '_'; (g[k] = g[k] || []).push(t); });
+// Vista por proceso (25/11): un grupo plegable por operación (más "Sin operación"), con el mismo aspecto que la vista por estado.
+// render(lista, k) dibuja lo de adentro de cada grupo (la tabla o las tarjetas de cada pestaña).
+const opOkS = (S, id) => id && S.operaciones.some(o => o.id === id) ? id : '_';
+const colOpS = (S, id) => { const i = S.operaciones.findIndex(o => o.id === id); return id === '_' || i < 0 ? 'var(--mut)' : PP_PAL[i % PP_PAL.length]; };
+function GruposProc({ hojas, render, vacio }) {
+  const { S } = useApp(); const [plg, tog] = usePlegados('proc-grupos'); const g = {};
+  hojas.forEach(t => { const k = opOkS(S, t.operacionId); (g[k] = g[k] || []).push(t); });
   const cols = [...S.operaciones.map(o => [o.id, o.nombre]), ['_', 'Sin operación']].filter(([k]) => g[k]);
   if (!cols.length) return vacio;
-  return <div className="tabp">{cols.map(([k, nom]) => { const l = g[k].slice().sort((a, b) => ORD_CLASE[claseT(a)] - ORD_CLASE[claseT(b)] || PRI[a.prioridad] - PRI[b.prioridad] || (desempate ? desempate(a, b) : 0));
-    return <div key={k} className="tabp-c"><div className="tabp-h"><b>{nom}</b><span className="cnt">{l.length}</span><span className="mut">{fH(l.reduce((a, t) => a + (Number(t.hh) || 0), 0))}</span></div>{l.map(t => card(t))}</div>; })}</div>;
+  const LBL = Object.fromEntries(SECC.map(x => [x[0], x[1]]));
+  return cols.map(([k, nom]) => { const l = g[k], cnt = {}; l.forEach(t => { const c = claseT(t); cnt[c] = (cnt[c] || 0) + 1; });
+    return <GrupoEstado key={k} k={k} l={nom} c={colOpS(S, k)} n={l.length} plg={plg} tog={tog} nota={<span className="mut">{fH(l.reduce((a, t) => a + (Number(t.hh) || 0), 0))} plan · {SECC.filter(x => cnt[x[0]]).map(x => `${cnt[x[0]]} ${LBL[x[0]].toLowerCase()}`).join(' · ')}</span>}>
+      {render(l, k)}</GrupoEstado>; });
 }
+// Filtro para una tabla: se ven las piezas del conjunto ids y los padres que las contienen (respetando vis)
+const visEn = (V, ids, vis) => { const memo = new Map(); const ok = t => { if (memo.has(t.id)) return memo.get(t.id); const ch = V.kids[t.id] || [];
+  const r = (!vis || vis(t)) && (ch.length ? ch.some(ok) : ids.has(t.id)); memo.set(t.id, r); return r; }; return ok; };
 // Tercerizada: pieza hecha por un proveedor (capacidad de planta). Cuenta como finalizada pero no ocupa operarios ni horas de planta.
 const esTerc = t => !!(t && t.tercerizada && t.estado === 'terminada');
 // Finalizada sin día ni hora puntual (datos migrados de una planilla): tilde verde + signo de admiración amarillo
@@ -631,9 +639,11 @@ function Resumen() {
     <h3>{tit} <span className="cnt">{l.length}</span></h3>
     {l.length === 0 ? <p className="mut">Ninguna.</p> : l.map((t, i) => pitem(t, k, i + 1))}
   </div>; };
-  // Vista "Por proceso": una columna por operación, con las mismas tarjetas (y acciones) que la vista por estado
+  // Vista "Por proceso" (25/11): un grupo por operación, como la vista por estado, con las mismas tarjetas (y acciones) separadas en Repuestos y Proyectos
   const prxL = base.filter(t => claseT(t) === 'proximo').sort((a, b) => ((a.proximo || '9') < (b.proximo || '9') ? -1 : (a.proximo || '9') > (b.proximo || '9') ? 1 : 0));
-  const porProc = <TableroCols tareas={base} vacio={<Vacio ic="buscar" chico t="No hay tareas pendientes con este filtro" />} desempate={(a, b) => (a.inicio || '9') < (b.inicio || '9') ? -1 : 1} card={t => pitem(t, claseT(t), prxL.indexOf(t) + 1, true)} />;
+  const ordP = (a, b) => ORD_CLASE[claseT(a)] - ORD_CLASE[claseT(b)] || PRI[a.prioridad] - PRI[b.prioridad] || ((a.inicio || '9') < (b.inicio || '9') ? -1 : 1);
+  const listaP = (l, tit) => <div className="pcol"><h3>{tit} <span className="cnt">{l.length}</span></h3>{l.length === 0 ? <p className="mut">Ninguna.</p> : l.slice().sort(ordP).map(t => pitem(t, claseT(t), prxL.indexOf(t) + 1, true))}</div>;
+  const porProc = <GruposProc hojas={base} vacio={<Vacio ic="buscar" chico t="No hay tareas pendientes con este filtro" />} render={l => <div className="pcols pgp">{listaP(l.filter(t => t.tipo === 'rep'), 'Repuestos')}{listaP(l.filter(t => t.tipo !== 'rep'), 'Proyectos, Post Venta y Taller')}</div>} />;
   const grupos = SECC.map(([k, l, c]) => { const n = deClase(k, 'rep').length + deClase(k, 'proy').length; if (!n && k !== 'pendiente') return null;
     return <GrupoEstado key={k} k={k} l={l} c={c} n={n} plg={plgP} tog={togP} nota={<>{k === 'proximo' && <span className="mut">en el orden en que se marcaron · salen solas al iniciarlas</span>}{k === 'pausa' && <span className="mut">empezadas que no se están haciendo ahora, pausadas o frenadas</span>}</>}>
       {n ? <div className="pcols">{lista(k, 'Repuestos', 'rep')}{lista(k, 'Proyectos, Post Venta y Taller', 'proy')}</div> : <Vacio ic="buscar" chico t="No hay tareas pendientes con este filtro" />}</GrupoEstado>; });
@@ -813,6 +823,10 @@ function FilaMenu({ pos, items, onClose }) {
   </div>, document.body);
 }
 
+// Colores de los grupos de piezas que van juntas (distintos de los de las órdenes)
+const GJ_PAL = ['#2F9E9E', '#C17D11', '#7A6FCB', '#D4589A', '#6A9F2E', '#C9A227'];
+// Alineación (25/11): estas columnas a la izquierda; el resto de los datos centrados en la celda
+const COL_IZQ = new Set(['orden', 'cliente', 'nombre', 'inicio', 'fin', 'ops']);
 const colsDe = tipo => [...(tipo === 'rep' ? [['orden', 'OV/OC', 148], ['cliente', 'Cliente', 160]] : []), ['nombre', 'Pieza', 300], ['cant', 'Cant.', 66], ...(tipo === 'rep' ? [['restan', 'Restan', 84]] : []), ['prioridad', 'Prioridad', 108], ['estado', 'Estado', 118], ['operacion', 'Operación', 130], ['ops', 'Operarios', 150], ['turno', 'Turno', 92], ['hh', 'Duración', 132], ['inicio', 'Inicio', 190], ['fin', 'Fin', 190], ['real', 'HH real', 80], ['tot', 'Hijos plan / real', 160], ['avance', 'Avance %', 86]];
 // Suma de los hijos de un padre (plan y real de todo lo que tiene adentro), sin el trabajo propio del padre
 // ---- Restan (25/11): lo que falta fabricar de un repuesto (entregas parciales) ----
@@ -934,11 +948,26 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden, universo }) {
       '-',
       { ic: '✕', txt: 'Borrar', peligro: true, fn: () => ui.confirmar({ titulo: '¿Borrar esta tarea?', texto: `Se borra "${t.nombre || '(sin nombre)'}"${(V.kids[t.id] || []).length ? ' con todo lo que tiene adentro' : ''}. Podés deshacerlo arriba.`, si: 'Sí, borrar', peligro: true, onSi: () => { up(s => E.delTask(s, t.id)); ui.toast('Borrada. Podés deshacerlo arriba.'); } }) }]; };
   const abrirMenu = (e, t) => { e.stopPropagation(); if (menu && menu.id === t.id) { setMenu(null); return; } const b = e.currentTarget.getBoundingClientRect(); setMenu({ id: t.id, x: b.left, y: b.bottom + 2, top: b.top }); };
+  // Piezas que van juntas (25/11): cada padre de primer nivel con lo que tiene adentro (hijas o partes) es un grupo,
+  // con una barra de color a la izquierda que une sus filas y un fondo suave del mismo color; las partes dicen "parte 2 de 3".
+  const GJ = {}; { let gi = -1, cur = null; rows.forEach(({ t, depth, hasKids }, i) => { if (depth === 0) cur = hasKids ? ++gi : null; if (cur === null) return;
+    const sig = rows[i + 1]; GJ[t.id] = { c: GJ_PAL[cur % GJ_PAL.length], ini: depth === 0, fin: !sig || sig.depth === 0 }; }); }
+  const marcaJunta = t => { if (t.parte && t.parentId) { const ps = (V.kids[t.parentId] || []).filter(x => x.parte); const i = ps.findIndex(x => x.id === t.id);
+      return ps.length > 1 && i >= 0 ? <span className="tjun" title={`Parte ${i + 1} de ${ps.length} de la misma pieza: se suman para las horas, el promedio y el costo`}>{t.corte ? '✂ ' : ''}parte {i + 1} de {ps.length}</span> : null; }
+    if (t.partes) { const n = (V.kids[t.id] || []).filter(x => x.parte).length; return n ? <span className="tjun tjun-p" title="Pieza partida (por una pausa, un cambio de turno o el corte de material): suma sus partes">partida en {n}</span> : null; }
+    return null; };
+  // Flechas de la pieza original a sus partes (26/11): al partirse (pausa, frenada, cambio de turno o corte de material)
+  // una línea baja desde la pieza original y una flecha llega a cada parte; la última cierra la línea.
+  const conector = (t, depth, hasKids) => {
+    if (t.partes && hasKids && !col.has(t.id)) return <i className="tcon-ini" style={{ left: depth * 14 + 8 }} aria-hidden="true" />;
+    const p = t.parte && t.parentId && V.byId[t.parentId]; if (!p || !p.partes || depth < 1) return null;
+    const ps = (V.kids[p.id] || []).filter(x => x.parte), ult = ps[ps.length - 1] === t || !rows.some((x, i) => i > rows.findIndex(y => y.t.id === t.id) && x.t.parentId === p.id);
+    return <i className={'tcon' + (ult ? ' ult' : '')} style={{ left: (depth - 1) * 14 + 8, width: 22 }} aria-hidden="true"><b /></i>; };
   const cell = (k, t, depth, hasKids, r) => {
     switch (k) {
       case 'orden': return !t.parentId ? <EdIn value={t.orden} placeholder="OV-0000" onCommit={v => set(t, { orden: v.trim() })} /> : null;
       case 'cliente': return !t.parentId ? <EdIn value={t.cliente} onCommit={v => set(t, { cliente: v.trim() })} /> : null;
-      case 'nombre': return <div className="tname" style={{ paddingLeft: depth * 14 }}>{hasKids ? <button className="tog" onClick={() => tog(t.id)} aria-label="Desplegar">{col.has(t.id) ? '▸' : '▾'}</button> : <span className="tog" />}<EdIn value={t.nombre} placeholder="(sin nombre)" onCommit={v => set(t, { nombre: v, ...(r.parent ? {} : E.autoCompletar(S, { ...t, nombre: v }, false)) })} /></div>;
+      case 'nombre': return <div className="tname" style={{ paddingLeft: depth * 14 }}>{conector(t, depth, hasKids)}{hasKids ? <button className="tog" onClick={() => tog(t.id)} aria-label="Desplegar">{col.has(t.id) ? '▸' : '▾'}</button> : <span className="tog" />}<EdIn value={t.nombre} placeholder="(sin nombre)" onCommit={v => set(t, { nombre: v, ...(r.parent ? {} : E.autoCompletar(S, { ...t, nombre: v }, false)) })} />{marcaJunta(t)}</div>;
       case 'cant': return <EdIn className="num" type="number" min="0" value={t.cant} onCommit={v => conRest(t) ? aplicarRestan(S, up, ui, t.id, t.restan, { cant: num(v) }) : set(t, { cant: num(v) })} />;
       case 'restan': return r.parent ? <span className="ro num mut" title="Lo que resta se carga en cada pieza hija">—</span> : r.estado === 'terminada' ? <span className="ro num mut" title="Finalizada: no resta nada">0</span> : <EdIn className={'num' + (conRest(t) ? ' rest' : '')} type="number" min="0" value={conRest(t) ? t.restan : ''} placeholder={String(Number(t.cant) || 0)} title="Lo que falta fabricar (entregas parciales). Vacío = toda la cantidad." onCommit={v => aplicarRestan(S, up, ui, t.id, v)} />;
       case 'prioridad': return <select className={'ci p-' + t.prioridad} value={t.prioridad} onChange={e => set(t, { prioridad: e.target.value })} aria-label="Prioridad"><option>alta</option><option>media</option><option>baja</option></select>;
@@ -975,11 +1004,12 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden, universo }) {
       onOk={v => { ponerF(fpop.k, v); setFpop(null); }} onOrden={d => { setFL(p => ({ ...p, s: d ? { k: fpop.k, d } : null })); setFpop(null); }} onClose={() => setFpop(null)} />}
     <div className="scroll xlw"><table className="tt xl" onKeyDown={nav} style={{ width: cols.reduce((a, c) => a + W[c[0]], 0) }}>
     <colgroup>{cols.map(c => <col key={c[0]} style={{ width: W[c[0]] }} />)}</colgroup>
-    <thead><tr>{cols.map((c, i) => <th key={c[0]}>{i === 0 && <input type="checkbox" className="selc" aria-label="Seleccionar todas" checked={todos} onChange={() => setSel(todos ? new Set() : new Set(rows.map(r => r.t.id)))} />}<span>{c[1]}</span>{FILTRABLES.has(c[0]) && <button className={'fbtn' + (FL.f[c[0]] ? ' on' : '') + (so && so.k === c[0] ? ' ord' : '')} title={FL.f[c[0]] ? `Filtrado: ${FL.f[c[0]].length} ${FL.f[c[0]].length === 1 ? 'valor' : 'valores'}. Tocá para cambiarlo.` : 'Filtrar u ordenar esta columna'} aria-label={'Filtrar ' + c[1]} onClick={e => abrirF(e, c)}>{so && so.k === c[0] ? (so.d === 1 ? '↑' : '↓') : ''}{FL.f[c[0]] ? <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12l-4.6 5.4V13l-2.8 1.4V8.4z" /></svg> : '▾'}</button>}<i className="rz" title="Arrastrá para ajustar el ancho. Doble clic para volver al ancho original." onPointerDown={e => resize(e, c[0])} onDoubleClick={() => setW(p => ({ ...p, [c[0]]: c[2] }))} /></th>)}</tr></thead>
+    <thead><tr>{cols.map((c, i) => <th key={c[0]} className={COL_IZQ.has(c[0]) ? undefined : 'cc'}>{i === 0 && <input type="checkbox" className="selc" aria-label="Seleccionar todas" checked={todos} onChange={() => setSel(todos ? new Set() : new Set(rows.map(r => r.t.id)))} />}<span>{c[1]}</span>{FILTRABLES.has(c[0]) && <button className={'fbtn' + (FL.f[c[0]] ? ' on' : '') + (so && so.k === c[0] ? ' ord' : '')} title={FL.f[c[0]] ? `Filtrado: ${FL.f[c[0]].length} ${FL.f[c[0]].length === 1 ? 'valor' : 'valores'}. Tocá para cambiarlo.` : 'Filtrar u ordenar esta columna'} aria-label={'Filtrar ' + c[1]} onClick={e => abrirF(e, c)}>{so && so.k === c[0] ? (so.d === 1 ? '↑' : '↓') : ''}{FL.f[c[0]] ? <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12l-4.6 5.4V13l-2.8 1.4V8.4z" /></svg> : '▾'}</button>}<i className="rz" title="Arrastrá para ajustar el ancho. Doble clic para volver al ancho original." onPointerDown={e => resize(e, c[0])} onDoubleClick={() => setW(p => ({ ...p, [c[0]]: c[2] }))} /></th>)}</tr></thead>
     <tbody>
       {rows.length === 0 && <tr><td colSpan={cols.length} className="mut pad">{activos.length ? <>Ninguna tarea cumple los filtros. <button className="lnk sm" onClick={borrarTodo}>Borrar filtros</button></> : 'No hay tareas para mostrar. Cargá una a mano o importá una planilla.'}</td></tr>}
       {rows.map(({ t, depth, hasKids }) => { const r = V.D[t.id]; const oc = tipo === 'rep' && !t.parentId ? E.chipOf(S, V, t).color : null;
-        return <tr key={t.id} data-id={t.id} className={(hasKids ? 'par ' : '') + (r.parent ? 'grp ' : hasKids ? 'trab ' : '') + (r.estado === 'terminada' ? 'done ' : '') + (esTerc(t) ? 'terc ' : '') + (sel.has(t.id) ? 'selr' : '')}>{cols.map((c, i) => <td key={c[0]} tabIndex={-1} style={i === 0 && oc ? { boxShadow: `inset 3px 0 ${oc}` } : undefined}>{i === 0 ? <div className="c0"><input type="checkbox" className="selc" aria-label="Seleccionar" checked={sel.has(t.id)} onChange={() => togSel(t.id)} /><button className={'fmenu-b' + (menu && menu.id === t.id ? ' on' : '')} title="Acciones: editar, próximo a realizar, agregar hijo, duplicar, borrar…" aria-label="Acciones de la fila" aria-haspopup="menu" onClick={e => abrirMenu(e, t)}>⋮</button>{cell(c[0], t, depth, hasKids, r)}{marcas(t, hasKids, r)}</div> : cell(c[0], t, depth, hasKids, r)}</td>)}</tr>; })}
+        const gj = GJ[t.id];
+        return <tr key={t.id} data-id={t.id} style={gj ? { '--gc': gj.c } : undefined} className={(hasKids ? 'par ' : '') + (r.parent ? 'grp ' : hasKids ? 'trab ' : '') + (gj ? 'gj ' + (gj.ini ? 'gj-i ' : '') + (gj.fin ? 'gj-f ' : '') : '') + (r.estado === 'terminada' ? 'done ' : '') + (esTerc(t) ? 'terc ' : '') + (sel.has(t.id) ? 'selr' : '')}>{cols.map((c, i) => <td key={c[0]} tabIndex={-1} className={COL_IZQ.has(c[0]) ? undefined : 'cc'} style={i === 0 && oc && !gj ? { boxShadow: `inset 3px 0 ${oc}` } : undefined}>{i === 0 ? <div className="c0"><input type="checkbox" className="selc" aria-label="Seleccionar" checked={sel.has(t.id)} onChange={() => togSel(t.id)} /><button className={'fmenu-b' + (menu && menu.id === t.id ? ' on' : '')} title="Acciones: editar, próximo a realizar, agregar hijo, duplicar, borrar…" aria-label="Acciones de la fila" aria-haspopup="menu" onClick={e => abrirMenu(e, t)}>⋮</button>{cell(c[0], t, depth, hasKids, r)}{marcas(t, hasKids, r)}</div> : cell(c[0], t, depth, hasKids, r)}</td>)}</tr>; })}
     </tbody></table></div></>;
 }
 
@@ -1015,7 +1045,7 @@ function OrdChart({ ord, mes }) {
 function Repuestos() {
   const { S, V, ui } = useApp();
   const [mes, setMes] = useState(E.today().slice(0, 7)); const [f, setF] = useState({ e: '', c: '', o: '', p: '', q: '' });
-  const [vp, setVp] = useVistaProc(); const [plg, togG] = usePlegados('rep-grupos', { terminada: true });
+  const [vp, setVp] = useVistaProc(); const [plg, togG, setPlg] = usePlegados('rep-grupos', { terminada: true });
   const roots = S.tareas.filter(t => t.tipo === 'rep' && !t.parentId);
   const ord = {}; roots.forEach(r => { (ord[r.orden || 'S/N'] = ord[r.orden || 'S/N'] || []).push(r); });
   const C = { OV: { p: 0, e: 0, t: 0 }, OC: { p: 0, e: 0, t: 0 } };
@@ -1048,7 +1078,7 @@ function Repuestos() {
       return <PendProc donde={'en las órdenes abiertas' + (f.c || f.o || f.p || q ? ' · con los filtros de abajo, sin el de estado' : '')} ts={ordenes.flatMap(o => o.ts)} ordenes={ordenes} />; })()}
     <section>
       <div className="sec-h"><div className="row">
-        {sel('e', [['activas', 'Sin las finalizadas'], ['pendiente', 'Pendiente'], ['proximo', 'Próximo a realizar'], ['en proceso', 'En proceso'], ['terminada', 'Finalizada']], 'Todo estado')}<button className="btn sm" onClick={() => { const todos = ['curso', 'pausa', 'proximo', 'pendiente', 'terminada'].every(k => plg[k]); const n = Object.fromEntries(['curso', 'pausa', 'proximo', 'pendiente', 'terminada'].map(k => [k, !todos])); setPlg(n); guardaG('rep-grupos', n); }}>{['curso', 'pausa', 'proximo', 'pendiente', 'terminada'].every(k => plg[k]) ? 'Abrir grupos' : 'Cerrar grupos'}</button>
+        {sel('e', [['activas', 'Sin las finalizadas'], ['pendiente', 'Pendiente'], ['proximo', 'Próximo a realizar'], ['en proceso', 'En proceso'], ['terminada', 'Finalizada']], 'Todo estado')}<button className="btn sm" onClick={() => { const todos = ['curso', 'pausa', 'proximo', 'pendiente', 'terminada'].every(k => plg[k]); const n = Object.fromEntries(['curso', 'pausa', 'proximo', 'pendiente', 'terminada'].map(k => [k, !todos])); setPlg(n); }}>{['curso', 'pausa', 'proximo', 'pendiente', 'terminada'].every(k => plg[k]) ? 'Abrir grupos' : 'Cerrar grupos'}</button>
         {sel('c', clientes.map(c => [c, c]), 'Todo cliente')}
         {sel('o', S.operarios.map(o => [o.id, o.nombre]), 'Todo operario')}
         <input id="rf-q" type="search" placeholder="Buscar OV, pieza o cliente" value={f.q} onChange={e => setF({ ...f, q: e.target.value })} />
@@ -1063,7 +1093,7 @@ function Repuestos() {
             const grupo = r => { const e = V.D[r.id].estado; return e === 'terminada' ? 'terminada' : e === 'pendiente' || e === 'proximo' ? (prx(r.id) ? 'proximo' : 'pendiente') : corre(r.id) ? 'curso' : 'pausa'; };
             const G = [...SECC, ['terminada', 'Finalizadas', 'var(--ok)']];
             const ord_ = roots.slice().sort((a, b) => PRI[a.prioridad] - PRI[b.prioridad]);
-            return G.map(([k, l, c]) => { if (vp === 'proceso' && k !== 'terminada') return k === 'curso' ? <TableroProc key="tab" roots={ord_.filter(r => grupo(r) !== 'terminada')} vis={vis} /> : null; const rs = ord_.filter(r => grupo(r) === k && vis(r)); if (!rs.length && k !== 'curso') return null;
+            return G.map(([k, l, c]) => { if (vp === 'proceso' && k !== 'terminada') return k === 'curso' ? <TableroProc key="tab" roots={ord_.filter(r => grupo(r) !== 'terminada')} vis={vis} tabla={(rs, v) => <TaskTable roots={rs} tipo="rep" vis={v} universo={ord_} />} /> : null; const rs = ord_.filter(r => grupo(r) === k && vis(r)); if (!rs.length && k !== 'curso') return null;
               return <GrupoEstado key={k} k={k} l={l} c={c} n={rs.length} plg={plg} tog={togG} nota={<>{k === 'pausa' && <span className="mut">empezadas que no se están haciendo ahora</span>}{k === 'proximo' && <span className="mut">órdenes con piezas marcadas para hacer primero</span>}</>}>
                 {rs.length ? <TaskTable roots={rs} tipo="rep" vis={vis} universo={ord_} /> : <p className="mut pad">Ningún repuesto en curso en este momento.</p>}</GrupoEstado>; }); })()}
     </section>
@@ -1351,17 +1381,10 @@ function VistaSel({ v, set }) {
     <button className={'btn sm' + (v === 'proceso' ? ' on' : '')} aria-pressed={v === 'proceso'} onClick={() => set('proceso')} title="Una columna por operación">Por proceso</button>
   </div>;
 }
-function TableroProc({ roots, vis }) {
-  const { V, ui, S } = useApp();
-  const COL = Object.fromEntries(SECC.map(x => [x[0], x[2]])), LBL = Object.fromEntries(SECC.map(x => [x[0], x[1]]));
-  const card = t => { const c = claseT(t), r = V.rootOf(t), ens = t.parentId && V.byId[t.parentId]; return <button key={t.id} className={'tabp-t k-' + c} style={{ '--c': COL[c] }} title="Abrir la pieza" onClick={() => ui.modal({ k: 'task', id: t.id })}>
-    <span className="tabp-r"><Chip t={t} small /><Pri p={t.prioridad} /></span>
-    <span className="tabp-e"><i>{c === 'curso' ? '● ' : c === 'proximo' ? '⏭ ' : ''}{LBL[c]}</i></span>
-    <b>{t.nombre}</b>
-    <span className="mut">{ens && ens.id !== r.id && !ens.partes ? ens.nombre + ' · ' : ''}{r.orden || r.nombre} · cant. {cantTxt(t)} · {fH(t.hh)}</span>
-    <span className="mut">{t.ops.length ? t.ops.map(o => opName(S, o)).join(', ') : 'sin operario'}</span>
-  </button>; };
-  return <TableroCols tareas={hojasActivas(V, roots, vis)} card={card} vacio={<Vacio ic="ok" chico t="No hay piezas pendientes ni en proceso" />} />;
+function TableroProc({ roots, vis, tabla }) {
+  const { V } = useApp();
+  return <GruposProc hojas={hojasActivas(V, roots, vis)} vacio={<Vacio ic="ok" chico t="No hay piezas pendientes ni en proceso" />}
+    render={l => { const v = visEn(V, new Set(l.map(t => t.id)), vis); return tabla(roots.filter(v), v); }} />;
 }
 
 /* Pendientes por proceso: por operación, piezas (tipos de pieza, sin mirar la cantidad) sin finalizar sobre el total, con el color de cada estado.
@@ -1380,9 +1403,10 @@ const ppHoja = (V, t) => {
 const ppTipoOrd = o => { const x = String(o || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); return x.startsWith('OV') ? 'OV' : x.startsWith('OC') ? 'OC' : 'otra'; };
 
 function PendProc({ ts, donde, ordenes }) {
-  const { S, V } = useApp(); const [ab, setAb] = useState(() => prefG('pend-proc', true)); const tog = () => { setAb(!ab); guardaG('pend-proc', !ab); };
+  const { S, V, ui } = useApp(); const [ab, setAb] = useState(() => prefG('pend-proc', true)); const tog = () => { setAb(!ab); guardaG('pend-proc', !ab); };
   const [modo, setModo_] = useState(() => prefG('pend-proc-modo', 'piezas')); const setModo = m => { setModo_(m); guardaG('pend-proc-modo', m); };
   const ovoc = !!ordenes && modo === 'ovoc';
+  const [ver, setVer_] = useState(null);   // lista abierta debajo de los anillos: { q: 'piezas' | 'OV' | 'OC' | 'otra', op: id o null }
   const K = ['curso', 'pausa', 'proximo', 'pendiente'];
   const COL = Object.fromEntries(SECC.map(x => [x[0], x[2]])), LBL = Object.fromEntries(SECC.map(x => [x[0], x[1]]));
   const opOk = id => id && S.operaciones.some(o => o.id === id) ? id : '_';
@@ -1403,38 +1427,66 @@ function PendProc({ ts, donde, ordenes }) {
   const opIx = id => { const i = S.operaciones.findIndex(o => o.id === id); return i < 0 ? 999 : i; };
   const colOp = id => id === '_' ? 'var(--mut)' : PP_PAL[opIx(id) % PP_PAL.length];
   const nomOp = id => id === '_' ? 'Sin operación' : (S.operaciones.find(o => o.id === id) || {}).nombre || 'Sin operación';
+  /* Anillos (25/11): tocar el centro o el título muestra abajo la lista completa; tocar un color (o su fila de la leyenda) muestra solo las de ese proceso. */
+  const setVer = (q, op) => setVer_(v => v && v.q === q && v.op === op ? null : { q, op });
+  const anillo = ({ q, nombre, sub, centro, centroSub, cnt, lista }) => { const N = Object.values(cnt).reduce((a, n) => a + n, 0); if (!N) return null;
+    const segs = Object.keys(cnt).sort((a, b) => opIx(a) - opIx(b)), R = 46, L = 2 * Math.PI * R; let acc = 0;
+    const on = ver && ver.q === q, opSel = on ? ver.op : null;
+    return <div key={q} className={'pproc-a' + (on ? ' on' : '')}>
+      <button className="pproc-at" onClick={() => setVer(q, null)} aria-pressed={on && !opSel} title="Ver la lista completa abajo"><b>{nombre}</b><span className="mut">{sub}</span></button>
+      <div className="pproc-ac">
+        <svg viewBox="0 0 120 120" width="132" height="132" role="img" aria-label={`${nombre}: ${segs.map(k => `${nomOp(k)} ${cnt[k]}`).join(', ')}`}>
+          <circle cx="60" cy="60" r={R} fill="none" stroke="var(--line)" strokeWidth="16" />
+          {segs.map(k => { const f = cnt[k] / N * L, el = <circle key={k} className={'pproc-seg' + (opSel && opSel !== k ? ' apag' : '')} cx="60" cy="60" r={R} fill="none" stroke={colOp(k)} strokeWidth={opSel === k ? 20 : 16} strokeDasharray={`${Math.max(0, f - (segs.length > 1 ? 1.5 : 0))} ${L}`} strokeDashoffset={-acc} transform="rotate(-90 60 60)" onClick={() => setVer(q, k)}><title>{`${nomOp(k)}: ${cnt[k]}${lista && lista[k] ? ' — ' + lista[k].join(', ') : ''} · tocá para ver la lista`}</title></circle>; acc += f; return el; })}
+          <circle className="pproc-cen" cx="60" cy="60" r="36" onClick={() => setVer(q, null)}><title>Ver la lista completa abajo</title></circle>
+          <text x="60" y="58" textAnchor="middle" className="pproc-an">{fN(centro)}</text><text x="60" y="75" textAnchor="middle" className="pproc-as">{centroSub}</text>
+        </svg>
+        <ul className="pproc-al">{segs.map(k => <li key={k}><button className={opSel === k ? 'on' : ''} onClick={() => setVer(q, k)} title={lista && lista[k] ? lista[k].join(', ') : 'Ver la lista abajo'}><i style={{ background: colOp(k) }} /><span>{nomOp(k)}</span><b>{fN(cnt[k])}</b><span className="mut">{Math.round(cnt[k] / N * 100)}%</span></button></li>)}</ul>
+      </div>
+    </div>; };
+  // Cada orden abierta, con el proceso en el que está ahora y sus datos para la lista
+  const ordAb = () => (ordenes || []).map(o => { const hs = o.ts.map(t => ({ t, h: ppHoja(V, t) })).filter(x => x.h), ab = hs.filter(x => x.h.k !== 'terminada');
+    if (!ab.length) return null;
+    ab.sort((a, b) => PP_ORD[a.h.k] - PP_ORD[b.h.k] || opIx(opOk(a.t.operacionId)) - opIx(opOk(b.t.operacionId)));
+    const rs = o.ts.filter(t => !t.parentId), fin = rs.map(r => V.D[r.id] && V.D[r.id].fin).filter(Boolean).sort().pop(), ent = rs.map(r => r.entrega).filter(Boolean).sort()[0];
+    return { o, tp: ppTipoOrd(o.orden), op: opOk(ab[0].t.operacionId), k: ab[0].h.k, cab: V.rootOf(ab[0].t), cliente: (rs.find(r => r.cliente) || {}).cliente, n: hs.length, nAb: ab.length, hh: ab.reduce((a, x) => a + x.h.hh, 0), fin, ent }; }).filter(Boolean);
+  // Piezas sin finalizar (una pieza hecha en partes cuenta una vez)
+  const pzAb = () => ts.map(t => ({ t, h: ppHoja(V, t) })).filter(x => x.h && x.h.k !== 'terminada');
+  const estTag = k => <span className="pproc-est" style={{ '--c': COL[k] }}>{LBL[k]}</span>;
+  const listaVer = pz => { if (!ver || (ver.q === 'piezas') !== pz) return null; const { q, op } = ver; const tit = (op ? nomOp(op) + ' · ' : '') + (q === 'piezas' ? 'piezas sin finalizar' : (q === 'otra' ? 'otras órdenes' : q) + ' abiertas');
+    const cerrar = <button className="btn sm" onClick={() => setVer_(null)}>Cerrar lista</button>;
+    if (q === 'piezas') { const l = pzAb().filter(x => !op || opOk(x.t.operacionId) === op).sort((a, b) => PP_ORD[a.h.k] - PP_ORD[b.h.k] || PRI[a.t.prioridad] - PRI[b.t.prioridad] || ((a.t.inicio || '9') < (b.t.inicio || '9') ? -1 : 1));
+      return <div className="pproc-lst"><div className="sec-h"><b>{tit} <span className="cnt">{l.length}</span></b><span className="mut">tocá una fila para abrir la pieza</span>{cerrar}</div>
+        <div className="scroll"><table className="tt pproc-tt"><thead><tr><th>OV/OC</th><th>Cliente</th><th>Pieza</th><th className="cc">Cant.</th><th className="cc">Estado</th><th className="cc">Operación</th><th>Operarios</th><th className="cc">Duración</th><th>Inicio</th></tr></thead>
+          <tbody>{l.map(({ t, h }) => { const r = V.rootOf(t); return <tr key={t.id} className="clk" tabIndex={0} onClick={() => ui.modal({ k: 'task', id: t.id })} onKeyDown={e => { if (e.key === 'Enter') ui.modal({ k: 'task', id: t.id }); }}>
+            <td>{r.orden || '—'}</td><td>{r.cliente || '—'}</td><td>{t.nombre}</td><td className="cc">{cantTxt(t)}</td><td className="cc">{estTag(h.k)}</td><td className="cc">{nomOp(opOk(t.operacionId))}</td><td>{t.ops.length ? t.ops.map(o => opName(S, o)).join(', ') : <span className="mut">sin asignar</span>}</td><td className="cc">{fH(h.hh)}</td><td>{fDT(t.inicio)}</td></tr>; })}</tbody></table></div></div>; }
+    const l = ordAb().filter(x => x.tp === q && (!op || x.op === op)).sort((a, b) => PP_ORD[a.k] - PP_ORD[b.k] || String(a.o.orden).localeCompare(String(b.o.orden), 'es', { numeric: true }));
+    return <div className="pproc-lst"><div className="sec-h"><b>{tit} <span className="cnt">{l.length}</span></b><span className="mut">tocá una fila para abrir la orden</span>{cerrar}</div>
+      <div className="scroll"><table className="tt pproc-tt"><thead><tr><th>OV/OC</th><th>Cliente</th><th className="cc">Piezas abiertas</th><th className="cc">Proceso actual</th><th className="cc">Estado</th><th className="cc">HH pendientes</th><th className="cc">Entrega</th><th>Fin previsto</th></tr></thead>
+        <tbody>{l.map(x => <tr key={x.cab.id + x.o.orden} className="clk" tabIndex={0} onClick={() => ui.modal({ k: 'task', id: x.cab.id })} onKeyDown={e => { if (e.key === 'Enter') ui.modal({ k: 'task', id: x.cab.id }); }}>
+          <td><b>{x.o.orden || '(sin número)'}</b></td><td>{x.cliente || '—'}</td><td className="cc">{fN(x.nAb)} de {fN(x.n)}</td><td className="cc"><i className="pproc-dot" style={{ background: colOp(x.op) }} />{nomOp(x.op)}</td><td className="cc">{estTag(x.k)}</td><td className="cc">{fH(x.hh)}</td>
+          <td className={'cc' + (x.ent && x.fin && x.fin.slice(0, 10) > x.ent ? ' c-bad' : '')}>{x.ent ? fD(x.ent) : '—'}</td><td>{x.fin ? fDT(x.fin) : '—'}</td></tr>)}</tbody></table></div></div>; };
   const anillos = () => {
-    const tipos = { OV: {}, OC: {}, otra: {} }, n = { OV: 0, OC: 0, otra: 0 }, lista = { OV: {}, OC: {}, otra: {} };
-    ordenes.forEach(o => { const hs = o.ts.map(t => ({ t, h: ppHoja(V, t) })).filter(x => x.h && x.h.k !== 'terminada');
-      if (!hs.length) return;
-      hs.sort((a, b) => PP_ORD[a.h.k] - PP_ORD[b.h.k] || opIx(opOk(a.t.operacionId)) - opIx(opOk(b.t.operacionId)));
-      const op = opOk(hs[0].t.operacionId), tp = ppTipoOrd(o.orden);
-      n[tp]++; tipos[tp][op] = (tipos[tp][op] || 0) + 1; (lista[tp][op] = lista[tp][op] || []).push(o.orden || '(sin número)'); });
-    const anillo = tp => { const N = n[tp]; if (!N) return null;
-      const segs = Object.keys(tipos[tp]).sort((a, b) => opIx(a) - opIx(b)), R = 46, L = 2 * Math.PI * R; let acc = 0;
-      const nombre = tp === 'otra' ? 'Otras órdenes' : tp;
-      return <div key={tp} className="pproc-a">
-        <div className="pproc-at"><b>{nombre} abiertas</b><span className="mut">{fN(N)} {N === 1 ? 'orden' : 'órdenes'} con piezas sin finalizar</span></div>
-        <div className="pproc-ac">
-          <svg viewBox="0 0 120 120" width="132" height="132" role="img" aria-label={`${nombre}: ${segs.map(k => `${nomOp(k)} ${tipos[tp][k]}`).join(', ')}`}>
-            <circle cx="60" cy="60" r={R} fill="none" stroke="var(--line)" strokeWidth="16" />
-            {segs.map(k => { const f = tipos[tp][k] / N * L, el = <circle key={k} cx="60" cy="60" r={R} fill="none" stroke={colOp(k)} strokeWidth="16" strokeDasharray={`${Math.max(0, f - (segs.length > 1 ? 1.5 : 0))} ${L}`} strokeDashoffset={-acc} transform="rotate(-90 60 60)"><title>{`${nomOp(k)}: ${tipos[tp][k]} — ${lista[tp][k].join(', ')}`}</title></circle>; acc += f; return el; })}
-            <text x="60" y="58" textAnchor="middle" className="pproc-an">{fN(N)}</text><text x="60" y="75" textAnchor="middle" className="pproc-as">{tp === 'otra' ? 'abiertas' : tp + ' abiertas'}</text>
-          </svg>
-          <ul className="pproc-al">{segs.map(k => <li key={k} title={lista[tp][k].join(', ')}><i style={{ background: colOp(k) }} /><span>{nomOp(k)}</span><b>{fN(tipos[tp][k])}</b><span className="mut">{Math.round(tipos[tp][k] / N * 100)}%</span></li>)}</ul>
-        </div>
-      </div>; };
-    const hay = ['OV', 'OC', 'otra'].filter(tp => n[tp]);
-    return hay.length ? <><div className="pproc-ag">{hay.map(anillo)}</div>
-      <p className="legend">Cada orden cuenta una vez, en el proceso en el que está ahora: el de una pieza en proceso; si no hay, en pausa; si no, próxima a realizar; si no, el primer proceso que tiene pendiente (orden de Configuración → Operaciones). Al pasar el mouse se ven los números de orden.{n.otra ? ' "Otras órdenes" son las que no empiezan con OV ni OC.' : ''}</p></>
+    const os = ordAb(), cnt = { OV: {}, OC: {}, otra: {} }, lista = { OV: {}, OC: {}, otra: {} };
+    os.forEach(x => { cnt[x.tp][x.op] = (cnt[x.tp][x.op] || 0) + 1; (lista[x.tp][x.op] = lista[x.tp][x.op] || []).push(x.o.orden || '(sin número)'); });
+    const hay = ['OV', 'OC', 'otra'].filter(tp => Object.keys(cnt[tp]).length);
+    return hay.length ? <><div className="pproc-ag">{hay.map(tp => { const N = Object.values(cnt[tp]).reduce((a, n) => a + n, 0), nombre = tp === 'otra' ? 'Otras órdenes' : tp;
+        return anillo({ q: tp, nombre: nombre + ' abiertas', sub: `${fN(N)} ${N === 1 ? 'orden' : 'órdenes'} con piezas sin finalizar`, centro: N, centroSub: tp === 'otra' ? 'abiertas' : tp + ' abiertas', cnt: cnt[tp], lista: lista[tp] }); })}</div>
+      {listaVer(false)}
+      <p className="legend">Cada orden cuenta una vez, en el proceso en el que está ahora: el de una pieza en proceso; si no hay, en pausa; si no, próxima a realizar; si no, el primer proceso que tiene pendiente (orden de Configuración → Operaciones). Tocá el centro para ver todas las órdenes abajo, o un color para ver solo las de ese proceso.{os.some(x => x.tp === 'otra') ? ' "Otras órdenes" son las que no empiezan con OV ni OC.' : ''}</p></>
       : <p className="mut">No hay órdenes abiertas.</p>;
   };
+  const anilloPz = () => { const pz = pzAb(), cnt = {}; pz.forEach(x => { const k = opOk(x.t.operacionId); cnt[k] = (cnt[k] || 0) + 1; });
+    return pz.length ? <><div className="pproc-ag">{anillo({ q: 'piezas', nombre: 'Piezas sin finalizar', sub: `${fN(pz.length)} de ${fN(tot.n)} ${tot.n === 1 ? 'pieza' : 'piezas'} · ${fH(pz.reduce((a, x) => a + x.h.hh, 0))} plan`, centro: pz.length, centroSub: 'sin finalizar', cnt })}</div>
+      {listaVer(true)}
+      <p className="legend">Cada pieza cuenta una vez (sin importar la cantidad), en su operación. Tocá el centro para ver todas las piezas abajo, o un color para ver solo las de ese proceso.</p></>
+      : <p className="mut">No hay piezas sin finalizar.</p>; };
   const totOrd = ordenes ? ordenes.filter(o => o.ts.some(t => { const h = ppHoja(V, t); return h && h.k !== 'terminada'; })).length : 0;
   return <section className="pproc">
     <div className="sec-h"><button className="dgrp-t" onClick={tog} aria-expanded={ab}><span className="car">{ab ? '▾' : '▸'}</span><b>Pendientes por proceso</b></button>
       {ordenes && <div className="vsel" role="group" aria-label="Qué contar"><button className={'btn sm' + (!ovoc ? ' on' : '')} aria-pressed={!ovoc} onClick={() => setModo('piezas')}>Piezas</button><button className={'btn sm' + (ovoc ? ' on' : '')} aria-pressed={ovoc} onClick={() => setModo('ovoc')}>OV/OC</button></div>}
       <span className="mut">{ovoc ? `${fN(totOrd)} ${totOrd === 1 ? 'orden abierta' : 'órdenes abiertas'}${donde.replace(/^en las órdenes abiertas/, '')}` : `${fN(pend(tot))} de ${fN(tot.n)} piezas sin finalizar ${donde}`}</span></div>
-    {ab && (ovoc ? anillos() : <><div className="pproc-g">{cols.map(([k, nom]) => fila(nom, g[k]))}{cols.length > 1 && fila('Total', tot, true)}</div>
+    {ab && (ovoc ? anillos() : ordenes ? anilloPz() : <><div className="pproc-g">{cols.map(([k, nom]) => fila(nom, g[k]))}{cols.length > 1 && fila('Total', tot, true)}</div>
       <p className="legend pproc-ley">{K.map(k => <span key={k}><i style={{ background: COL[k] }} />{LBL[k]}</span>)}<span><i className="fin" />Finalizadas</span> · la barra completa es el total de piezas de cada proceso (cada pieza cuenta una vez, sin importar la cantidad)</p></>)}
   </section>;
 }
@@ -1552,7 +1604,7 @@ function Proyectos({ pv = false, tl = false }) {
         {altoG !== 'oculto' && <span className="mut legend"><i className="lg t" />hoy <i className="lg d" />entrega</span>}</div>
       {altoG === 'oculto' ? <p className="mut">Oculto ({rows.length} {rows.length === 1 ? 'fila' : 'filas'}). Elegí Compacto o Completo para verlo.</p>
         : <Gantt rows={rows} ts={i.ts} entrega={p.entrega} color={p.color} collapsed={colV} toggle={tog} alto={altoG} todo={c => setCol(c ? new Set(i.ts.filter(t => (V.kids[t.id] || []).length).map(t => t.id)) : new Set())} />}</section>;
-  const tablas = <><section><div className="sec-h"><h2>Pendientes y en proceso <span className="cnt">{nAct}</span></h2><VistaSel v={vp} set={setVp} /><span className="mut">{vp === 'proceso' ? 'Tocá una pieza para abrirla' : 'Mayús + Espacio (Shift + Space) marca la fila · en la casilla alcanza con Espacio'}</span></div>{vp === 'proceso' ? <TableroProc roots={roots} vis={visAct} /> : <SeccEstado roots={roots} vis={visAct} tabla={v => <TaskTable roots={roots} tipo="proy" vis={v} collapsed={colV} toggle={tog} orden={ord} />} />}</section>
+  const tablas = <><section><div className="sec-h"><h2>Pendientes y en proceso <span className="cnt">{nAct}</span></h2><VistaSel v={vp} set={setVp} /><span className="mut">Mayús + Espacio (Shift + Space) marca la fila · en la casilla alcanza con Espacio</span></div>{vp === 'proceso' ? <TableroProc roots={roots} vis={visAct} tabla={(rs, v) => <TaskTable roots={rs} tipo="proy" vis={v} collapsed={colV} toggle={tog} orden={ord} />} /> : <SeccEstado roots={roots} vis={visAct} tabla={v => <TaskTable roots={roots} tipo="proy" vis={v} collapsed={colV} toggle={tog} orden={ord} />} />}</section>
     <section className="finsec"><div className="sec-h"><button className="dgrp-t fin-t" onClick={() => { setVerFin(!verFin); guardaG('verfin', !verFin); }}><span className="car">{verFin ? '▾' : '▸'}</span><h2>Finalizadas <span className="cnt ok">{nFin}</span></h2></button></div>
       {verFin && (nFin ? <TaskTable roots={roots} tipo="proy" vis={visFin} collapsed={colV} toggle={tog} orden={ord} /> : <Vacio ic="reloj" chico t="Todavía no hay piezas finalizadas en este proyecto" />)}</section></>;
   const kpis = <div className="kpis">
@@ -1614,7 +1666,7 @@ function Proyectos({ pv = false, tl = false }) {
         : <Gantt rows={rows} ts={i.ts} entrega={p.entrega} color={p.color} collapsed={colV} toggle={tog} alto={altoG} todo={c => setCol(c ? new Set(i.ts.filter(t => (V.kids[t.id] || []).length).map(t => t.id)) : new Set())} />}</section>
     {pv && <SalidasPV p={p} />}{pv && <RegistroPV ts={i.ts} />}
         <PendProc donde={(caso ? 'en este caso' : 'en este proyecto') + (qn ? ' · con la búsqueda' : '')} ts={visQ ? i.ts.filter(visQ) : i.ts} />
-        <section><div className="sec-h"><h2>Pendientes y en proceso <span className="cnt">{nAct}</span></h2><VistaSel v={vp} set={setVp} /><span className="mut">{vp === 'proceso' ? 'Tocá una pieza para abrirla' : 'Mayús + Espacio (Shift + Space) marca la fila · en la casilla alcanza con Espacio'}</span></div>{vp === 'proceso' ? <TableroProc roots={roots} vis={visAct} /> : <SeccEstado roots={roots} vis={visAct} tabla={v => <TaskTable roots={roots} tipo="proy" vis={v} collapsed={colV} toggle={tog} orden={ord} />} />}</section>
+        <section><div className="sec-h"><h2>Pendientes y en proceso <span className="cnt">{nAct}</span></h2><VistaSel v={vp} set={setVp} /><span className="mut">Mayús + Espacio (Shift + Space) marca la fila · en la casilla alcanza con Espacio</span></div>{vp === 'proceso' ? <TableroProc roots={roots} vis={visAct} tabla={(rs, v) => <TaskTable roots={rs} tipo="proy" vis={v} collapsed={colV} toggle={tog} orden={ord} />} /> : <SeccEstado roots={roots} vis={visAct} tabla={v => <TaskTable roots={roots} tipo="proy" vis={v} collapsed={colV} toggle={tog} orden={ord} />} />}</section>
     <section className="finsec"><div className="sec-h"><button className="dgrp-t fin-t" onClick={() => { setVerFin(!verFin); guardaG('verfin', !verFin); }}><span className="car">{verFin ? '▾' : '▸'}</span><h2>Finalizadas <span className="cnt ok">{nFin}</span></h2></button></div>
       {verFin && (nFin ? <TaskTable roots={roots} tipo="proy" vis={visFin} collapsed={colV} toggle={tog} orden={ord} /> : <Vacio ic="reloj" chico t="Todavía no hay piezas finalizadas en este proyecto" />)}</section>
   </div>;

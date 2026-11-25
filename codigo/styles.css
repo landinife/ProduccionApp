@@ -1344,32 +1344,18 @@ select.ci.est.e-proximo { background: transparent; }
   .est-ohr { grid-template-columns: minmax(0, 1fr) auto; } .est-ohb { grid-column: 1 / -1; order: 3; }
 }
 
-/* Vista por proceso (tablero): una columna por operación */
+/* Vista por proceso: selector Por estado / Por proceso y etiqueta de estado de las tarjetas */
 .vsel { display: inline-flex; gap: 0; } .vsel .btn { border-radius: 0; } .vsel .btn:first-child { border-radius: 8px 0 0 8px; } .vsel .btn:last-child { border-radius: 0 8px 8px 0; margin-left: -1px; }
 .vsel .btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
-.tabp { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; align-items: start; }
-.tabp-c { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; min-width: 0; }
-.tabp-h { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; } .tabp-h b { font: 600 16px var(--f-d); letter-spacing: .05em; text-transform: uppercase; flex: 1; min-width: 0; }
-.tabp-t { display: flex; flex-direction: column; gap: 3px; width: 100%; text-align: left; background: var(--panel2); color: var(--ink); border: 1px solid var(--line); border-left: 3px solid var(--c, var(--mut)); border-radius: 8px; padding: 8px 10px; margin: 0 0 8px; cursor: pointer; font: inherit; }
-.tabp-t:hover { border-color: var(--c, var(--accent)); } .tabp-t:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.tabp-t b { font-weight: 600; overflow-wrap: anywhere; } .tabp-t .mut { font-size: 12px; }
-.tabp-r { display: flex; align-items: center; justify-content: space-between; gap: 6px; } .tabp-r .chip { flex: 0 1 auto; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tabp-e { font: 600 11px var(--f-d); letter-spacing: .06em; text-transform: uppercase; color: var(--c); } .tabp-e i { font-style: normal; }
 
-.tabp-t.k-curso, .tabp-t.k-proximo { background: color-mix(in srgb, var(--c) 16%, var(--panel2)); border-color: var(--c); border-left-width: 6px; }
-.tabp-t.k-curso .tabp-e i, .tabp-t.k-proximo .tabp-e i { background: var(--c); color: #fff; padding: 2px 8px; border-radius: 999px; }
-.tabp-t.k-curso .tabp-e i { animation: tabpl 1.6s ease-in-out infinite; }
-@keyframes tabpl { 50% { opacity: .65; } } @media (prefers-reduced-motion: reduce) { .tabp-t.k-curso .tabp-e i { animation: none; } }
+@keyframes tabpl { 50% { opacity: .65; } } @media (prefers-reduced-motion: reduce) { .pgp .pitem.crs .tabp-e i { animation: none; } }
 /* Producción, vista por proceso: mismas tarjetas de siempre, con En proceso y Próximo a realizar resaltadas */
-.tabp-c .pitem { margin-bottom: 6px; } .tabp-c .pitem .tabp-e { margin-right: 6px; }
-.tabp-c .pitem.crs { border-color: var(--accent); border-left-width: 5px; background: color-mix(in srgb, var(--accent) 16%, var(--panel2)); }
-.tabp-c .pitem.prx { border-color: var(--prox); border-left-width: 5px; background: color-mix(in srgb, var(--prox) 16%, var(--panel2)); }
-.tabp-c .pitem.crs .tabp-e i, .tabp-c .pitem.prx .tabp-e i { background: var(--c); color: #fff; padding: 2px 8px; border-radius: 999px; }
-.tabp-c .pitem.crs .tabp-e i { animation: tabpl 1.6s ease-in-out infinite; } @media (prefers-reduced-motion: reduce) { .tabp-c .pitem.crs .tabp-e i { animation: none; } }
-.tabp-c .pitem .pn { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; min-width: 0; }
-.tabp-c .pitem { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
-.tabp-c .pitem > .chip, .tabp-c .pitem > .proxn { order: 0; } .tabp-c .pitem > .pri { order: 1; margin-left: auto; }
-.tabp-c .pitem > .pn { order: 2; flex: 1 1 100%; } .tabp-c .pitem > .mut { order: 3; flex: 1 1 100%; } .tabp-c .pitem > .sug { order: 4; flex: 1 1 100%; } .tabp-c .pitem > .btn { order: 5; }
+.pgp .pitem { margin-bottom: 6px; } .pgp .pitem .tabp-e { margin-right: 6px; }
+.pgp .pitem.crs { border-color: var(--accent); border-left-width: 5px; background: color-mix(in srgb, var(--accent) 16%, var(--panel2)); }
+.pgp .pitem.prx { border-color: var(--prox); border-left-width: 5px; background: color-mix(in srgb, var(--prox) 16%, var(--panel2)); }
+.pgp .pitem.crs .tabp-e i, .pgp .pitem.prx .tabp-e i { background: var(--c); color: #fff; padding: 2px 8px; border-radius: 999px; }
+.pgp .pitem.crs .tabp-e i { animation: tabpl 1.6s ease-in-out infinite; } @media (prefers-reduced-motion: reduce) { .pgp .pitem.crs .tabp-e i { animation: none; } }
 
 /* Pendientes por proceso (barras: unidades sin finalizar sobre el total de cada operación) */
 .pproc .sec-h .dgrp-t { flex: 0 1 auto; }
@@ -1534,3 +1520,48 @@ select.ci.est.e-proximo { background: transparent; }
 .fambase label { display: inline-flex; align-items: center; gap: 6px; }
 .fambase input { width: 80px; padding: 3px 6px; }
 .fichad-un input { max-width: 140px; }
+
+/* ================= Tablas de tareas: alineación y piezas que van juntas (25/11) ================= */
+/* Centrados todos los datos menos OV/OC, Cliente, Pieza, Inicio, Fin y Operarios (clase cc en th y td) */
+.tt.xl th.cc { text-align: center; }
+.tt.xl td.cc, .tt.xl td.cc .ci, .tt.xl td.cc .ci.num, .tt.xl td.cc .ro { text-align: center; text-align-last: center; }
+.tt.xl td.cc .hhc { justify-content: center; }
+.tt.xl td.cc span.est { display: inline-block; }
+/* Grupo: un padre de primer nivel con sus hijas o sus partes. Barra de color que une las filas + fondo suave del mismo color */
+.tt.xl tbody tr.gj td, .tt.xl tbody tr.gj td:first-child { background: color-mix(in srgb, var(--gc) 11%, var(--panel)); }
+.tt.xl tbody tr.gj.par td, .tt.xl tbody tr.gj.par td:first-child { background: color-mix(in srgb, var(--gc) 22%, var(--panel)); }
+.tt.xl tbody tr.gj td:first-child { box-shadow: inset 6px 0 var(--gc); }
+.tt.xl tbody tr.gj-i td { border-top: 2px solid color-mix(in srgb, var(--gc) 70%, var(--line)); }
+.tt.xl tbody tr.gj-f td { border-bottom: 2px solid color-mix(in srgb, var(--gc) 70%, var(--line)); }
+.tt.xl tbody tr.gj:hover td, .tt.xl tbody tr.gj:hover td:first-child { background: color-mix(in srgb, var(--gc) 20%, var(--panel)); }
+.tt.xl tbody tr.gj:focus-within td, .tt.xl tbody tr.gj:focus-within td:first-child { background: color-mix(in srgb, var(--accent) 20%, var(--panel)); }
+.tt.xl tbody tr.gj.done td { color: var(--mut); }
+.tjun { flex: none; margin-left: 4px; padding: 1px 7px; border-radius: 20px; font-size: 11px; white-space: nowrap; color: var(--ink); border: 1px solid var(--gc, var(--line)); background: color-mix(in srgb, var(--gc, var(--mut)) 22%, transparent); }
+.tjun.tjun-p { border-style: dashed; }
+/* Anillos de Pendientes por proceso que se tocan (25/11): el centro, el título o un color abren la lista de abajo */
+button.pproc-at { background: none; border: 0; padding: 2px 4px; margin-left: -4px; color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: 6px; }
+button.pproc-at:hover, button.pproc-at[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.pproc-seg { cursor: pointer; transition: opacity .15s, stroke-width .15s; } .pproc-seg:hover { stroke-width: 20; } .pproc-seg.apag { opacity: .3; }
+.pproc-cen { fill: transparent; cursor: pointer; } .pproc-cen:hover { fill: color-mix(in srgb, var(--accent) 10%, transparent); }
+.pproc-an, .pproc-as { pointer-events: none; }
+.pproc-al li { display: block; }
+.pproc-al li button { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto 38px; align-items: center; gap: 8px; width: 100%; background: none; border: 1px solid transparent; border-radius: 6px; padding: 2px 6px; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.pproc-al li button:hover { border-color: var(--line); } .pproc-al li button.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.pproc-al li button i { width: 10px; height: 10px; border-radius: 2px; } .pproc-al li button span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .pproc-al li button .mut { text-align: right; }
+.pproc-a.on .pproc-ac svg { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 35%, transparent)); }
+.pproc-lst { margin-top: 14px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--panel); }
+.pproc-lst .sec-h { margin: 0 0 8px; } .pproc-lst .sec-h .btn { margin-left: auto; }
+.pproc-tt td, .pproc-tt th { text-align: left; } .pproc-tt .cc { text-align: center; }
+.pproc-tt tr.clk { cursor: pointer; } .pproc-tt tr.clk:focus-visible td { outline: 2px solid var(--accent); outline-offset: -2px; }
+.pproc-est { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 12px; color: var(--c); border: 1px solid var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); white-space: nowrap; }
+.pproc-dot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+:root[data-theme="glass"] .pproc-lst { background: var(--solid2, var(--panel)); }
+/* Flechas de la pieza original a sus partes (26/11): línea que baja de la original y flecha a cada parte */
+.tt.xl .tname { position: relative; }
+.tcon, .tcon-ini { position: absolute; pointer-events: none; --cl: var(--gc, var(--accent)); }
+.tcon { top: -40px; bottom: -40px; }
+.tcon::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; border-left: 2px solid var(--cl); }
+.tcon.ult::before { bottom: 50%; }
+.tcon::after { content: ''; position: absolute; left: 0; right: 5px; top: 50%; border-top: 2px solid var(--cl); transform: translateY(-1px); }
+.tcon b { position: absolute; right: -1px; top: 50%; transform: translateY(-50%); width: 0; height: 0; border-left: 7px solid var(--cl); border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+.tcon-ini { top: calc(50% + 7px); bottom: -40px; border-left: 2px solid var(--cl); }
