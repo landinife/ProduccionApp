@@ -1695,7 +1695,7 @@ function TaskEditor({ id, draft, onClose }) {
               <button type="button" className="btn sm pri-b" onClick={() => set('inicio', hueco)}>Empezar cuando se libere: {fDT(hueco)}</button></div>; })()}</label>
         <label className="hh-ch">Horas-hombre (trabajo total)<span className="incalc"><input id="te-hh" type="number" min="0" step="0.5" value={t.hh} onChange={e => { setHhTocado(true); set('hh', e.target.value); }} /><CalcBtn cant={Number(t.cant) || 0} titulo={(t.nombre || 'Pieza') + ' · duración'} onUse={v => { setHhTocado(true); set('hh', Math.round(v * 100) / 100); }} /></span>
           {!hist && !parent && !t.corte && <SugFam k={E.claveCod(t.nombre)} nombre={t.nombre} />}
-          {hist && <small className="hint">Se hizo {hist.n} {hist.n === 1 ? 'vez' : 'veces'}{hist.fam ? <> <span className="tag fam">familia {hist.fam.nombre}</span>{hist.nPiezas > 1 ? ` (${hist.nPiezas} piezas)` : ''}</> : ''}: {fHM(hist.porUnidad)} reales por unidad{(() => { const sug = Math.max(0.5, Math.round(hist.porUnidad * Math.max(1, Number(t.cant) || 1) * 2) / 2); return Math.abs(sug - hh) > 0.01 ? <> → <button type="button" className="lnk sm" onClick={() => { setHhTocado(true); set('hh', sug); }}>usar {fN(sug)} h</button></> : ' (ya aplicado)'; })()}</small>}</label></div>
+          {hist && <small className="hint">Se hizo {hist.n} {hist.n === 1 ? 'vez' : 'veces'}{hist.fam ? <> <span className="tag fam">familia {hist.fam.nombre}</span>{hist.nPiezas > 1 ? ` (${hist.nPiezas} piezas)` : ''}</> : ''}: {fHM(hist.porUnidad)} reales por unidad{unTxt(hist)}{(() => { const sug = Math.max(0.5, Math.round(hist.porUnidad * Math.max(1, Number(t.cant) || 1) * 2) / 2); return Math.abs(sug - hh) > 0.01 ? <> → <button type="button" className="lnk sm" onClick={() => { setHhTocado(true); set('hh', sug); }}>usar {fN(sug)} h</button></> : ' (ya aplicado)'; })()}</small>}</label></div>
         <label>{t.estado === 'terminada' ? 'Fin planificado' : 'Fin'}<input id="te-fin" type="datetime-local" value={w ? w.end : ''} disabled={!t.inicio} onChange={e => setFin(e.target.value)} /></label>
         <div className="fld"><span>Duración en calendario</span><b className="big">{fH(hh / n)}</b><small className="mut">{fN(hh)} HH ÷ {n} operario{n > 1 ? 's' : ''}</small></div>
         {w && !w.ok && <p className="note bad g2">Faltan {fN(w.falta)} h extra por habilitar en el calendario para poder calcular el fin.</p>}
@@ -2738,13 +2738,17 @@ const conFicha = (s, k, patch) => { const f = { ...((s.fichas || {})[k] || {}), 
   if (!Object.keys(f).length) delete fs[k]; else fs[k] = f; return { ...s, fichas: fs }; };
 // Familias de tiempo: sumar piezas a una familia (nueva si fam no tiene id) o sacarlas (famId vacío)
 const ponFam = (s, ks, famId) => ks.reduce((a, k) => conFicha(a, k, { familia: famId || '' }), s);
-const nuevaFam = (s, nombre, ficha) => { const id = E.uid(); return [{ ...s, familias: [...(s.familias || []), { id, nombre: nombre.trim(), ...(ficha ? { ficha } : {}) }] }, id]; };
+const nuevaFam = (s, nombre, ficha, tipo) => { const id = E.uid(); return [{ ...s, familias: [...(s.familias || []), { id, nombre: nombre.trim(), ...(tipo === 'union' ? { tipo } : {}), ...(ficha ? { ficha } : {}) }] }, id]; };
+// familias por unión (25/11): texto "0:20 por unión × 6 uniones" y elegir el tipo al crear una familia
+const unTxt = h => h && h.porUnion != null ? ` (${fHM(h.porUnion)} por unión × ${h.uniones} ${h.uniones === 1 ? 'unión' : 'uniones'})` : '';
+const TIPOS_FAM = [['', 'Por pieza', 'el mismo tiempo por unidad'], ['union', 'Por unión (Per joint)', 'tiempo por unión soldada × uniones de cada pieza']];
+function TipoFam({ v, set }) { return <div className="fichad-tipo" role="radiogroup" aria-label="Tipo de familia">{TIPOS_FAM.map(([x, l, d]) => <label key={x} className={'togb' + (v === x ? ' on' : '')} title={d}><input type="radio" name="tipofam" checked={v === x} onChange={() => set(x)} hidden />{l}</label>)}</div>; }
 const fichaFam = f => { const b = {}; ['stockId', 'chapa', 'noMat', 'material'].forEach(x => { if (f[x]) b[x] = f[x]; }); if (f.corteU != null && f.corteU !== '') b.corteU = Number(f.corteU); return Object.keys(b).length ? b : null; };
 // "¿Es de la familia X?": sugerencia para una pieza sin familia; solo la acepta un administrador
 function SugFam({ k, nombre, chico }) {
   const { S, up, ui, pm } = useApp(); const sg = useMemo(() => k ? E.sugerirFamilia(S, k, nombre) : null, [k, nombre, S.fichas, S.familias]);
   if (!sg) return null; const h = E.historial(S, sg.como);
-  return <small className={'hint sugfam' + (chico ? ' chico' : '')}>¿Es de la familia <b>{sg.fam.nombre}</b>?{h ? ` Lleva ${fHM(h.porUnidad)} por unidad.` : ''} {pm.admin && <button type="button" className="lnk sm" onClick={e => { e.stopPropagation(); up(s => ponFam(s, [k], sg.fam.id)); ui.toast(`Sumada a la familia ${sg.fam.nombre}`); }}>Sumar a la familia</button>}</small>;
+  return <small className={'hint sugfam' + (chico ? ' chico' : '')}>¿Es de la familia <b>{sg.fam.nombre}</b>?{E.porUnion(sg.fam) ? (() => { const fu = E.famUnion(S, sg.fam); return fu && fu.porUnion != null ? ` Lleva ${fHM(fu.porUnion)} por unión.` : ' Es por unión.'; })() : h ? ` Lleva ${fHM(h.porUnidad)} por unidad.` : ''} {pm.admin && <button type="button" className="lnk sm" onClick={e => { e.stopPropagation(); up(s => ponFam(s, [k], sg.fam.id)); ui.toast(`Sumada a la familia ${sg.fam.nombre}`); }}>Sumar a la familia</button>}</small>;
 }
 const fQ = q => (Math.round((Number(q) || 0) * 1000) / 1000).toLocaleString('es-AR');
 const uIt = it => (it && it.unidad) || 'un';
@@ -2885,29 +2889,30 @@ function FichaStockLinea({ k, nombre }) {
 // Ficha de la pieza completa: ítem de StockApp, largo del plano, corte, chapa, y material y peso para el costo
 function FichaDlg({ k, nombre, onClose }) {
   const { S, up, ui, pm, stock, STK } = useApp(); const f0 = E.fichaPropia(S, k) || {};
-  const [f, setF] = useState({ stockId: f0.stockId || '', largoU: f0.largoU ?? '', corteU: f0.corteU ?? '', chapa: !!f0.chapa, noMat: !!f0.noMat, consumoU: f0.consumoU ?? '', material: f0.material || '', pesoU: f0.pesoU ?? '' });
+  const [f, setF] = useState({ stockId: f0.stockId || '', largoU: f0.largoU ?? '', corteU: f0.corteU ?? '', chapa: !!f0.chapa, noMat: !!f0.noMat, consumoU: f0.consumoU ?? '', material: f0.material || '', pesoU: f0.pesoU ?? '', uniones: f0.uniones ?? '' });
   const [q, setQ] = useState(''); const set = p => setF(x => ({ ...x, ...p }));
   // familia de tiempo: la pieza comparte el tiempo y, si no elige otro, el material de la familia (el largo y el peso son de cada pieza)
   const FAMS = S.familias || [], sgF = useMemo(() => !f0.familia ? E.sugerirFamilia(S, k, nombre) : null, []);
-  const [famId, setFamId] = useState(f0.familia || ''); const [famNueva, setFamNueva] = useState('');
-  const fam = FAMS.find(x => x.id === famId) || null, fb = fam && fam.ficha && (fam.ficha.stockId || fam.ficha.chapa || fam.ficha.noMat) ? fam.ficha : null;
+  const [famId, setFamId] = useState(f0.familia || ''); const [famNueva, setFamNueva] = useState(''); const [tipoNueva, setTipoNueva] = useState('');
+  const fam = FAMS.find(x => x.id === famId) || null, esUn = famId === '+' ? tipoNueva === 'union' : E.porUnion(fam), fb = fam && fam.ficha && (fam.ficha.stockId || fam.ficha.chapa || fam.ficha.noMat) ? fam.ficha : null;
   const [usarFam, setUsarFam] = useState(() => !E.matPropio(f0)); const conFam = !!fb && usarFam;
   const [paraFam, setParaFam] = useState(false);
   const fv = conFam ? { ...f, stockId: fb.stockId || '', chapa: !!fb.chapa, noMat: !!fb.noMat, corteU: f.corteU === '' && fb.corteU != null ? fb.corteU : f.corteU } : f;   // lo que vale para la pieza
   const items = stock && stock.items ? stock.items : [], it = items.find(i => i.id === fv.stockId);
   const qq = q.trim().toLowerCase(), lst = items.filter(i => !qq || `${i.codigo} ${i.descripcion} ${i.formato || ''}`.toLowerCase().includes(qq)).sort((a, b) => (a.codigo || '').localeCompare(b.codigo || '')).slice(0, 80);
   const num = v => v === '' || v == null ? null : Number(v);
-  const ff = { ...fv, largoU: num(f.largoU), corteU: fv.corteU === '' || fv.corteU == null ? null : Number(fv.corteU), consumoU: num(f.consumoU), pesoU: num(f.pesoU), material: f.material || (fam && fam.ficha && fam.ficha.material) || '' };
+  const ff = { ...fv, uniones: num(f.uniones), largoU: num(f.largoU), corteU: fv.corteU === '' || fv.corteU == null ? null : Number(fv.corteU), consumoU: num(f.consumoU), pesoU: num(f.pesoU), material: f.material || (fam && fam.ficha && fam.ficha.material) || '' };
   const c = !fv.chapa && !fv.noMat && it ? E.consumoU(S, ff, it) : null, u = uIt(it);
   const ms = !fv.noMat ? E.matStock(S, ff, STK) : null, pU = E.pesoUDe(S, ff, it);
   // la chapa guarda su ítem solo para el costo (no entra al aviso de material)
   const guardar = () => {
     if (famId === '+' && !famNueva.trim()) { ui.toast('Poné el nombre de la familia nueva'); return; }
+    if (esUn && !(Number(f.uniones) > 0)) { ui.toast('Cargá cuántas uniones tiene la pieza'); return; }
     const propio = { ...ff, material: f.material, corteU: f.corteU === '' ? null : Number(f.corteU), stockId: fv.noMat ? '' : fv.stockId, ...(fv.chapa || fv.noMat ? { largoU: null, corteU: null, consumoU: null } : {}) };
     if (conFam) Object.assign(propio, { stockId: '', chapa: false, noMat: false });   // hereda el material de la familia
     const aFam = !conFam && !!fichaFam(propio) && (famId === '+' || (!!famId && (paraFam || !fb)));   // el material de esta pieza pasa a ser el de la familia
     up(s => { let a = s, id = famId;
-      if (famId === '+') [a, id] = nuevaFam(a, famNueva, aFam ? fichaFam(propio) : null);
+      if (famId === '+') [a, id] = nuevaFam(a, famNueva, aFam ? fichaFam(propio) : null, tipoNueva);
       else if (aFam) a = { ...a, familias: (a.familias || []).map(x => x.id === id ? { ...x, ficha: fichaFam(propio) } : x) };
       return conFicha(a, k, { ...propio, ...(aFam ? { stockId: '', chapa: false, noMat: false, material: '' } : {}), familia: id || '' }); });
     ui.toast(famId === '+' ? `Ficha guardada · familia ${famNueva.trim()} creada` : 'Ficha guardada'); onClose(); };
@@ -2916,9 +2921,11 @@ function FichaDlg({ k, nombre, onClose }) {
       <div className="fichad-fam">
         <label>Familia de tiempo <small className="mut">piezas que se fabrican igual y llevan el mismo tiempo</small>
           <select value={famId} disabled={!pm.admin} onChange={e => { setFamId(e.target.value); setParaFam(false); }}><option value="">— Sin familia (tiempo propio)</option>{FAMS.map(x => <option key={x.id} value={x.id}>{x.nombre} · {E.codsFamilia(S, x.id).length} piezas</option>)}<option value="+">+ Nueva familia…</option></select></label>
-        {famId === '+' && <input autoFocus placeholder="Nombre de la familia (por ejemplo Eje motor cinta, motor 1,5 HP)" value={famNueva} onChange={e => setFamNueva(e.target.value)} />}
+        {famId === '+' && <><input autoFocus placeholder="Nombre de la familia (por ejemplo Eje motor cinta, motor 1,5 HP)" value={famNueva} onChange={e => setFamNueva(e.target.value)} /><TipoFam v={tipoNueva} set={setTipoNueva} /></>}
+        {esUn && <label className="fichad-un">Uniones (Joints) <small className="mut">uniones soldadas de esta pieza; el largo no cuenta</small><input type="number" min="1" step="1" disabled={!pm.admin} value={f.uniones} onChange={e => set({ uniones: e.target.value })} placeholder="por ejemplo 4" /></label>}
         {!famId && sgF && <small className="hint">¿Es de la familia <b>{sgF.fam.nombre}</b>? <button type="button" className="lnk sm" onClick={() => setFamId(sgF.fam.id)}>Elegirla</button></small>}
-        {fam && (() => { const h = E.historial(S, nombre && E.claveCod(nombre) === k ? nombre : k); return <small className="mut">{h && h.fam && h.fam.id === fam.id ? <>Tiempo de la familia: <b>{fHM(h.porUnidad)}</b> por unidad (promedio de {h.n} {h.n === 1 ? 'vez' : 'veces'}, {h.nPiezas} {h.nPiezas === 1 ? 'pieza' : 'piezas'}).</> : famId !== f0.familia ? 'Al guardar, esta pieza toma el tiempo de la familia.' : 'La familia todavía no tiene fabricaciones.'}</small>; })()}
+        {fam && esUn && (() => { const fu = E.famUnion(S, fam), un = Number(f.uniones) || 0; return <small className="mut">{fu && fu.porUnion != null ? <>Tiempo de la familia: <b>{fHM(fu.porUnion)}</b> por unión (promedio de {fu.n} {fu.n === 1 ? 'vez' : 'veces'}, {fu.nPiezas} {fu.nPiezas === 1 ? 'pieza' : 'piezas'}){un > 0 ? <> → esta pieza: <b>{fHM(fu.porUnion * un)}</b> por unidad ({un} {un === 1 ? 'unión' : 'uniones'}).</> : '. Cargá las uniones para calcular el de esta pieza.'}{fu.sinUn > 0 ? ` ${fu.sinUn} ${fu.sinUn === 1 ? 'fabricación no cuenta' : 'fabricaciones no cuentan'}: a su pieza le faltan las uniones.` : ''}</> : 'La familia todavía no tiene fabricaciones con uniones cargadas.'}</small>; })()}
+        {fam && !esUn && (() => { const h = E.historial(S, nombre && E.claveCod(nombre) === k ? nombre : k); return <small className="mut">{h && h.fam && h.fam.id === fam.id ? <>Tiempo de la familia: <b>{fHM(h.porUnidad)}</b> por unidad (promedio de {h.n} {h.n === 1 ? 'vez' : 'veces'}, {h.nPiezas} {h.nPiezas === 1 ? 'pieza' : 'piezas'}).</> : famId !== f0.familia ? 'Al guardar, esta pieza toma el tiempo de la familia.' : 'La familia todavía no tiene fabricaciones.'}</small>; })()}
       </div>
       {conFam ? <div className="fichad-famat"><p>Material de la familia: <b>{fb.noMat ? 'no consume material de stock' : (fb.chapa ? 'sale de chapa · ' : '') + (it ? nomIt(it) : fb.stockId ? 'ítem de StockApp' : '—')}</b></p>
         {pm.admin && <button type="button" className="btn sm" onClick={() => { setUsarFam(false); set({ stockId: fb.stockId || '', chapa: !!fb.chapa, noMat: !!fb.noMat }); }}>Elegir otro material para esta pieza</button>}
@@ -3020,8 +3027,9 @@ function Tiempos() {
             <div className="tg-res" onClick={() => tog(g.k)}>
               {g.n ? <span><b className="tg-prom">{fHM(g.prom)}</b> por unidad <span className="mut">· promedio de {g.n} {g.n === 1 ? 'vez' : 'veces'}</span></span> : <span className="mut">Sin fabricaciones todavía</span>}
               {g.n > 0 && g.n < 3 && !(g.fh && g.fh.n >= 3) && <span className="tag warn" title="Con 1 o 2 veces el promedio todavía no es confiable">pocos datos</span>}
-              {g.fh ? <span className="tfam"><span className="tag fam">familia {g.fh.fam.nombre}</span> estándar <b>{fHM(g.fh.porUnidad)}</b> <span className="mut">· {g.fh.n} {g.fh.n === 1 ? 'vez' : 'veces'}, {g.fh.nPiezas} {g.fh.nPiezas === 1 ? 'pieza' : 'piezas'}</span>
+              {g.fh ? <span className="tfam"><span className="tag fam">familia {g.fh.fam.nombre}</span> estándar <b>{fHM(g.fh.porUnidad)}</b>{g.fh.porUnion != null && <span className="mut">{unTxt(g.fh)}</span>} <span className="mut">· {g.fh.n} {g.fh.n === 1 ? 'vez' : 'veces'}, {g.fh.nPiezas} {g.fh.nPiezas === 1 ? 'pieza' : 'piezas'}</span>
                 {g.prom > 0 && g.fh.nPiezas > 1 && Math.abs(g.prom - g.fh.porUnidad) / g.fh.porUnidad > 0.2 && <span className="tag warn" title="Su promedio propio se aleja más de 20 % del de la familia: revisá si de verdad se fabrica igual">se aleja {Math.round((g.prom - g.fh.porUnidad) / g.fh.porUnidad * 100)}% de la familia</span>}</span>
+                : g.sinUn ? <span className="tfam"><span className="tag fam">familia {g.sinUn.nombre}</span> <span className="tag warn" title="Es una familia por unión: abrí la ficha (▸) y cargá cuántas uniones tiene">faltan las uniones</span></span>
                 : <SugFam k={g.k} nombre={g.nombre} chico />}
               {(() => { const rc = g.regs.filter(r => r.hc > 0 && !r.fuera && !r.cot); return rc.length > 0 && <span className="mut" title={`Promedio del corte de material en las ${rc.length === 1 ? 'vez' : rc.length + ' veces'} que se cargó aparte (ya está incluido en el promedio de la pieza)`}>✂ corte ≈ {fHM(rc.reduce((a, r) => a + r.hc / Math.max(1, r.cant), 0) / rc.length)} por unidad</span>; })()}
               {cu != null && <span title={parcial ? `Costo parcial: falta ${fl.join(', ')}` : 'Material + mano de obra, con los precios y tarifas de hoy'}>≈ <b>{fPlata(cu)}</b>{parcial && '*'} <span className="mut">por unidad</span></span>}
@@ -3073,19 +3081,28 @@ function Tiempos() {
 function AgruparDlg({ ks, G, onClose }) {
   const { S, up, ui } = useApp(); const FAMS = S.familias || [];
   const ya = [...new Set(ks.map(k => (E.familiaDe(S, k) || {}).id).filter(Boolean))];
-  const [id, setId] = useState(ya.length === 1 ? ya[0] : FAMS.length ? '' : '+'); const [nom, setNom] = useState('');
+  const [id, setId] = useState(ya.length === 1 ? ya[0] : FAMS.length ? '' : '+'); const [nom, setNom] = useState(''); const [tipo, setTipo] = useState('');
   const gs = ks.map(k => G.find(g => g.k === k)).filter(Boolean), ops = [...new Set(gs.map(g => g.operacionId).filter(Boolean))];
+  // familia por unión (25/11): las uniones de cada pieza se cargan acá mismo (quedan en su ficha)
+  const esUn = id === '+' ? tipo === 'union' : E.porUnion(FAMS.find(x => x.id === id));
+  const [uns, setUns] = useState(() => Object.fromEntries(ks.map(k => [k, E.unionesDe(S, k) || ''])));
   const n = gs.reduce((a, g) => a + g.n, 0), pu = n ? gs.reduce((a, g) => a + (g.prom || 0) * g.n, 0) / n : null;
+  const gu = gs.filter(g => g.n && Number(uns[g.k]) > 0), nu = gu.reduce((a, g) => a + g.n, 0), pj = nu ? gu.reduce((a, g) => a + g.prom / Number(uns[g.k]) * g.n, 0) / nu : null;
   const ok = () => { if (id === '+' && !nom.trim()) { ui.toast('Poné el nombre de la familia'); return; } if (!id) { ui.toast('Elegí la familia'); return; }
-    up(s => { let a = s, fid = id; if (id === '+') [a, fid] = nuevaFam(a, nom); return ponFam(a, ks, fid); });
+    up(s => { let a = s, fid = id; if (id === '+') [a, fid] = nuevaFam(a, nom, null, tipo); a = ponFam(a, ks, fid);
+      if (esUn) ks.forEach(k => { const v = Number(uns[k]); a = conFicha(a, k, { uniones: v > 0 ? Math.round(v) : '' }); }); return a; });
     ui.toast(`${ks.length} ${ks.length === 1 ? 'pieza agrupada' : 'piezas agrupadas'} en la familia ${id === '+' ? nom.trim() : (FAMS.find(x => x.id === id) || {}).nombre}`); onClose(true); };
   return <Modal title="Agrupar en familia de tiempo" onClose={() => onClose(false)} foot={<><span className="sp" /><button className="btn canc-b" onClick={() => onClose(false)}>Cancelar</button><button className="btn pri-b" data-enter onClick={ok}>Agrupar</button></>}>
-    <p className="mut">Estas piezas se fabrican igual: van a compartir el tiempo estándar (el promedio por unidad de todas juntas). El material, el largo y el peso siguen siendo de cada pieza.</p>
-    <ul className="famlst">{gs.map(g => <li key={g.k}><b>{g.nombre}</b> <span className="mut">· {g.n ? `${fHM(g.prom)} por unidad (${g.n} ${g.n === 1 ? 'vez' : 'veces'})` : 'sin fabricaciones'}{E.familiaDe(S, g.k) ? ` · hoy en ${E.familiaDe(S, g.k).nombre}` : ''}</span></li>)}</ul>
-    {pu != null && <p>Juntas: <b>{fHM(pu)}</b> por unidad <span className="mut">(sin contar las otras piezas que ya tenga la familia)</span></p>}
+    <p className="mut">{esUn ? 'Familia por unión: el tiempo lo marcan las uniones soldadas, no el largo. La app saca las horas por unión de todas las fabricaciones y a cada pieza le da horas por unión × sus uniones.' : 'Estas piezas se fabrican igual: van a compartir el tiempo estándar (el promedio por unidad de todas juntas).'} El material, el largo y el peso siguen siendo de cada pieza.</p>
+    <ul className="famlst">{gs.map(g => <li key={g.k}><b>{g.nombre}</b> <span className="mut">· {g.n ? `${fHM(g.prom)} por unidad (${g.n} ${g.n === 1 ? 'vez' : 'veces'})` : 'sin fabricaciones'}{E.familiaDe(S, g.k) ? ` · hoy en ${E.familiaDe(S, g.k).nombre}` : ''}</span>
+      {esUn && <label className="famun">Uniones (Joints) <input type="number" min="1" step="1" value={uns[g.k]} onChange={e => setUns(u => ({ ...u, [g.k]: e.target.value }))} placeholder="—" /></label>}
+      {esUn && g.n > 0 && Number(uns[g.k]) > 0 && <span className="mut"> · {fHM(g.prom / Number(uns[g.k]))} por unión</span>}</li>)}</ul>
+    {esUn ? pj != null && <p>Juntas: <b>{fHM(pj)}</b> por unión <span className="mut">(sin contar las otras piezas que ya tenga la familia)</span></p>
+      : pu != null && <p>Juntas: <b>{fHM(pu)}</b> por unidad <span className="mut">(sin contar las otras piezas que ya tenga la familia)</span></p>}
+    {esUn && gs.some(g => !(Number(uns[g.k]) > 0)) && <p className="note">Las piezas sin uniones quedan en la familia pero no cuentan en el promedio ni reciben tiempo estándar hasta que las cargues.</p>}
     {ops.length > 1 && <p className="note">Ojo: tienen operaciones distintas ({ops.map(o => operName(S, o)).join(', ')}). Una familia debería tener una sola.</p>}
     <label>Familia<select value={id} onChange={e => setId(e.target.value)}>{!FAMS.length ? null : <option value="">— Elegí —</option>}{FAMS.map(x => <option key={x.id} value={x.id}>{x.nombre} · {E.codsFamilia(S, x.id).length} piezas</option>)}<option value="+">+ Nueva familia…</option></select></label>
-    {id === '+' && <label>Nombre de la familia nueva<input autoFocus value={nom} onChange={e => setNom(e.target.value)} placeholder="por ejemplo Eje motor cinta, motor 1,5 HP" /></label>}
+    {id === '+' && <><label>Nombre de la familia nueva<input autoFocus value={nom} onChange={e => setNom(e.target.value)} placeholder={tipo === 'union' ? 'por ejemplo Bastidor caño 40×40' : 'por ejemplo Eje motor cinta, motor 1,5 HP'} /></label><TipoFam v={tipo} set={setTipo} /></>}
   </Modal>;
 }
 // Familias: ver sus piezas, cambiarles el nombre, sacar piezas o borrar la familia (las piezas vuelven a su tiempo propio)
@@ -3095,13 +3112,18 @@ function FamiliasDlg({ G, onClose }) {
   const borrar = x => { if (!confirm(`¿Borrar la familia "${x.nombre}"? Sus piezas vuelven a tener su tiempo propio y su propio material.`)) return;
     up(s => ({ ...ponFam(s, E.codsFamilia(s, x.id), ''), familias: (s.familias || []).filter(f => f.id !== x.id) })); ui.toast('Familia borrada'); };
   const sacar = (x, k) => { up(s => ponFam(s, [k], '')); ui.toast('Pieza sacada de la familia ' + x.nombre); };
+  const tipoFam = (x, t) => { if (!confirm(t === 'union' ? `¿Pasar "${x.nombre}" a familia por unión? Cada pieza va a necesitar sus uniones cargadas para tener tiempo estándar.` : `¿Pasar "${x.nombre}" a familia por pieza? Todas sus piezas van a llevar el mismo tiempo por unidad (las uniones quedan guardadas en las fichas).`)) return;
+    up(s => ({ ...s, familias: (s.familias || []).map(f => { if (f.id !== x.id) return f; const r = { ...f }; if (t === 'union') r.tipo = 'union'; else delete r.tipo; return r; }) })); };
+  const ponUn = (k, v) => { const n = Math.round(Number(v)); if (n === E.unionesDe(S, k) || (!(n > 0) && !E.unionesDe(S, k))) return; up(s => conFicha(s, k, { uniones: n > 0 ? n : '' })); };
   return <Modal title="Familias de tiempo" wide onClose={onClose} foot={<><span className="sp" /><button className="btn pri-b" data-enter onClick={onClose}>Listo</button></>}>
     <p className="mut">Cada familia junta piezas que se fabrican igual. Para sumar piezas: tildalas en Tiempos y Costos y tocá "Agrupar en familia", o elegí la familia en la ficha de la pieza. Para cambiar el material de la familia, abrí la ficha de una de sus piezas.</p>
-    {(S.familias || []).map(x => { const ks = E.codsFamilia(S, x.id), h = ks.length ? E.historial(S, ks[0]) : null, fb = x.ficha || {}, it = fb.stockId && stock && stock.items ? stock.items.find(i => i.id === fb.stockId) : null;
-      return <div key={x.id} className="famcard"><div className="row"><b>{x.nombre}</b><span className="mut">{h ? `${fHM(h.porUnidad)} por unidad · ${h.n} ${h.n === 1 ? 'vez' : 'veces'}` : 'sin fabricaciones'}</span><span className="sp" />
-        {pm.admin && <><button className="btn sm" onClick={() => ren(x)}>✎ Nombre</button><button className="btn sm" onClick={() => borrar(x)}>🗑 Borrar</button></>}</div>
+    {(S.familias || []).map(x => { const ks = E.codsFamilia(S, x.id), un = E.porUnion(x), fu = un ? E.famUnion(S, x) : null, h = !un && ks.length ? E.historial(S, ks[0]) : null, fb = x.ficha || {}, it = fb.stockId && stock && stock.items ? stock.items.find(i => i.id === fb.stockId) : null;
+      return <div key={x.id} className="famcard"><div className="row"><b>{x.nombre}</b>{un && <span className="tag fam">por unión</span>}<span className="mut">{un ? fu && fu.porUnion != null ? `${fHM(fu.porUnion)} por unión · ${fu.n} ${fu.n === 1 ? 'vez' : 'veces'}` : 'sin fabricaciones con uniones' : h ? `${fHM(h.porUnidad)} por unidad · ${h.n} ${h.n === 1 ? 'vez' : 'veces'}` : 'sin fabricaciones'}</span><span className="sp" />
+        {pm.admin && <><button className="btn sm" onClick={() => tipoFam(x, un ? '' : 'union')} title={un ? 'Todas las piezas con el mismo tiempo por unidad' : 'Tiempo por unión soldada × uniones de cada pieza'}>{un ? 'Pasar a por pieza' : 'Pasar a por unión'}</button><button className="btn sm" onClick={() => ren(x)}>✎ Nombre</button><button className="btn sm" onClick={() => borrar(x)}>🗑 Borrar</button></>}</div>
+        {un && fu && fu.sinK.length > 0 && <small className="tfal c-bad">{fu.sinK.length} {fu.sinK.length === 1 ? 'pieza sin uniones cargadas: no cuenta' : 'piezas sin uniones cargadas: no cuentan'} ni recibe{fu.sinK.length === 1 ? '' : 'n'} tiempo estándar.</small>}
         <small className="mut">Material de la familia: {fb.noMat ? 'no consume material de stock' : fb.stockId || fb.chapa ? (fb.chapa ? 'sale de chapa' : '') + (it ? (fb.chapa ? ' · ' : '') + nomIt(it) : fb.chapa ? '' : 'ítem de StockApp') : 'sin cargar (cada pieza el suyo)'}</small>
-        <ul className="famlst">{ks.map(k => { const g = G.find(y => y.k === k); return <li key={k}><span>{NOM[k] || k.toUpperCase()}</span> <span className="mut">· {g && g.n ? `${fHM(g.prom)} propio (${g.n} ${g.n === 1 ? 'vez' : 'veces'})` : 'sin fabricaciones'}{E.matPropio(E.fichaPropia(S, k)) ? ' · material propio' : ''}</span>
+        <ul className="famlst">{ks.map(k => { const g = G.find(y => y.k === k); return <li key={k}><span>{NOM[k] || k.toUpperCase()}</span>{un && <label className="famun">Uniones <input key={E.unionesDe(S, k)} type="number" min="1" step="1" disabled={!pm.admin} defaultValue={E.unionesDe(S, k) || ''} placeholder="—" onBlur={e => ponUn(k, e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); e.target.blur(); } }} /></label>}
+          {un && fu && fu.porUnion != null && E.unionesDe(S, k) > 0 && <span className="mut"> → {fHM(fu.porUnion * E.unionesDe(S, k))} por unidad</span>} <span className="mut">· {g && g.n ? `${fHM(g.prom)} propio (${g.n} ${g.n === 1 ? 'vez' : 'veces'})` : 'sin fabricaciones'}{E.matPropio(E.fichaPropia(S, k)) ? ' · material propio' : ''}</span>
           {pm.admin && <button className="lnk sm" onClick={() => sacar(x, k)}>sacar</button>} <button className="lnk sm" onClick={() => ui.ficha({ key: k, nombre: NOM[k] || k })}>ficha</button></li>; })}</ul></div>; })}
   </Modal>;
 }
@@ -3152,7 +3174,7 @@ function CotEditor({ r, onClose }) {
       <label>Material genérico <small className="mut">si la pieza no tiene ítem de StockApp</small><select id="co-mat" value={c.material} onChange={e => set('material', e.target.value)}><option value="">—</option>{(S.materiales || []).map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}</select></label>
       <label>Peso total (kg)<input id="co-peso" type="number" min="0" step="0.1" value={c.peso} placeholder="de toda la cantidad" onChange={e => set('peso', e.target.value)} /></label>
       <label className="g2">Horas-hombre totales<span className="incalc"><input id="co-hh" type="number" min="0" step="0.5" value={c.hh} onChange={e => set('hh', e.target.value)} /><CalcBtn cant={Number(c.cant) || 0} titulo="Horas-hombre de la cotización" onUse={v => set('hh', Math.round(v * 100) / 100)} /></span>
-        {hist ? <small className="hint">Se hizo {hist.n} {hist.n === 1 ? 'vez' : 'veces'}{hist.fam ? ` (familia ${hist.fam.nombre})` : ''}: {fHM(hist.porUnidad)} por unidad × {fN(Number(c.cant) || 1)} = {fN(sug)} HH {Math.abs(sug - (Number(c.hh) || 0)) > 0.01 ? <button type="button" className="lnk sm" onClick={() => set('hh', sug)}>usar</button> : '(ya aplicado)'}</small>
+        {hist ? <small className="hint">Se hizo {hist.n} {hist.n === 1 ? 'vez' : 'veces'}{hist.fam ? ` (familia ${hist.fam.nombre})` : ''}: {fHM(hist.porUnidad)} por unidad{unTxt(hist)} × {fN(Number(c.cant) || 1)} = {fN(sug)} HH {Math.abs(sug - (Number(c.hh) || 0)) > 0.01 ? <button type="button" className="lnk sm" onClick={() => set('hh', sug)}>usar</button> : '(ya aplicado)'}</small>
           : c.nombre.trim() ? <small className="hint">Pieza sin historial: estimá las horas-hombre.</small> : null}</label>
     </div>
     <div className="cotres">

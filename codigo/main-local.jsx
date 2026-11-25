@@ -16,9 +16,18 @@ const FICHAS = {
   'TPFR-200-110-020-0015': { stockId: 's4', largoU: 450 }, 'TPFR-200-110-020-0040': { stockId: 's2', largoU: 60 }, 'TPFR-210-130-010-0008': { stockId: 's3', largoU: 30 },
   'TPFR-120-150-010-0031': { chapa: true, stockId: 's6', pesoU: 1.8 }, 'esc-131 eje torneado': { stockId: 's1', largoU: 220 }, 'esc-132 buje torneado': { stockId: 's5', largoU: 35 }, 'esc-220 plegado de laterales': { noMat: true }
 };
+// Vista previa de familias por unión (25/11): bastidores soldados de distinto largo; el 1503 todavía sin uniones y el 1504 sin familia (para la sugerencia)
+const BAST = [['1501', '1200', 3, 1, '2026-10-02'], ['1502', '2400', 4.8, 1, '2026-10-20'], ['1503', '3000', 13, 2, '2026-11-05'], ['1504', '1800', 2.5, 1, '2026-11-12']]
+  .map(([n, l, hh, cant, fecha]) => ({ id: 'hb' + n, nombre: `TPFD-009-001-${n} Bastidor caño 40x40 ${l} mm`, hh, cant, fecha }));
 const conMaterial = S => {
   const fichas = { ...(S.fichas || {}) }; Object.entries(FICHAS).forEach(([k, f]) => { if (!fichas[k] || !fichas[k].stockId && !fichas[k].chapa) fichas[k] = { ...(fichas[k] || {}), ...f }; });
-  return { ...S, fichas, cfg: { ...S.cfg, corte: S.cfg.corte || { def: 3, rangos: [{ hasta: 50, mm: 3 }, { hasta: 200, mm: 5 }] } } };
+  const historico = [...(S.historico || [])], familias = [...(S.familias || [])];
+  if (!historico.some(h => h.id === 'hb1501')) { historico.push(...BAST);
+    if (!familias.some(f => f.id === 'famb')) familias.push({ id: 'famb', nombre: 'Bastidor caño 40×40', tipo: 'union' });
+    fichas['TPFD-009-001-1501'] = { ...(fichas['TPFD-009-001-1501'] || {}), familia: 'famb', uniones: 4 };
+    fichas['TPFD-009-001-1502'] = { ...(fichas['TPFD-009-001-1502'] || {}), familia: 'famb', uniones: 6 };
+    fichas['TPFD-009-001-1503'] = { ...(fichas['TPFD-009-001-1503'] || {}), familia: 'famb' }; }
+  return { ...S, fichas, historico, familias, cfg: { ...S.cfg, corte: S.cfg.corte || { def: 3, rangos: [{ hasta: 50, mm: 3 }, { hasta: 200, mm: 5 }] } } };
 };
 const db = { inicial: () => conMaterial(loadState()), escribir: (p, n) => { try { localStorage.setItem(KEY, JSON.stringify(n)); } catch (e) { } }, stock: cb => { cb({ items: STOCK, dolar: 1200, ts: Date.now() }); return () => { }; } };
 createRoot(document.getElementById('root')).render(<App db={db} />);

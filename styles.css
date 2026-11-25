@@ -1522,3 +1522,7 @@ select.ci.est.e-proximo { background: transparent; }
 .famcard { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
 .famcard .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .famlst .lnk { margin-left: 10px; }
+/* familias por unión (25/11): uniones de cada pieza en Agrupar, Familias y la ficha */
+.famun { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; font-size: .92em; }
+.famun input { width: 64px; padding: 3px 6px; }
+.fichad-un input { max-width: 140px; }

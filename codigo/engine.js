@@ -793,6 +793,12 @@ export const numPieza = k => { const se = serieCod(k); if (!se) return null; con
 export function historial(S, nombre) {
   const k = claveCod(nombre); if (!k) return null;
   const fam = familiaDe(S, k), ks = new Set(fam ? codsFamilia(S, fam.id) : [k]); ks.add(k);
+  if (porUnion(fam)) {   // familia por unión (25/11): estándar = horas por unión de la familia × uniones de esta pieza
+    const fu = famUnion(S, fam), un = unionesDe(S, k); if (!fu || !(un > 0)) return null;
+    const lp = fu.l.filter(f => f.k === k);
+    return { n: fu.n, porUnidad: fu.porUnion * un, porUnion: fu.porUnion, uniones: un, sinUn: fu.sinUn, operacionId: fu.operacionId, fam, nPiezas: fu.nPiezas, nPropio: lp.length,
+      propio: lp.length ? lp.reduce((a, f) => a + f.hu, 0) / lp.length : null };
+  }
   const l = fabricaciones(S).filter(f => ks.has(f.k) && !f.fuera);
   if (!l.length) return null;
   const pu = l.reduce((a, f) => a + f.hu, 0) / l.length, lp = l.filter(f => f.k === k);
@@ -864,6 +870,21 @@ export const fichaPropia = (S, k) => (S.fichas || {})[k] || null;
 export const familiaDe = (S, k) => { const f = fichaPropia(S, k), id = f && f.familia; return id ? (S.familias || []).find(x => x.id === id) || null : null; };
 export const codsFamilia = (S, id) => Object.keys(S.fichas || {}).filter(k => (S.fichas[k] || {}).familia === id);
 export const matPropio = f => !!(f && (f.stockId || f.chapa || f.noMat));
+// Familias por unión (25/11): por ejemplo bastidores soldados de distinto largo, donde el tiempo lo marcan las uniones soldadas.
+// La familia lleva tipo: 'union'; cada pieza carga sus uniones en la ficha (S.fichas[código].uniones). Todas las uniones de la familia valen lo mismo.
+// Horas por unión = promedio, entre las fabricaciones de la familia, de (horas reales por unidad ÷ uniones de esa pieza). En las piezas soldadas con hijas
+// las horas son el trabajo propio del padre (el soldado); el corte de las barras queda en las hijas. Las piezas sin uniones cargadas no cuentan.
+export const porUnion = fam => !!(fam && fam.tipo === 'union');
+export const unionesDe = (S, k) => Number((fichaPropia(S, k) || {}).uniones) || 0;
+export function famUnion(S, fam) {
+  if (!porUnion(fam)) return null; const ks = new Set(codsFamilia(S, fam.id));
+  const todas = fabricaciones(S).filter(f => ks.has(f.k) && !f.fuera), l = todas.filter(f => unionesDe(S, f.k) > 0);
+  const sinK = [...ks].filter(k => !(unionesDe(S, k) > 0));
+  if (!l.length) return { n: 0, porUnion: null, l, sinUn: todas.length, sinK, nPiezas: 0 };
+  const cnt = {}; l.forEach(f => { if (f.operacionId) cnt[f.operacionId] = (cnt[f.operacionId] || 0) + 1; });
+  return { n: l.length, porUnion: l.reduce((a, f) => a + f.hu / unionesDe(S, f.k), 0) / l.length, l, sinUn: todas.length - l.length, sinK,
+    nPiezas: new Set(l.map(f => f.k)).size, operacionId: Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0] || null };
+}
 export function fichaDe(S, k) {
   const f = fichaPropia(S, k), fam = familiaDe(S, k), b = fam && fam.ficha; if (!b) return f;
   const r = { ...f };
@@ -1058,7 +1079,8 @@ export function tiempos(S) {
     x.nombre = ult.nombre; x.operacionId = (v[0] || ult).operacionId || (codOp(S, x.nombre) || {}).operacionId || '';
     x.n = v.length; x.nCot = x.regs.filter(r => r.cot).length; x.prom = v.length ? v.reduce((a, r) => a + r.hu, 0) / v.length : null;
     x.ult = (x.regs.find(r => !r.cot) || {}).fecha || ''; x.serie = serieCod(x.k); x.num = numPieza(x.k);
-    const h = familiaDe(S, x.k) && historial(S, x.nombre); if (h && h.fam) x.fh = h;   // estándar de su familia de tiempo
+    const fm = familiaDe(S, x.k), h = fm && historial(S, x.nombre); if (h && h.fam) x.fh = h;   // estándar de su familia de tiempo
+    if (porUnion(fm) && !(unionesDe(S, x.k) > 0)) x.sinUn = fm;   // familia por unión sin las uniones de esta pieza cargadas
     return x;
   }).sort((a, b) => (a.num == null) - (b.num == null) || (a.num || 0) - (b.num || 0) || a.k.localeCompare(b.k));
 }
