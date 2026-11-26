@@ -861,8 +861,9 @@ export function fabricaciones(S) {
     }
     // ensamblaje (por ejemplo una pieza soldada): pieza con trabajo propio que tiene piezas hijas; su costo suma el de todas sus hijas
     const ens = !!t.parentId && !t.agrupa && !t.partes && (hijos[t.id] || []).some(x => !x.parte);
-    if (t.estado !== 'terminada' || t.tercerizada || t.sinFecha || !(Number(t.hhReal) > 0) || (hijos[t.id] && !ens)) return;   // las tercerizadas no se fabricaron en planta: no entran al promedio ni al costo
-    const r = regFab(t, Number(t.hhReal), t.finReal || t.inicio || t.creada, t.ops || []);
+    const stk = !!t.stock && !t.parentId;   // pieza de stock (26/11): costea sus horas manuales, sin horas reales ni fecha puntual, y no entra al promedio de Tiempos
+    if (t.estado !== 'terminada' || t.tercerizada || (t.sinFecha && !stk) || !(Number(t.hhReal) > 0 || (stk && Number(t.hhExtra) > 0)) || (hijos[t.id] && !ens)) return;   // las tercerizadas no se fabricaron en planta: no entran al promedio ni al costo
+    const r = regFab(t, Number(t.hhReal) || 0, t.finReal || t.inicio || t.creada, t.ops || []); if (stk) r.stock = true;
     if (ens) { const out = []; desglose(t, 1, out); r.ens = true; r.desg = out; }
     c.push(r);
   });
@@ -874,7 +875,7 @@ export function fabricaciones(S) {
 }
 const regFab = (t, hh, fecha, ops) => { const cant = unidadesDe(t);
   return { id: t.id, k: claveCod(t.nombre), nombre: t.nombre.replace(/\s*\(parte \d+\)\s*$/i, ''), tipo: t.tipo, proyId: t.proyId, parentId: t.parentId, orden: t.orden, cliente: t.cliente,
-    operacionId: t.operacionId, cant, hh, hu: hh / cant, plan: Number(t.hh) || 0, fecha: (fecha || '').slice(0, 10), ops, material: t.material || '', peso: t.peso, fuera: !!t.tiempoFuera }; };
+    operacionId: t.operacionId, cant, hh, hu: hh / cant, plan: Number(t.hh) || 0, fecha: (fecha || '').slice(0, 10), ops, material: t.material || '', peso: t.peso, fuera: !!t.tiempoFuera, hhExtra: Number(t.hhExtra) || 0 }; };
 
 // ---- Costos en USD ----
 // Tarifas de mano de obra por categoría (Mecanizado, Corte Láser, Armado y Soldado, Ensamble): cada operación se asocia a una tarifa
@@ -979,7 +980,7 @@ export function matStock(S, f, stk) {
 // Mano de obra: si viene el detalle por tarifa (historial importado), suma cada parte × su tarifa; si no, HH × la tarifa de la operación.
 function costoProp(S, r, stk) {
   const f = fichaDe(S, r.k || claveCod(r.nombre)), cant = Math.max(1, Number(r.cant) || 1);
-  const matId = r.material || (f && f.material) || '', m = materialDe(S, matId), hh = Number(r.hh) || 0;
+  const matId = r.material || (f && f.material) || '', m = materialDe(S, matId), hh = (Number(r.hh) || 0) + (Number(r.hhExtra) || 0);
   const ms = f && !f.noMat ? matStock(S, f, stk) : null, pU = f ? pesoUDe(S, f, ms && ms.it) : null;
   const pesoProp = Number(r.peso) || 0, pesoFicha = pU ? pU.kg * cant : 0, peso = pesoProp > 0 ? pesoProp : pesoFicha;
   let mo = 0, vh = null, det = null; const falta = [];
@@ -1106,7 +1107,7 @@ export function tiempos(S) {
     g(k, q.nombre).regs.push({ ...q, k, cot: true, cant, hh, hu: hh / cant, fecha: q.fecha || '', ops: [] }); });
   return [...G.values()].map(x => {
     x.regs.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
-    const v = x.regs.filter(r => !r.cot && !r.fuera), ult = x.regs.find(r => !r.cot) || x.regs[0];
+    const v = x.regs.filter(r => !r.cot && !r.fuera && !r.stock), ult = x.regs.find(r => !r.cot) || x.regs[0];
     x.nombre = ult.nombre; x.operacionId = (v[0] || ult).operacionId || (codOp(S, x.nombre) || {}).operacionId || '';
     x.n = v.length; x.nCot = x.regs.filter(r => r.cot).length; x.prom = v.length ? v.reduce((a, r) => a + r.hu, 0) / v.length : null;
     x.ult = (x.regs.find(r => !r.cot) || {}).fecha || ''; x.serie = serieCod(x.k); x.num = numPieza(x.k);
