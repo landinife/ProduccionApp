@@ -845,7 +845,8 @@ export function fabricaciones(S) {
   const hhProp = t => { const ps = t.partes ? (hijos[t.id] || []).filter(x => x.parte) : null; return ps && ps.length ? ps.reduce((a, x) => a + (Number(x.hhReal) || 0), 0) : Number(t.hhReal) || 0; };
   const desglose = (t, nivel, out) => (hijos[t.id] || []).filter(x => !x.parte).forEach(x => {
     const h = hhProp(x), hoja = !(hijos[x.id] || []).some(y => !y.parte);
-    if (h > 0 || x.tercerizada || (hoja && !x.agrupa)) out.push({ id: x.id, k: claveCod(x.nombre), nombre: x.nombre.replace(/\s*\(parte \d+\)\s*$/i, ''), nivel, cant: Math.max(1, Number(x.cant) || 1), hh: x.tercerizada ? 0 : h,
+    const ex = x.tercerizada ? 0 : Number(x.hhExtra) || 0;   // horas adicionales de la hija (26/11): también cuentan en su costo
+    if (h > 0 || ex > 0 || x.tercerizada || (hoja && !x.agrupa)) out.push({ id: x.id, k: claveCod(x.nombre), nombre: x.nombre.replace(/\s*\(parte \d+\)\s*$/i, ''), nivel, cant: Math.max(1, Number(x.cant) || 1), hh: x.tercerizada ? 0 : h, hhExtra: ex,
       operacionId: x.operacionId, material: x.material || '', peso: x.peso, terc: !!x.tercerizada, estado: x.estado });
     desglose(x, nivel + 1, out); });
   S.tareas.forEach(t => {
@@ -1004,7 +1005,7 @@ function costoProp(S, r, stk) {
 export function costo(S, r, stk) {
   const c = costoProp(S, r, stk); if (!r.desg || !r.desg.length) return c;
   const propio = { mo: c.mo, mat: c.mat, total: c.total, falta: c.falta.filter(x => x !== 'material' || c.m) };   // un ensamblaje sin material propio no avisa
-  const hijas = r.desg.map(d => { const x = costoProp(S, d, stk); if (!d.terc && !(Number(d.hh) > 0)) x.falta = [...x.falta, 'horas']; if (d.terc) x.falta = []; return { ...d, c: x }; });
+  const hijas = r.desg.map(d => { const x = costoProp(S, d, stk); if (!d.terc && !(Number(d.hh) > 0) && !(Number(d.hhExtra) > 0)) x.falta = [...x.falta, 'horas']; if (d.terc) x.falta = []; return { ...d, c: x }; });
   const mo = c.mo + hijas.reduce((a, h) => a + h.c.mo, 0), mat = c.mat + hijas.reduce((a, h) => a + h.c.mat, 0), total = mo + mat, cant = Math.max(1, Number(r.cant) || 1);
   const faltaH = [...new Set(hijas.flatMap(h => h.c.falta))].map(x => x + ' de las hijas');
   return { ...c, mo, mat, total, unit: total / cant, falta: [...propio.falta, ...faltaH], propio, hijas };

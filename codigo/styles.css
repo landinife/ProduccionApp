@@ -21,6 +21,7 @@
   --s3: #3fb5a5;   /* Taller (trabajos para el propio taller) */
   --sinc: #5d6a78; /* horas sin cargar */
   --prox: #e37fa7;  /* próximo a realizar */
+  --enproc: #ff9f43; /* pieza en proceso (barra del Gantt) */
   --r: 10px;
   --sh: 0 6px 22px rgba(0,0,0,.30);
   --glow: color-mix(in srgb, var(--accent) 38%, transparent);
@@ -807,7 +808,7 @@ select.ci.est.e-pendiente { background: transparent; }
 /* 7. Tema claro (botón ☀ en la barra superior) */
 :root[data-theme="light"] {
   color-scheme: light;
-  --s3: #1f8f80; --sinc: #a9b4c0; --prox: #c2457a;
+  --s3: #1f8f80; --sinc: #a9b4c0; --prox: #c2457a; --enproc: #d9730d;
   --ext: #7c3aed;
   --bg: #eef2f6; --panel: #ffffff; --panel2: #f4f7fa; --line: #cfd8e2; --stripe: rgba(20,40,60,.045);
   --ink: #16202a; --mut: #586a7d; --on-accent: #08131d;
@@ -1022,6 +1023,9 @@ label.chk.cadena { font-size: 13px !important; color: var(--mut) !important; }
 
 /* pieza en proceso que se pasó de hora: sigue ocupando el día */
 .g-bar.sigue { background-image: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--warn) 45%, transparent) 6px 9px); outline: 1px solid var(--warn); }
+.g-bar.enproc { background-color: color-mix(in srgb, var(--enproc) 85%, var(--panel)); }
+.g-bar.enproc span { background-color: color-mix(in srgb, var(--enproc) 70%, #000); }
+.g-row.enproc-row .g-left { color: var(--enproc); font-weight: 600; }
 .aviso-b { border: 1px solid var(--warn); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
 
 /* ================= Estadísticas ================= */
