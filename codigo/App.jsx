@@ -2195,14 +2195,15 @@ function diaOp(S, CD, op, d, hoy, PD = {}) {
   const alerta = exc > 0.05 ? 'over' : !fut && d < hoy && dp > 0 && sin >= Math.max(0.5, dp * 0.25) ? 'falta' : '';
   return { d, dp, c, p, fut, sin, exc, aus, fer, finde, motivo, alerta };
 }
-function CalOperarios({ cab }) {
-  const { S, V, ui, pm } = useApp(); const hoy = E.today();
+// Con S/V/opFija/mesIni (27/11) se usa dentro del diálogo Planificar: muestra el estado planificado de un operario, sin la barra de operarios
+function CalOperarios({ cab, S: S0, V: V0, opFija, mesIni, compacto }) {
+  const ctx = useApp(); const S = S0 || ctx.S, V = V0 || ctx.V, { ui, pm } = ctx; const hoy = E.today();
   const ops = S.operarios.filter(o => o.activo !== false);
   const [oid, setOid] = useState(() => { try { return localStorage.getItem(KEY + '-calop') || ''; } catch (e) { return ''; } });
-  const [mes, setMes] = useState(hoy.slice(0, 7)); const [sel, setSel] = useState(null);
+  const [mes, setMes] = useState((mesIni || hoy).slice(0, 7)); const [sel, setSel] = useState(null);
   const CD = useMemo(() => E.cargaDiaria(S, V, true), [S, V]);
   const PD = useMemo(() => E.planDiaria(S, V), [S, V]);
-  const o = ops.find(x => x.id === oid) || ops[0];
+  const o = opFija ? ops.find(x => x.id === opFija) : (ops.find(x => x.id === oid) || ops[0]);
   const elegir = id => { setOid(id); setSel(null); try { localStorage.setItem(KEY + '-calop', id); } catch (e) { } };
   const antes = k => { const [y, m] = k.split('-').map(Number); return m === 1 ? `${y - 1}-12` : `${y}-${E.pad(m - 1)}`; };
   const irMes = k => { setMes(k); setSel(null); };
@@ -2231,7 +2232,7 @@ function CalOperarios({ cab }) {
         {x.sin > 0.05 && <span className="sin"><i />Sin asig. <b>{fN(x.sin)}</b></span>}</span>}
       {x.exc > 0.05 && <small className="oc-exc">+{fN(x.exc)} h de más</small>}
     </button>; };
-  return <div className="view oc-view">{cab}{tira}
+  return <div className="view oc-view">{cab}{!compacto && tira}
     <section><div className="sec-h"><div className="row"><Av o={o} i={S.operarios.indexOf(o)} /><h2>{o.nombre}</h2></div>
       <div className="row"><button className="btn sm" onClick={() => irMes(antes(mes))} aria-label="Mes anterior">‹</button><input type="month" value={mes} onChange={e => e.target.value && irMes(e.target.value)} aria-label="Mes" /><button className="btn sm" onClick={() => irMes(E.mesSig(mes))} aria-label="Mes siguiente">›</button>{mes !== hoy.slice(0, 7) && <button className="btn sm" onClick={() => irMes(hoy.slice(0, 7))}>Este mes</button>}
         {pm.admin && <button className="btn pri-b" onClick={nuevaAsig} title="Asignar horas a mano a un destino (viajes, vacaciones, datos sin cargar)">+ Carga global</button>}</div></div>
@@ -3462,14 +3463,19 @@ function PlanMenuDlg({ onClose }) {
 }
 function PlanificarDlg({ proyId, alcance, onClose, sel, opsIni }) {
   const { S, up, ui } = useApp(); const p = S.proyectos.find(x => x.id === proyId);
-  const [hs, setHs] = useState({}); const [todas, setTodas] = useState(false); const [op, setOp] = useState(''); const [forz, setForz] = useState({}); const [opsSel, setOpsSel] = useState(opsIni || []);
+  const [hs, setHs] = useState({}); const [todas, setTodas] = useState(false); const [op, setOp] = useState(''); const [forz, setForz] = useState({}); const [opsSel, setOpsSel] = useState(opsIni || []); const [calSel, setCalSel] = useState(null);
   const run = (s, h) => { const o = { todas, op, forzar: forz, operarios: opsSel }; return alcance === 'rep' ? E.planificarRepuestos(s, h, o) : alcance === 'pv' ? E.planificarPV(s, h, o) : alcance === 'tl' ? E.planificarTL(s, h, o) : alcance === 'todo' ? E.planificarTodo(s, h, o) : alcance === 'sel' ? E.planificarSeleccion(s, sel || {}, h, o) : E.planificarProyecto(s, proyId, h, o); };
   const horas = useMemo(() => { const o = {}; Object.entries(hs).forEach(([k, v]) => { const n = Number(String(v).replace(',', '.')); if (n > 0) o[k] = n; }); return o; }, [hs]);
   const r = useMemo(() => run(S, horas), [S, proyId, alcance, sel, horas, todas, op, forz, opsSel]);
   const aplicar = () => { let n = 0; up(s => { const x = run(s, horas); n = x.plan.length; return n ? x.S : s; }); ui.toast(n ? `Plan aplicado: ${n} ${n === 1 ? 'pieza' : 'piezas'} en el Gantt. Podés deshacerlo.` : 'No había nada para planificar'); onClose(); };
   const lista = x => S.operarios.filter(o => o.activo).map(o => ({ o, n: o.op1 === x.opId ? 1 : o.op2 === x.opId ? 2 : 3 })).sort((a, b) => a.n - b.n || a.o.nombre.localeCompare(b.o.nombre));
   const orig = { cargada: 'cargada ahora', manual: 'cargada', promedio: 'promedio' };
+  // calendario a la derecha: el operario elegido (o el primero del plan), con su estado planificado en vivo
+  const Vplan = useMemo(() => E.derive(r.S), [r]);
+  const calOp = (calSel && opsSel.includes(calSel) ? calSel : null) || opsSel[0] || (r.plan[0] ? r.plan[0].op : null);
+  const mesPlan = r.plan.length ? r.plan.reduce((a, x) => x.ini.slice(0, 10) < a ? x.ini.slice(0, 10) : a, '9999').slice(0, 7) : undefined;
   return <Modal title={alcance === 'rep' ? 'Planificar repuestos' : alcance === 'pv' ? 'Planificar todos los casos de Post Venta' : alcance === 'tl' ? 'Planificar todos los trabajos de Taller' : alcance === 'todo' ? 'Planificar todo' : alcance === 'sel' ? 'Planificar los elegidos' : 'Planificar proyecto' + (p ? ' · ' + p.nombre : '')} onClose={onClose} wide foot={<><button className="btn canc-b" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!r.plan.length || r.faltan.length > 0} onClick={aplicar}>Aplicar plan</button></>}>
+    <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}><div style={{ flex: calOp ? '0 0 440px' : '1 1 100%', minWidth: 0 }}>
     <label className="row">Operación<select value={op} onChange={e => setOp(e.target.value)} aria-label="Operación a planificar"><option value="">Todas las operaciones</option>{S.operaciones.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select></label>
     <div className="row wrap"><span className="mut">Solo estos operarios (si no marcás ninguno, van todos)</span>{S.operarios.filter(o => o.activo).map(o => <button key={o.id} className={'togb' + (opsSel.includes(o.id) ? ' on' : '')} onClick={() => setOpsSel(opsSel.includes(o.id) ? opsSel.filter(x => x !== o.id) : [...opsSel, o.id])}>{o.nombre}</button>)}</div>
     <label className="row"><input type="checkbox" checked={todas} onChange={e => setTodas(e.target.checked)} /> Volver a planificar también las piezas que ya tienen día y operario</label>
@@ -3482,6 +3488,12 @@ function PlanificarDlg({ proyId, alcance, onClose, sel, opsIni }) {
       <div className="tbl-w"><table className="tbl"><thead><tr><th>Pieza</th><th>Operario</th><th>Inicio</th><th>Fin</th><th>Horas</th></tr></thead>
         <tbody>{r.plan.map(x => <tr key={x.id}><td>{x.nombre}</td><td><select value={x.op} onChange={e => setForz({ ...forz, [x.id]: e.target.value })} aria-label={'Operario de ' + x.nombre}>{lista(x).map(({ o, n }) => <option key={o.id} value={o.id}>{o.nombre}{n === 2 ? ' (sec.)' : n === 3 ? ' · sin esa operación' : ''}</option>)}</select>{forz[x.id] && <small className="mut"> a mano</small>}</td><td>{fDT(x.ini)}</td><td>{fDT(x.fin)}</td><td>{fN(x.hh)} <small className="mut">{orig[x.origen]}</small></td></tr>)}</tbody></table></div></>}
     {!r.plan.length && !r.faltan.length && !r.noPudo.length && <p className="mut">No hay piezas pendientes sin planificar{op ? ' de esa operación' : ''}{todas ? '' : ' (las que ya tienen día y operario no se tocan)'}.</p>}
+    </div>
+    {calOp && <div className="plan-cal" style={{ flex: '1 1 0', minWidth: 0, maxHeight: '72vh', overflow: 'auto' }}>
+      {opsSel.length > 1 && <div className="row wrap">{opsSel.map(id => <button key={id} className={'togb' + (id === calOp ? ' on' : '')} onClick={() => setCalSel(id)}>{(S.operarios.find(x => x.id === id) || {}).nombre}</button>)}</div>}
+      <CalOperarios compacto cab={null} S={r.S} V={Vplan} opFija={calOp} mesIni={mesPlan} />
+    </div>}
+    </div>
   </Modal>;
 }
 /* ================= ESTADÍSTICAS ================= */

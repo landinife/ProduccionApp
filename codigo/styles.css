@@ -1444,6 +1444,7 @@ select.ci.est.e-proximo { background: transparent; }
 @media (max-width: 760px) { .fichad .dos { grid-template-columns: 1fr; } .matb { min-width: 44px; padding: 0 8px; } }
 .fichad-tipo { display: flex; flex-wrap: wrap; gap: 6px; } .fichad-tipo .togb { cursor: pointer; flex-direction: row; }
 .modal.wide:has(.matv) { width: min(100%, 1080px); }
+.modal.wide:has(.plan-cal) { width: min(100%, 1180px); }
 .tmat td:nth-child(2), .matdet .tdg td:first-child, .matdet .tdg td:nth-child(2) { white-space: normal; min-width: 180px; }
 .tmat .tag { margin-left: 6px; }
 @media (max-width: 760px) {
