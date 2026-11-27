@@ -343,34 +343,46 @@ function FrenarDlg({ id, pausa, onClose }) {
       <p className="mut">Lo hecho hasta ahora queda cerrado con su tiempo. Lo que falta queda como una parte nueva de la misma pieza: la pieza suma las horas de todas sus partes para el promedio y el costo.</p></>}
   </Modal>, document.body);
 }
-// Corte de material (24/11): suma una parte "(corte)" a la misma pieza, sin código nuevo (E.agregarCorte)
-function CorteDlg({ id, onClose }) {
+// Nuevo proceso (27/11): suma una parte de otra operación a la misma pieza (E.agregarProceso). Si el proceso es un corte,
+// usa E.agregarCorte (con la opción de restar esas horas de lo planificado). Cada proceso tiene su operario, sus horas y su tarifa.
+function ProcesoDlg({ id, onClose }) {
   const { S, up, ui } = useApp();
   const t0 = S.tareas.find(x => x.id === id), t = t0 && t0.parte ? S.tareas.find(x => x.id === t0.parentId) : t0;
-  const sug = t ? E.corteSug(S, t) : null;
-  const [ops, setOps] = useState([]); const [hh, setHh] = useState(() => sug ? sug.hh : 0.5);
+  const [opId, setOpId] = useState(''); const [ops, setOps] = useState([]); const [hh, setHh] = useState(1);
   const [hecho, setHecho] = useState(false); const [dia, setDia] = useState(E.today()); const [hora, setHora] = useState('');
-  const abierta = t && (t.partes ? S.tareas.some(x => x.parentId === t.id && !x.corte && x.estado !== 'terminada' && Number(x.hh) > hh) : t.estado !== 'terminada' && Number(t.hh) > hh);
   const [restar, setRestar] = useState(true);
   if (!t || !E.puedeCorte(S, t)) return null;
   const base = E.nomBase(t.nombre), cant = Math.max(1, Number(t.cant) || 1);
+  const opNom = opId ? operName(S, opId) : '';
+  const esCorte = !!opId && /corte/i.test(opNom);
+  const abierta = t.partes ? S.tareas.some(x => x.parentId === t.id && !x.corte && x.estado !== 'terminada' && Number(x.hh) > hh) : t.estado !== 'terminada' && Number(t.hh) > hh;
   const tog = o => setOps(p => p.includes(o) ? p.filter(x => x !== o) : [...p, o]);
+  const vh = opId ? E.valorHora(S, t.nombre, opId) : null;
+  const opsDe = opId ? S.operarios.filter(o => o.activo && (o.op1 === opId || o.op2 === opId)) : [];
   const ok = () => {
-    if (!(hh > 0)) { ui.toast('Poné las horas del corte'); return; }
-    if (hecho && !ops.length) { ui.toast('Elegí quién hizo el corte'); return; }
-    if (hecho && !dia) { ui.toast('Elegí el día del corte'); return; }
+    if (!opId) { ui.toast('Elegí el proceso'); return; }
+    if (!(hh > 0)) { ui.toast('Poné las horas de este proceso'); return; }
+    if (hecho && !ops.length) { ui.toast('Elegí quién lo hizo'); return; }
+    if (hecho && !dia) { ui.toast('Elegí el día'); return; }
     const inicio = dia && (hecho || hora || dia !== E.today()) ? dia + 'T' + (hora || '00:00') : null;
-    let ini = null; up(s => { const s2 = E.agregarCorte(s, t.id, { ops, hh, inicio, hecho, restar: restar && !!abierta }); const c = s2.tareas.find(x => x.corte && x.parentId === t.id && !s.tareas.some(y => y.id === x.id)); ini = c && c.inicio; return s2; });
-    ui.toast(hecho ? `Corte cargado: ${fHM(hh)} de ${ops.map(o => opName(S, o)).join(', ')}` : ini ? `Corte agregado: empieza ${fDT(ini)}` : 'Corte agregado sin operario: queda en "Tareas para darle"'); onClose(); };
-  return createPortal(<Modal title={'✂ Agregar corte · ' + base} onClose={onClose} foot={<><span className="sp" /><button className="btn canc-b" onClick={onClose}>Cancelar</button><button className="btn pri-b" onClick={ok}>✂ Agregar corte</button></>}>
-    <p className="mut">El corte queda como una parte más de esta pieza (mismo código, sin codificar nada nuevo), con su operario y su tiempo. Las horas de la pieza son la suma del corte y el resto del trabajo. No hace falta que el corte termine para que arranque el torno.</p>
+    if (esCorte) {
+      up(s => E.agregarCorte(s, t.id, { ops, hh, inicio, hecho, restar: restar && abierta }));
+      ui.toast(hecho ? `Corte cargado: ${fHM(hh)} de ${ops.map(o => opName(S, o)).join(', ')}` : 'Corte agregado a la pieza');
+    } else {
+      up(s => E.agregarProceso(s, t.id, { operacionId: opId, ops, hh, inicio, hecho }));
+      ui.toast(`Proceso agregado: ${opNom}. Arranca después de la parte anterior.`);
+    }
+    onClose(); };
+  return createPortal(<Modal title={'⚙ Nuevo proceso · ' + base} onClose={onClose} foot={<><span className="sp" /><button className="btn canc-b" onClick={onClose}>Cancelar</button><button className="btn pri-b" onClick={ok}>⚙ Agregar proceso</button></>}>
+    <p className="mut">Suma una parte de otro proceso a esta pieza, con el mismo código: por ejemplo, fresado después de tornería, o un corte de material. Cada proceso tiene su operario, sus horas y su tarifa, y arranca cuando termina el anterior.</p>
+    <label className="fld">Proceso<select value={opId} onChange={e => { setOpId(e.target.value); setOps([]); }} aria-label="Proceso"><option value="">Elegí el proceso…</option>{S.operaciones.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select></label>
+    {opId && !esCorte && <small className="hint">{vh ? `Tarifa: US$ ${fN(vh.valor)} por hora` : 'Este proceso no tiene tarifa cargada: el costo quedará incompleto.'}</small>}
+    <div className="fld"><span>{hecho ? 'Quién lo hizo' : '¿Quién lo hace?'}{!hecho && <small className="mut"> (opcional)</small>}{opId && !opsDe.length && <small className="mut"> · ningún operario tiene este proceso cargado; se muestran todos</small>}</span>
+      <div className="togs">{(opsDe.length ? opsDe : S.operarios.filter(o => o.activo)).map(o => <button key={o.id} type="button" className={'togb' + (ops.includes(o.id) ? ' on' : '')} onClick={() => tog(o.id)}>{o.nombre}</button>)}</div></div>
+    <div className="fld"><span>{hecho ? 'Horas reales de este proceso' : 'Horas planificadas de este proceso'}</span><HM value={hh} onChange={setHh} cant={cant} titulo="Horas de este proceso" /></div>
     <div className="fld"><span>¿Ya se hizo?</span><div className="seg"><button type="button" className={!hecho ? 'on' : ''} onClick={() => setHecho(false)}>Por hacer</button><button type="button" className={hecho ? 'on' : ''} onClick={() => setHecho(true)}>Ya se hizo</button></div></div>
-    <div className="fld"><span>¿Quién corta?{!hecho && <small className="mut"> (opcional)</small>}</span><div className="togs">{S.operarios.filter(o => o.activo || ops.includes(o.id)).map(o => <button key={o.id} type="button" className={'togb' + (ops.includes(o.id) ? ' on' : '')} onClick={() => tog(o.id)}>{o.nombre}</button>)}</div></div>
-    <div className="fld"><span>{hecho ? 'Horas reales del corte (horas-hombre)' : 'Horas planificadas del corte (horas-hombre)'}</span><HM value={hh} onChange={setHh} cant={cant} titulo="Horas del corte" />
-      <small className="hint">{sug ? `Promedio de ${sug.n} ${sug.n === 1 ? 'corte' : 'cortes'} anteriores de esta pieza: ${fHM(sug.porUnidad)} por unidad × ${fN(cant)} = ${fHM(sug.hh)}.` : `Para ${fN(cant)} ${cant === 1 ? 'unidad' : 'unidades'}. Todavía no hay cortes anteriores de esta pieza.`}</small></div>
-    {(hecho || ops.length > 0) && <label className="fld">{hecho ? 'Día del corte' : 'Desde (opcional)'}<span className="row"><input type="date" value={dia} max={hecho ? E.today() : undefined} onChange={e => setDia(e.target.value)} /><input type="time" value={hora} aria-label="Hora" onChange={e => setHora(e.target.value)} /></span>
-      <small className="hint">{hecho ? 'La hora es opcional: sin hora, desde que empieza la jornada.' : 'Si lo dejás en hoy y sin hora, se pega detrás de lo que el operario tiene abierto. Podés poner un día anterior para cortar antes de que arranque el torno.'}</small></label>}
-    {abierta && <label className="chk"><input type="checkbox" checked={restar} onChange={e => setRestar(e.target.checked)} /> Restar estas horas de lo planificado de la pieza (si su tiempo ya incluía el corte, como el tiempo estándar del historial)</label>}
+    <label className="fld">{hecho ? 'Día' : 'Desde (opcional)'}<span className="row"><input type="date" value={dia} max={hecho ? E.today() : undefined} onChange={e => setDia(e.target.value)} /><input type="time" value={hora} aria-label="Hora" onChange={e => setHora(e.target.value)} /></span></label>
+    {esCorte && abierta && <label className="chk"><input type="checkbox" checked={restar} onChange={e => setRestar(e.target.checked)} /> Restar estas horas de lo planificado de la pieza (si su tiempo ya incluía el corte, como el tiempo estándar del historial)</label>}
   </Modal>, document.body);
 }
 function RetomarDlg({ id, onClose }) {
@@ -943,7 +955,7 @@ function TaskTable({ roots, tipo, vis, collapsed, toggle, orden, universo }) {
       ...(!r.parent && E.esPend(t) ? [{ ic: '⏭', txt: prox ? 'Quitar de Próximo a realizar' : 'Marcar como Próximo a realizar', on: prox, fn: () => { up(s => E.setProximo(s, t.id, !prox)); ui.toast(!prox ? 'Marcada como Próximo a realizar' : 'Quitada de Próximo a realizar'); } }] : []),
       { ic: '＋', txt: 'Agregar hijo', fn: () => ui.modal({ k: 'task', draft: { ...E.blankTask(t.tipo, t.proyId), parentId: t.id, prioridad: t.prioridad } }) },
       { ic: '⧉', txt: 'Duplicar', fn: () => { up(s => E.dupTask(s, t.id)); ui.toast('Duplicada'); } },
-      ...(E.puedeCorte(S, t) ? [{ ic: '✂', txt: 'Agregar corte de material', fn: () => ui.modal({ k: 'corte', id: t.id }) }] : []),
+      ...(E.puedeCorte(S, t) ? [{ ic: '⚙', txt: 'Nuevo proceso', fn: () => ui.modal({ k: 'proceso', id: t.id }) }] : []),
       ...(t.nombre && !E.esGrupo(S, t) ? [{ ic: '▦', txt: 'Ficha de material', fn: () => ui.ficha({ key: E.claveCod(t.nombre.replace(/\s*\(parte \d+\)\s*$/i, '')), nombre: t.nombre }) }] : []),
       ...(orden && !so ? ['-', { ic: '▲', txt: 'Subir (orden manual)', queda: true, fn: () => mover(t, -1) }, { ic: '▼', txt: 'Bajar (orden manual)', queda: true, fn: () => mover(t, 1) }] : []),
       '-',
@@ -1728,7 +1740,7 @@ function TaskEditor({ id, draft, onClose }) {
     {!isNew && <button className="btn danger" onClick={() => ui.confirmar({ titulo: '¿Borrar la tarea?', texto: 'Se borra esta tarea. Podés deshacerlo arriba.', si: 'Sí, borrar', peligro: true, onSi: () => { up(s => E.delTask(s, id)); onClose(); ui.toast('Borrada. Podés deshacerlo arriba.'); } })}>Borrar</button>}
     {!isNew && <button className="btn" onClick={() => { up(s => E.dupTask(s, id)); onClose(); ui.toast('Duplicada'); }}>Duplicar</button>}
     {!isNew && !parent && orig.estado !== 'terminada' && (orig.frenada ? <button className="btn pri-b" onClick={() => ui.modal({ k: 'retomar', id })}>Retomar</button> : <button className="btn warn-b" title="Para el trabajo por días: lo hecho queda cerrado y lo que falta queda frenado" onClick={() => ui.modal({ k: 'frenar', id })}>Frenar</button>)}
-    {!isNew && E.puedeCorte(S, orig) && <button className="btn" title="Suma el corte de material como una parte más de esta pieza (mismo código), con su operario y su tiempo" onClick={() => ui.modal({ k: 'corte', id })}>✂ Agregar corte</button>}
+    {!isNew && E.puedeCorte(S, orig) && <button className="btn" title="Suma una parte de otro proceso a la pieza (por ejemplo fresado después de tornería, o un corte de material), con su operario, sus horas y su tarifa" onClick={() => ui.modal({ k: 'proceso', id })}>⚙ Nuevo proceso</button>}
     {!isNew && !parent && orig.estado !== 'terminada' && <button className="btn terc-b" title="La pieza la hace un proveedor: queda finalizada y tercerizada, sin ocupar planta" onClick={() => ui.modal({ k: 'tercerizar', id })}>↗ Tercerizar</button>}
     {!isNew && !parent && orig.tercerizada && <button className="btn" title="Deshace la tercerización: la pieza vuelve a pendiente y se reprograma en planta" onClick={() => { up(s => E.volverAPlanta(s, id)); ui.toast('Volvió a planta: quedó pendiente y reprogramada'); onClose(); }}>↩ Volver a planta</button>}
     <span className="sp" /><button className="btn canc-b" onClick={onClose}>Cancelar</button><button className="btn pri-b" data-enter onClick={() => save()}>Guardar</button></>;
@@ -3736,7 +3748,7 @@ export function App({ db, ses, S0 }) {
       {modal && modal.k === 'frenar' && <FrenarDlg id={modal.id} pausa={false} onClose={close} />}
       {modal && modal.k === 'tercerizar' && <TercerizarDlg id={modal.id} ids={modal.ids} onClose={close} />}
       {modal && modal.k === 'retomar' && <RetomarDlg id={modal.id} onClose={close} />}
-      {modal && modal.k === 'corte' && <CorteDlg id={modal.id} onClose={close} />}
+      {modal && modal.k === 'proceso' && <ProcesoDlg id={modal.id} onClose={close} />}
       {modal && modal.k === 'meter' && <MeterDlg {...modal} onClose={close} />}
       {modal && modal.k === 'extras' && <ExtrasAviso ids={modal.ids} onClose={close} />}
       {aviso && <ExtrasAviso ids={aviso} onClose={() => setAviso(null)} />}

@@ -678,6 +678,32 @@ export function agregarCorte(S, id, { ops = [], hh = 0, inicio = null, hecho = f
   const S2 = { ...S, tareas };
   return c.inicio && c.estado !== 'terminada' ? reflow(S2, cid) : S2;
 }
+// Otro proceso (27/11): suma una parte de otra operación a la misma pieza (por ejemplo fresado después de tornería), igual que el corte,
+// pero con su operación, sus operarios, sus horas y su tarifa. Arranca después de la parte anterior (preds).
+export function agregarProceso(S, id, { operacionId = '', ops = [], hh = 0, inicio = null, hecho = false } = {}) {
+  let t = S.tareas.find(x => x.id === id); if (t && t.parte) t = S.tareas.find(x => x.id === t.parentId);
+  if (!puedeCorte(S, t) || !operacionId) return S;
+  const H = r2(Math.max(0, Number(hh) || 0)), turno = t.turno === 'ambos' ? 'normal' : (t.turno || 'normal'), n = Math.max(1, ops.length), cid = uid(), base = nomBase(t.nombre);
+  const opN = (S.operaciones.find(o => o.id === operacionId) || {}).nombre || 'Otro proceso';
+  let S1 = S, prevId = null;
+  if (t.partes) { const ps = S.tareas.filter(x => x.parentId === t.id && x.parte && !x.corte); prevId = ps.length ? ps[ps.length - 1].id : null; }
+  else {   // pieza sin partes: su proceso actual pasa a ser la parte 1 y el nuevo proceso va detrás
+    const mec = { ...t, id: uid(), parentId: t.id, nombre: `${base} (parte 1)`, preds: [], partes: false, parte: true };
+    S1 = { ...S, tareas: S.tareas.map(x => x.id === t.id ? { ...x, partes: true, crono: null, pausada: false, frenada: null, empuje: null } : x).concat(mec) };
+    prevId = mec.id;
+  }
+  const c = { ...t, id: cid, parentId: t.id, nombre: `${base} (${opN})`, operacionId, ops, turno, hh: H, parte: true, proceso: true, corte: false, partes: false, agrupa: false, preds: prevId ? [prevId] : [], empuje: null,
+    pausada: false, frenada: null, frenoHist: null, tercerizada: false, sinFecha: false, proximo: null, manual: false, realFin: false, opAuto: false, hhCat: null, hhExtra: 0, material: '', peso: null, avance: 0, hhReal: 0, finReal: null, crono: null, estado: 'pendiente', inicio: null };
+  if (hecho) {
+    const ini = ops.length && inicio ? normStart(S1, inicio, turno, ops) : inicio || null;
+    Object.assign(c, { estado: 'terminada', avance: 100, hhReal: H, crono: { acum: H, desde: null }, inicio: ini, finReal: ini && ops.length ? addWork(S1, ini, H / n, turno, ops).end : (ini || nowDT()) });
+  } else if (ops.length) {
+    if (inicio) c.inicio = normStart(S1, inicio, turno, ops);
+    else { const pg = pegadoA(S1, ops, turno, null, c); c.inicio = pg ? pg.ini : nextFree(S1, ops[0], turno, ops, c); }
+  }
+  const S2 = { ...S1, tareas: S1.tareas.concat(c) };
+  return c.inicio && c.estado !== 'terminada' ? reflow(S2, cid) : S2;
+}
 // En qué turno está trabajando ahora ese grupo de operarios (null si están fuera de horario)
 export function turnoAhora(S, ops, dt) {
   const [d, m] = split(dt || nowDT());
