@@ -380,7 +380,7 @@ export function unassign(S, id, op) {
 }
 // Clase de un proyecto: proyecto común, caso de Post Venta (pv) o caso de Taller (tl, trabajos para el propio taller)
 export const claseP = p => !p ? 'proy' : p.pv ? 'pv' : p.tl ? 'tl' : 'proy';
-export const blankTask = (tipo, proyId, pv) => ({ id: uid(), tipo, proyId: proyId || null, parentId: null, orden: '', cliente: '', entrega: '', creada: today(), codigo: '', nombre: '', cant: 1, prioridad: 'media', operacionId: '', ops: [], turno: 'normal', inicio: null, hh: 9, estado: 'pendiente', avance: 0, hhReal: 0, finReal: null, preds: [], empuje: null, ...(pv ? { origen: 'fabricada', motivo: '', cantEnv: 0, fechaEnvio: '', remito: '', destinatario: '', remitoOk: false } : {}) });
+export const blankTask = (tipo, proyId, pv) => ({ id: uid(), tipo, proyId: proyId || null, parentId: null, orden: '', cliente: '', entrega: '', creada: today(), codigo: '', nombre: '', cant: 1, prioridad: 'media', operacionId: '', ops: [], turno: 'normal', inicio: null, hh: 0, estado: 'pendiente', avance: 0, hhReal: 0, finReal: null, preds: [], empuje: null, ...(pv ? { origen: 'fabricada', motivo: '', cantEnv: 0, fechaEnvio: '', remito: '', destinatario: '', remitoOk: false } : {}) });
 
 // Habilita horas extra (para trabajo aparte) a los operarios de una tarea en turno extra, día por día desde su inicio, hasta que entre
 export function habilitarExtras(S, id, h, soloDias) {
@@ -1187,16 +1187,20 @@ export const planificarProyecto = (S, proyId, horas, opts) => planificarGrupo(S,
 export const planificarRepuestos = (S, horas, opts) => planificarGrupo(S, t => t.tipo === 'rep', horas, opts);
 export const planificarPV = (S, horas, opts) => { const ids = new Set((S.proyectos || []).filter(p => p.pv).map(p => p.id)); return planificarGrupo(S, t => t.tipo === 'proy' && ids.has(t.proyId), horas, opts); };
 export const planificarTL = (S, horas, opts) => { const ids = new Set((S.proyectos || []).filter(p => p.tl).map(p => p.id)); return planificarGrupo(S, t => t.tipo === 'proy' && ids.has(t.proyId), horas, opts); };
+// Planificar todo (repuestos, proyectos, post venta y taller) y una selección: repuestos (sel.rep) y los proyectos de sel.proyIds (27/11)
+export const planificarTodo = (S, horas, opts) => planificarGrupo(S, t => t.tipo === 'rep' || t.tipo === 'proy', horas, opts);
+export const planificarSeleccion = (S, sel, horas, opts) => planificarGrupo(S, t => (sel.rep && t.tipo === 'rep') || (t.tipo === 'proy' && (sel.proyIds || []).includes(t.proyId)), horas, opts);
 export function planificarGrupo(S, filtro, horas = {}, opts = {}) {
   const c = idx(S), nomOp = id => (S.operaciones.find(o => o.id === id) || {}).nombre || '?';
   const opDeT = t => t.operacionId || autoCompletar(S, t, false).operacionId || '';
   // opts.op: si viene una operación, solo se planifican las piezas de esa operación (las demás no estorban)
-  const pend = S.tareas.filter(t => filtro(t) && isLeaf(S, t.id) && esPend(t) && !t.tercerizada && !estaFrenada(t) && !t.sinFecha && (opts.todas || !t.inicio || !t.ops.length) && (!opts.op || opDeT(t) === opts.op));
+  // opts.operarios (27/11): solo entran las piezas que alguno de los operarios elegidos puede hacer (su operación principal o secundaria)
+  const capaz = t => !(opts.operarios && opts.operarios.length) || S.operarios.some(o => opts.operarios.includes(o.id) && o.activo && (o.op1 === opDeT(t) || o.op2 === opDeT(t)));
+  const pend = S.tareas.filter(t => filtro(t) && isLeaf(S, t.id) && esPend(t) && !t.tercerizada && !estaFrenada(t) && !t.sinFecha && (opts.todas || !t.inicio || !t.ops.length) && (!opts.op || opDeT(t) === opts.op) && capaz(t));
   const faltan = [], noPudo = [], hhDe = {}, opDe = {}, origen = {}, elig = {};
   pend.forEach(t => {
     let h = Number(horas[t.id]); origen[t.id] = 'cargada';
     if (!(h > 0)) { h = Number(t.hh) || 0; origen[t.id] = 'manual'; }
-    if (!(h > 0)) { const hi = historial(S, t.nombre); if (hi) { h = Math.max(0.5, Math.round(hi.porUnidad * unidadesDe(t) * 2) / 2); origen[t.id] = 'promedio'; } }
     if (!(h > 0)) { faltan.push({ id: t.id, nombre: t.nombre, cant: t.cant || 1 }); return; }
     hhDe[t.id] = h;
     const op = t.operacionId || autoCompletar(S, t, false).operacionId || '';
@@ -1205,6 +1209,8 @@ export function planificarGrupo(S, filtro, horas = {}, opts = {}) {
     // opts.forzar: { idPieza: idOperario } fija el operario elegido a mano (aunque no tenga esa operación); el resto se recalcula alrededor
     const fz = opts.forzar && opts.forzar[t.id], of = fz && S.operarios.find(o => o.id === fz && o.activo);
     if (of) elig[t.id] = [{ o: of, nivel: of.op1 === op ? 1 : of.op2 === op ? 2 : 3 }];
+    // opts.operarios (27/11): solo se usan los operarios elegidos (si no hay un operario forzado a mano)
+    if (opts.operarios && opts.operarios.length && !of) elig[t.id] = elig[t.id].filter(e => opts.operarios.includes(e.o.id));
     if (!elig[t.id].length) noPudo.push({ id: t.id, nombre: t.nombre, motivo: op ? `nadie tiene "${nomOp(op)}" como operación` : 'no tiene operación' });
   });
   if (faltan.length) return { ok: false, S, plan: [], faltan, noPudo, fin: null };
@@ -1238,6 +1244,33 @@ export function planificarGrupo(S, filtro, horas = {}, opts = {}) {
   rest.forEach(id => { const t = S.tareas.find(x => x.id === id); noPudo.push({ id, nombre: t.nombre, motivo: 'depende de una pieza que no se pudo planificar (o hay un ciclo de dependencias)' }); });
   const fin = plan.reduce((a, x) => x.fin > a ? x.fin : a, '') || null;
   return { ok: !noPudo.length, S: W, plan, faltan: [], noPudo, avisos, fin };
+}
+
+// ---- Sugerencia de horas (27/11): solo propone; la aplica el usuario ----
+// Promedio de las piezas ya hechas de la misma familia de producto (historial), por la cantidad de la pieza.
+export function sugerirHoras(S, t) {
+  if (!t) return null; const hi = historial(S, t.nombre); if (!hi || !(hi.porUnidad > 0)) return null;
+  return { hh: Math.max(0.5, Math.round(hi.porUnidad * unidadesDe(t) * 2) / 2), fuente: hi.fam ? 'familia' : 'promedio' };
+}
+// ---- Programar operarios (27/11): reparte las tareas elegidas entre los operarios elegidos, una detrás de otra ----
+// Cada tarea va al operario que la termina antes (detrás de lo que ya tiene abierto). Una tarea sin horas no se programa.
+export function programarOperarios(S, ids, opIds, turno) {
+  const ops = (opIds || []).filter(o => S.operarios.some(x => x.id === o && x.activo));
+  const plan = [], noPudo = []; let W = S;
+  if (!ops.length) return { ok: false, S, plan, noPudo: [{ id: null, nombre: '', motivo: 'Elegí al menos un operario' }], fin: null };
+  (ids || []).forEach(id => {
+    const t0 = W.tareas.find(x => x.id === id); if (!t0) return;
+    if (!isLeaf(W, id) || !esPend(t0) || t0.tercerizada || estaFrenada(t0)) { noPudo.push({ id, nombre: t0.nombre, motivo: 'no está pendiente o es un grupo' }); return; }
+    const h = Number(t0.hh) || 0;
+    if (!(h > 0)) { noPudo.push({ id, nombre: t0.nombre, motivo: 'no tiene horas: cargalas o aplicá la sugerencia' }); return; }
+    const tu = turno || t0.turno || 'normal'; let best = null;
+    ops.forEach(o => { const ini = nextFree(W, o, tu, [o], t0); const w = addWork(W, ini, h, tu, [o]); if (!w.ok) return; if (!best || w.end < best.fin) best = { o, ini, fin: w.end }; });
+    if (!best) { noPudo.push({ id, nombre: t0.nombre, motivo: 'no entra en el calendario de esos operarios' }); return; }
+    W = { ...W, tareas: W.tareas.map(x => x.id === id ? { ...x, ops: [best.o], inicio: best.ini, turno: tu } : x) };
+    plan.push({ id, nombre: t0.nombre, op: best.o, opNombre: (S.operarios.find(x => x.id === best.o) || {}).nombre || '', ini: best.ini, fin: best.fin, hh: h });
+  });
+  const fin = plan.reduce((a, x) => x.fin > a ? x.fin : a, '') || null;
+  return { ok: !noPudo.length, S: W, plan, noPudo, fin };
 }
 
 // ---- Métricas ----

@@ -2145,12 +2145,42 @@ function Taller({ cab }) {
 
 /* ================= OPERARIOS: trabajo del día y calendario mensual ================= */
 // La pestaña se llamaba "Taller". Los que planifican ven además el calendario mensual de cada operario (control de carga).
+// Programar operarios (27/11): elegís operarios y tareas; la app las reparte una detrás de otra hasta donde llegan. Sin horas, no se programa.
+function ProgramarOpDlg({ onClose }) {
+  const { S, up, ui } = useApp();
+  const [opIds, setOpIds] = useState([]); const [sel, setSel] = useState([]); const [hs, setHs] = useState({}); const [turno, setTurno] = useState('normal');
+  const ops = S.operarios.filter(o => o.activo);
+  const cands = useMemo(() => S.tareas.filter(t => E.isLeaf(S, t.id) && E.esPend(t) && !t.tercerizada && !E.estaFrenada(t)).sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''))), [S.tareas]);
+  const hhOf = t => hs[t.id] !== undefined && String(hs[t.id]).trim() !== '' ? (Number(String(hs[t.id]).replace(',', '.')) || 0) : (Number(t.hh) || 0);
+  const aplicarHs = t => hs[t.id] !== undefined && String(hs[t.id]).trim() !== '' ? { ...t, hh: hhOf(t) } : t;
+  const r = useMemo(() => E.programarOperarios({ ...S, tareas: S.tareas.map(t => aplicarHs(t)) }, sel, opIds, turno), [S, hs, sel, opIds, turno]);
+  const aplicar = () => { const n = r.plan.length; up(s => E.programarOperarios({ ...s, tareas: s.tareas.map(t => aplicarHs(t)) }, sel, opIds, turno).S); ui.toast(n ? `Programadas ${n} ${n === 1 ? 'tarea' : 'tareas'}. Las ves en Calendario mensual.` : 'No se programó nada'); onClose(); };
+  const togg = (arr, set, id) => set(arr.includes(id) ? arr.filter(x => x !== id) : [...arr, id]);
+  // días entre la primera y la última tarea del plan, en UTC para no mover fechas
+  const dias = useMemo(() => { if (!r.plan.length) return []; const ini = r.plan.reduce((a, x) => x.ini.slice(0, 10) < a ? x.ini.slice(0, 10) : a, '9999'), fin = r.plan.reduce((a, x) => x.fin.slice(0, 10) > a ? x.fin.slice(0, 10) : a, ''); const out = []; let t = Date.parse(ini + 'T00:00:00Z'), e = Date.parse(fin + 'T00:00:00Z'); for (let g = 0; t <= e && g < 62; g++, t += 86400000) out.push(new Date(t).toISOString().slice(0, 10)); return out; }, [r]);
+  const opsSel = ops.filter(o => opIds.includes(o.id));
+  return <Modal title="Programar operarios" onClose={onClose} wide foot={<><button className="btn" onClick={onClose}>Cancelar</button><button className="btn ok-b" disabled={!r.plan.length} onClick={aplicar}>Programar {r.plan.length ? `${r.plan.length} ${r.plan.length === 1 ? 'tarea' : 'tareas'}` : ''}</button></>}>
+    <p className="mut">1) Elegí operarios. 2) Marcá las tareas. 3) Cargá o aplicá las horas (la sugerencia no se aplica sola). La app reparte cada tarea al operario que la termina antes, detrás de lo que ya tiene.</p>
+    <div className="row wrap"><span className="mut">Operarios</span>{ops.map(o => <button key={o.id} className={'togb' + (opIds.includes(o.id) ? ' on' : '')} onClick={() => togg(opIds, setOpIds, o.id)}>{o.nombre}</button>)}</div>
+    <label className="row">Turno<select value={turno} onChange={e => setTurno(e.target.value)} aria-label="Turno"><option value="normal">Normal</option><option value="extra">Horas extra</option><option value="ambos">Normal + extras</option></select></label>
+    <div className="tbl-w" style={{ maxHeight: 280, overflow: 'auto' }}>{cands.length === 0 && <p className="mut">No hay tareas pendientes para programar.</p>}
+      {cands.map(t => { const h = hhOf(t), sug = E.sugerirHoras(S, t); return <div key={t.id} className="row wrap">
+        <label className="row"><input type="checkbox" checked={sel.includes(t.id)} onChange={() => togg(sel, setSel, t.id)} /> {t.nombre}{t.cant > 1 ? ` (x${t.cant})` : ''}</label>
+        <input inputMode="decimal" style={{ width: 80 }} placeholder="horas" aria-label={'Horas de ' + t.nombre} value={hs[t.id] !== undefined ? hs[t.id] : (Number(t.hh) > 0 ? t.hh : '')} onChange={e => setHs({ ...hs, [t.id]: e.target.value })} />
+        {!h && <span className="tag">sin horas</span>}
+        {sug && <button className="lnk" onClick={() => setHs({ ...hs, [t.id]: String(sug.hh) })}>Sugerir {fHM(sug.hh)} ({sug.fuente === 'familia' ? 'familia' : 'promedio'})</button>}
+      </div>; })}</div>
+    {r.noPudo.length > 0 && <div className="aviso-b"><b>No se programan:</b>{r.noPudo.map((x, i) => <p key={i} className="mut">• {x.nombre ? x.nombre + ': ' : ''}{x.motivo}</p>)}</div>}
+    {r.plan.length > 0 && <div className="tbl-w"><table className="tbl"><thead><tr><th>Operario</th>{dias.map(d => <th key={d}>{d.slice(8)}/{d.slice(5, 7)}</th>)}</tr></thead>
+      <tbody>{opsSel.map(o => <tr key={o.id}><td>{o.nombre}</td>{dias.map(d => <td key={d}>{r.plan.filter(x => x.op === o.id && x.ini.slice(0, 10) <= d && x.fin.slice(0, 10) >= d).map(x => <div key={x.id} className="mut" style={{ fontSize: '.8em' }}>{x.nombre}</div>)}</td>)}</tr>)}</tbody></table></div>}
+  </Modal>;
+}
 function Operarios() {
-  const { pm } = useApp(); const verCal = pm.admin || pm.rep || pm.proy;
+  const { pm } = useApp(); const verCal = pm.admin || pm.rep || pm.proy; const [prog, setProg] = useState(false);
   const [modo, setModo] = useState(() => { try { return localStorage.getItem(KEY + '-opmodo') || 'dia'; } catch (e) { return 'dia'; } });
   const cambiar = m => { setModo(m); try { localStorage.setItem(KEY + '-opmodo', m); } catch (e) { } };
-  const cab = verCal && <div className="seg opmodos">{[['dia', 'Trabajo del día', 'M12 7v5l3 2M12 3a9 9 0 100 18 9 9 0 000-18z'], ['cal', 'Calendario mensual', 'M4 6h16v14H4zM4 10h16M9 3v4M15 3v4']].map(([k, l, d]) => <button key={k} className={modo === k ? 'on' : ''} onClick={() => cambiar(k)}><svg viewBox="0 0 24 24"><path d={d} /></svg>{l}</button>)}</div>;
-  return verCal && modo === 'cal' ? <CalOperarios cab={cab} /> : <Taller cab={cab} />;
+  const cab = verCal && <><div className="seg opmodos">{[['dia', 'Trabajo del día', 'M12 7v5l3 2M12 3a9 9 0 100 18 9 9 0 000-18z'], ['cal', 'Calendario mensual', 'M4 6h16v14H4zM4 10h16M9 3v4M15 3v4']].map(([k, l, d]) => <button key={k} className={modo === k ? 'on' : ''} onClick={() => cambiar(k)}><svg viewBox="0 0 24 24"><path d={d} /></svg>{l}</button>)}</div><button className="btn ok-b" onClick={() => setProg(true)}>Programar operarios</button></>;
+  return <>{prog && <ProgramarOpDlg onClose={() => setProg(false)} />}{verCal && modo === 'cal' ? <CalOperarios cab={cab} /> : <Taller cab={cab} />}</>;
 }
 const TIPOS = ['proy', 'rep', 'pv', 'tl'];
 const ABR_EST = { proy: 'Proy.', rep: 'Rep.', pv: 'PV', tl: 'Taller' };
@@ -3376,17 +3406,72 @@ const TAB_DESC = { postventa: 'Casos y envíos', internos: 'Trabajos propios', o
 const AVC = ['#5cc8c0', '#e59a57', '#b08cf0', '#e37fa7', '#8fbf5a', '#6f9df5', '#d9c15a', '#d98a8a', '#58b7e8', '#c9a0dc'];
 const Av = ({ o, i, sm }) => <span className={'av' + (sm ? ' sm' : '')} style={{ '--c': AVC[i % AVC.length] }}>{(o.nombre || '?').trim().slice(0, 2).toUpperCase()}</span>;
 // Planificar un proyecto completo: reparte las piezas pendientes entre los operarios respetando dependencias y promedios
-function PlanificarDlg({ proyId, alcance, onClose }) {
+// Menú "Planificar" (27/11), junto al título: repuestos, proyectos y post venta (todos los activos o cada uno), o todo
+// Menú "Planificar" con vista tipo Explorador (27/11): árbol a la izquierda, contenido a la derecha; doble clic o Enter abren la planificación
+function PlanMenuDlg({ onClose }) {
+  const { S, ui } = useApp(); const act = S.proyectos.filter(p => !p.terminado);
+  const proy = act.filter(p => !p.pv && !p.tl), pvs = act.filter(p => p.pv);
+  const [nodo, setNodo] = useState('rep'); const [abiertos, setAbiertos] = useState({ proy: true, pv: true, ops: true });
+  const abre = m => ui.modal({ k: 'plan', ...m });
+  const pid = nodo.startsWith('p:') ? nodo.slice(2) : null, pSel = pid && S.proyectos.find(p => p.id === pid);
+  const itemDe = p => ({ alcance: 'proy', proyId: p.id });
+  const Fila = ({ k, icono, texto, nivel = 0, cuenta, onDoble, onFlecha }) => <div role="treeitem" aria-selected={nodo === k} tabIndex={0}
+    onClick={() => setNodo(k)} onDoubleClick={onDoble} onKeyDown={e => { if (e.key === 'Enter') onDoble(); }}
+    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px', paddingLeft: 8 + nivel * 18, borderRadius: 6, cursor: 'pointer', userSelect: 'none', background: nodo === k ? 'rgba(120,170,255,.22)' : 'transparent' }}>
+    {onFlecha ? <span onClick={e => { e.stopPropagation(); onFlecha(); }} style={{ width: 14, textAlign: 'center' }}>{onFlecha.abierto ? '▾' : '▸'}</span> : <span style={{ width: 14 }} />}
+    <span aria-hidden="true">{icono}</span><span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{texto}</span>
+    {cuenta != null && <small className="mut">{cuenta}</small>}</div>;
+  const carpeta = (k, titulo, lista) => { const ab = abiertos[k]; const f = () => setAbiertos({ ...abiertos, [k]: !ab }); f.abierto = ab;
+    return <>
+      <Fila k={k} icono={ab ? '📂' : '📁'} texto={titulo} cuenta={lista.length} onFlecha={f} onDoble={() => setNodo(k)} />
+      {ab && lista.map(p => <Fila key={p.id} k={'p:' + p.id} nivel={1} icono="🔧" texto={p.nombre} onDoble={() => abre(itemDe(p))} />)}
+    </>; };
+  const panel = () => {
+    if (nodo === 'rep') return <><h3>Repuestos</h3><p className="mut">Planifica todos los repuestos pendientes.</p><button className="btn ok-b" onClick={() => abre({ alcance: 'rep' })}>Planificar repuestos</button></>;
+    if (nodo === 'todo') return <><h3>Planificar todo</h3><p className="mut">Repuestos, proyectos, post venta y taller juntos. En la ventana siguiente podés elegir operarios o procesos.</p><button className="btn pri-b" onClick={() => abre({ alcance: 'todo' })}>Planificar todo</button></>;
+    if (nodo === 'proy' || nodo === 'pv') { const lista = nodo === 'proy' ? proy : pvs, titulo = nodo === 'proy' ? 'Proyectos' : 'Post Venta';
+      return <><h3>{titulo}</h3>{lista.length === 0 ? <p className="mut">No hay {titulo.toLowerCase()} activos.</p> : <>
+        <button className="btn ok-b" onClick={() => abre({ alcance: 'sel', sel: { rep: false, proyIds: lista.map(p => p.id) } })}>Planificar todos los activos ({lista.length})</button>
+        <div role="listbox" aria-label={titulo} style={{ marginTop: 10 }}>{lista.map(p => <div key={p.id} role="option" aria-selected={false} tabIndex={0} onDoubleClick={() => abre(itemDe(p))} onKeyDown={e => { if (e.key === 'Enter') abre(itemDe(p)); }} className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderBottom: '1px solid rgba(255,255,255,.08)' }}>
+          <span>🔧 {p.nombre}</span><button className="btn" onClick={() => abre(itemDe(p))}>Planificar</button></div>)}</div></>}</>; }
+    if (nodo === 'ops') { const ops = S.operarios.filter(o => o.activo);
+      return <><h3>Operarios</h3>{ops.length === 0 ? <p className="mut">No hay operarios activos.</p> : <>
+        <p className="mut">Elegí un operario: se planifican las piezas pendientes que puede hacer.</p>
+        <div role="listbox" aria-label="Operarios" style={{ marginTop: 10 }}>{ops.map(o => <div key={o.id} role="option" aria-selected={false} tabIndex={0} onDoubleClick={() => abre({ alcance: 'todo', opsIni: [o.id] })} className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderBottom: '1px solid rgba(255,255,255,.08)' }}>
+          <span>👷 {o.nombre}</span><button className="btn" onClick={() => abre({ alcance: 'todo', opsIni: [o.id] })}>Planificar</button></div>)}</div></>}</>; }
+    if (nodo.startsWith('op:')) { const o = S.operarios.find(x => x.id === nodo.slice(3));
+      return o ? <><h3>{o.nombre}</h3><p className="mut">Operaciones: {[o.op1, o.op2].filter(Boolean).map(id => operName(S, id)).join(' · ') || 'sin operación cargada'}</p><button className="btn ok-b" onClick={() => abre({ alcance: 'todo', opsIni: [o.id] })}>Planificar para {o.nombre}</button></> : null; }
+    if (pSel) return <><h3>{pSel.nombre}</h3><p className="mut">{pSel.pv ? 'Post Venta' : 'Proyecto'} · planifica solo las piezas de este caso.</p><button className="btn ok-b" onClick={() => abre(itemDe(pSel))}>Planificar este {pSel.pv ? 'caso' : 'proyecto'}</button></>;
+    return null; };
+  const opN = nodo.startsWith('op:') ? S.operarios.find(x => x.id === nodo.slice(3)) : null;
+  const ruta = nodo === 'rep' ? 'Repuestos' : nodo === 'todo' ? 'Todo' : nodo === 'ops' ? 'Operarios' : opN ? 'Operarios › ' + opN.nombre : nodo === 'proy' ? 'Proyectos' : nodo === 'pv' ? 'Post Venta' :`${pSel && pSel.pv ? 'Post Venta' : 'Proyectos'} › ${pSel ? pSel.nombre : ''}`;
+  return <Modal title={'Planificar · ' + ruta} onClose={onClose} wide>
+    <div style={{ display: 'flex', gap: 12, minHeight: 360 }}>
+      <nav role="tree" aria-label="Planificar" style={{ width: 280, flexShrink: 0, borderRight: '1px solid rgba(255,255,255,.1)', paddingRight: 8, overflow: 'auto', maxHeight: 460 }}>
+        <Fila k="rep" icono="📦" texto="Repuestos" onDoble={() => abre({ alcance: 'rep' })} />
+        {carpeta('proy', 'Proyectos', proy)}
+        {carpeta('pv', 'Post Venta', pvs)}
+        {(() => { const ab = abiertos.ops; const f = () => setAbiertos({ ...abiertos, ops: !ab }); f.abierto = ab; const ops = S.operarios.filter(o => o.activo);
+          return <><Fila k="ops" icono={ab ? '📂' : '📁'} texto="Operarios" cuenta={ops.length} onFlecha={f} onDoble={() => setNodo('ops')} />
+            {ab && ops.map(o => <Fila key={o.id} k={'op:' + o.id} nivel={1} icono="👷" texto={o.nombre} onDoble={() => abre({ alcance: 'todo', opsIni: [o.id] })} />)}</>; })()}
+        <Fila k="todo" icono="⚡" texto="Todo" onDoble={() => abre({ alcance: 'todo' })} />
+      </nav>
+      <section style={{ flex: 1, minWidth: 0, overflow: 'auto', maxHeight: 460 }}>{panel()}</section>
+    </div>
+  </Modal>;
+}
+function PlanificarDlg({ proyId, alcance, onClose, sel, opsIni }) {
   const { S, up, ui } = useApp(); const p = S.proyectos.find(x => x.id === proyId);
-  const [hs, setHs] = useState({}); const [todas, setTodas] = useState(false); const [op, setOp] = useState(''); const [forz, setForz] = useState({});
-  const run = (s, h) => alcance === 'rep' ? E.planificarRepuestos(s, h, { todas, op, forzar: forz }) : alcance === 'pv' ? E.planificarPV(s, h, { todas, op, forzar: forz }) : alcance === 'tl' ? E.planificarTL(s, h, { todas, op, forzar: forz }) : E.planificarProyecto(s, proyId, h, { todas, op, forzar: forz });
+  const [hs, setHs] = useState({}); const [todas, setTodas] = useState(false); const [op, setOp] = useState(''); const [forz, setForz] = useState({}); const [opsSel, setOpsSel] = useState(opsIni || []);
+  const run = (s, h) => { const o = { todas, op, forzar: forz, operarios: opsSel }; return alcance === 'rep' ? E.planificarRepuestos(s, h, o) : alcance === 'pv' ? E.planificarPV(s, h, o) : alcance === 'tl' ? E.planificarTL(s, h, o) : alcance === 'todo' ? E.planificarTodo(s, h, o) : alcance === 'sel' ? E.planificarSeleccion(s, sel || {}, h, o) : E.planificarProyecto(s, proyId, h, o); };
   const horas = useMemo(() => { const o = {}; Object.entries(hs).forEach(([k, v]) => { const n = Number(String(v).replace(',', '.')); if (n > 0) o[k] = n; }); return o; }, [hs]);
-  const r = useMemo(() => run(S, horas), [S, proyId, alcance, horas, todas, op, forz]);
+  const r = useMemo(() => run(S, horas), [S, proyId, alcance, sel, horas, todas, op, forz, opsSel]);
   const aplicar = () => { let n = 0; up(s => { const x = run(s, horas); n = x.plan.length; return n ? x.S : s; }); ui.toast(n ? `Plan aplicado: ${n} ${n === 1 ? 'pieza' : 'piezas'} en el Gantt. Podés deshacerlo.` : 'No había nada para planificar'); onClose(); };
   const lista = x => S.operarios.filter(o => o.activo).map(o => ({ o, n: o.op1 === x.opId ? 1 : o.op2 === x.opId ? 2 : 3 })).sort((a, b) => a.n - b.n || a.o.nombre.localeCompare(b.o.nombre));
   const orig = { cargada: 'cargada ahora', manual: 'cargada', promedio: 'promedio' };
-  return <Modal title={alcance === 'rep' ? 'Planificar repuestos' : alcance === 'pv' ? 'Planificar todos los casos de Post Venta' : alcance === 'tl' ? 'Planificar todos los trabajos de Taller' : 'Planificar proyecto' + (p ? ' · ' + p.nombre : '')} onClose={onClose} wide foot={<><button className="btn canc-b" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!r.plan.length || r.faltan.length > 0} onClick={aplicar}>Aplicar plan</button></>}>
+  return <Modal title={alcance === 'rep' ? 'Planificar repuestos' : alcance === 'pv' ? 'Planificar todos los casos de Post Venta' : alcance === 'tl' ? 'Planificar todos los trabajos de Taller' : alcance === 'todo' ? 'Planificar todo' : alcance === 'sel' ? 'Planificar los elegidos' : 'Planificar proyecto' + (p ? ' · ' + p.nombre : '')} onClose={onClose} wide foot={<><button className="btn canc-b" onClick={onClose}>Cancelar</button><button className="btn pri-b" disabled={!r.plan.length || r.faltan.length > 0} onClick={aplicar}>Aplicar plan</button></>}>
     <label className="row">Operación<select value={op} onChange={e => setOp(e.target.value)} aria-label="Operación a planificar"><option value="">Todas las operaciones</option>{S.operaciones.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select></label>
+    <div className="row wrap"><span className="mut">Solo estos operarios (si no marcás ninguno, van todos)</span>{S.operarios.filter(o => o.activo).map(o => <button key={o.id} className={'togb' + (opsSel.includes(o.id) ? ' on' : '')} onClick={() => setOpsSel(opsSel.includes(o.id) ? opsSel.filter(x => x !== o.id) : [...opsSel, o.id])}>{o.nombre}</button>)}</div>
     <label className="row"><input type="checkbox" checked={todas} onChange={e => setTodas(e.target.checked)} /> Volver a planificar también las piezas que ya tienen día y operario</label>
     {r.avisos && r.avisos.length > 0 && <div className="aviso-b"><b>Ojo con las dependencias</b>{r.avisos.map((x, i) => <p key={i} className="mut">• {x.nombre} depende de «{x.pred}», que todavía no está planificada: el plan no la espera.</p>)}</div>}
     {r.faltan.length > 0 && <div className="aviso-b"><b>Piezas nuevas: cargales el tiempo antes de planificar</b>
@@ -3621,6 +3706,7 @@ export function App({ db, ses, S0 }) {
     <div className="app" style={{ '--accent': S.cfg.accent }}>
       <header className="top">
         <h1><Logo />Producción<span>App</span></h1>
+        <button className="btn plan-top" onClick={() => ui.modal({ k: 'planmenu' })} title="Planificar repuestos, proyectos, post venta o todo">Planificar</button>
         <nav className="tabs">{tabs.map(([k, l, d, c]) => <button key={k} className={(tabV === k ? 'on' : '') + (fijas.includes(k) ? '' : ' nf') + (k === 'config' ? ' cfg' : '')} style={TAB_COL[k] ? { '--c': TAB_COL[k] } : undefined} onClick={() => irA(k)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d={d} /></svg><span className="tl">{l}</span><span className="ts">{c || l}</span></button>)}
           <button className={'mas' + (fijas.includes(tabV) ? '' : ' on') + (mas ? ' ab' : '')} onClick={() => setMas(m => !m)} aria-expanded={mas} aria-label="Más secciones"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h.01M12 6h.01M19 6h.01M5 12h.01M12 12h.01M19 12h.01M5 18h.01M12 18h.01M19 18h.01" /></svg><span className="tl">Más</span></button></nav>
         <div className="top-r">{S.ejemplo !== false && <span className="tag ej">Datos de ejemplo</span>}
@@ -3648,7 +3734,8 @@ export function App({ db, ses, S0 }) {
       {modal && modal.k === 'salida' && <SalidaDlg key={modal.id || 'nueva'} {...modal} onClose={close} />}
       {modal && modal.k === 'retiro' && <RetiroDlg opId={modal.opId} onClose={close} />}
       {modal && modal.k === 'material' && <MaterialDlg onClose={close} />}
-      {modal && modal.k === 'plan' && <PlanificarDlg proyId={modal.proyId} alcance={modal.alcance} onClose={close} />}
+      {modal && modal.k === 'planmenu' && <PlanMenuDlg onClose={close} />}
+      {modal && modal.k === 'plan' && <PlanificarDlg proyId={modal.proyId} alcance={modal.alcance} sel={modal.sel} opsIni={modal.opsIni} onClose={close} />}
       {fichaAb && <FichaDlg k={fichaAb.key} nombre={fichaAb.nombre} onClose={() => setFichaAb(null)} />}
       {verT && !modal && !fichaAb && <MatAlerta />}
       {conf && <ConfirmarDlg {...conf} onClose={() => setConf(null)} />}
